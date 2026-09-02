@@ -517,19 +517,24 @@ function assertCascadeCollisions(candidate: RouterConfig): void {
   }
 }
 
-function parseProposalText(content: string): { summary?: string; rationale?: string; patch: unknown } {
+function parseModelJsonObject(content: string, errorMessage: string): Record<string, unknown> {
   const cleaned = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(cleaned);
-  } catch {
-    const start = cleaned.indexOf("{");
-    const end = cleaned.lastIndexOf("}");
-    if (start < 0 || end <= start) throw new Error("Agent did not return a JSON configuration proposal");
-    parsed = JSON.parse(cleaned.slice(start, end + 1));
+  const start = cleaned.indexOf("{"); const end = cleaned.lastIndexOf("}");
+  const candidates = [cleaned, ...(start >= 0 && end > start ? [cleaned.slice(start, end + 1)] : [])];
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    for (const normalized of [candidate, candidate.replace(/,\s*([}\]])/g, "$1")]) {
+      try {
+        const parsed = JSON.parse(normalized);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Record<string, unknown>;
+      } catch (error) { lastError = error; }
+    }
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Agent proposal must be a JSON object");
-  const value = parsed as Record<string, unknown>;
+  throw new Error(`${errorMessage}: ${(lastError as Error | undefined)?.message ?? "no JSON object found"}`);
+}
+
+function parseProposalText(content: string): { summary?: string; rationale?: string; patch: unknown } {
+  const value = parseModelJsonObject(content, "Agent did not return a JSON configuration proposal");
   return {
     ...(typeof value.summary === "string" ? { summary: value.summary } : {}),
     ...(typeof value.rationale === "string" ? { rationale: value.rationale } : {}),
@@ -572,16 +577,7 @@ async function generateConfigProposal(request: IncomingMessage, response: Server
 }
 
 function parseAssistantJson(content: string): Record<string, unknown> {
-  const cleaned = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  try {
-    const parsed = JSON.parse(cleaned);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
-  } catch {}
-  const start = cleaned.indexOf("{"); const end = cleaned.lastIndexOf("}");
-  if (start < 0 || end <= start) throw new Error("Assistant planner did not return JSON");
-  const parsed = JSON.parse(cleaned.slice(start, end + 1));
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Assistant plan must be a JSON object");
-  return parsed as Record<string, unknown>;
+  return parseModelJsonObject(content, "Assistant planner did not return JSON");
 }
 
 async function planAssistantComparison(request: IncomingMessage, response: ServerResponse): Promise<void> {

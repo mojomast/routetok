@@ -120,7 +120,7 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
       return;
     }
     if (payload.model === "good-model" && payload.stream === true && messages.some((message) => JSON.stringify(message).includes("bounded comparison planner"))) {
-      const plan = JSON.stringify({ mode: "design", models: ["good-model"], prompt: "Design a synthetic status card.", parameters: { maxTokens: 2048, temperature: 0.4 }, rationale: "The selected model supports the requested design task." });
+      const plan = JSON.stringify({ mode: "design", models: ["good-model"], prompt: "Design a synthetic status card.", parameters: { maxTokens: 2048, temperature: 0.4 }, rationale: "The selected model supports the requested design task." }).replace(/}$/, ",}");
       response.writeHead(200, { "content-type": "text/event-stream" });
       response.end(`data: ${JSON.stringify({ id: "planner", object: "chat.completion.chunk", model: "good-model", choices: [{ index: 0, delta: { content: plan }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ id: "planner", object: "chat.completion.chunk", model: "good-model", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`);
       return;
