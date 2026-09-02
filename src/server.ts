@@ -563,7 +563,7 @@ async function generateConfigProposal(request: IncomingMessage, response: Server
         `<configuration_advisor_snapshot_json>${configurationAdvisorContext(base)}</configuration_advisor_snapshot_json>`
       ].join("\n") },
       { role: "user", content: input.prompt }
-    ], controller.signal, { maxTokens: 4_096 }, true);
+    ], controller.signal, { maxTokens: 16_384 }, true);
     if (result.error) throw new Error(result.error);
     if (config.revision() !== baseRevision) throw new Error("Configuration changed while the proposal was generated; ask again using the current settings");
     const parsed = parseProposalText(result.content || result.reasoning);
