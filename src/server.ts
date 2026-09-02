@@ -317,6 +317,21 @@ function dashboardAssistantContext(configSnapshot: RouterConfig = config.get()):
   ].join("\n");
 }
 
+function configurationAdvisorContext(configSnapshot: RouterConfig): string {
+  const snapshot = metrics.snapshot(router.snapshot());
+  const relevantModels = catalog.getModels().filter((model) =>
+    configSnapshot.openaiOrder.includes(model.id) || configSnapshot.anthropicOrder.includes(model.id) ||
+    configSnapshot.freeModelOrder.includes(model.id) || configSnapshot.enabledExternalModels.includes(model.id) ||
+    (model.providerId ?? "agentrouter") === "agentrouter"
+  ).map((model) => ({ id: model.id, provider: model.providerId ?? "agentrouter", protocols: model.protocols, pricing: model.pricing ?? null, contextTokens: model.contextTokens ?? null, maxOutputTokens: model.maxOutputTokens ?? null }));
+  return JSON.stringify({
+    currentConfig: configSnapshot,
+    availableRelevantModels: relevantModels,
+    providerStatus: providerStatus().map((provider) => ({ providerId: provider.providerId, configured: provider.configured })),
+    metrics: { totals: snapshot.totals, health: snapshot.health, recent: snapshot.recent.filter((record) => record.trafficClass !== "sandbox").slice(0, 20).map((record) => ({ requestedModel: record.requestedModel, selectedModel: record.selectedModel, status: record.status, durationMs: record.durationMs, ttftMs: record.ttftMs, attempts: record.attempts, error: record.error })) }
+  });
+}
+
 function requestMetrics(record: RequestRecord | null): object | null {
   if (!record) return null;
   const usageAvailable = record.usage.input > 0 || record.usage.output > 0 || record.usage.cacheRead > 0 ||
@@ -534,9 +549,16 @@ async function generateConfigProposal(request: IncomingMessage, response: Server
     const controller = new AbortController();
     response.once("close", () => { if (!response.writableEnded) controller.abort(); });
     const result = await runDashboardModel(input.model, [
-      { role: "system", content: `${dashboardAssistantContext(base)}\nYou cannot apply configuration. Return only JSON with keys summary, rationale, and patch. The patch must contain only changed RouterConfig fields and will remain unapplied until human review and confirmation.` },
+      { role: "system", content: [
+        "You are RouteTok's configuration advisor. You cannot apply, save, or claim to have applied changes.",
+        "Return only one JSON object with keys summary, rationale, and patch.",
+        "patch MUST be a JSON object containing only changed RouterConfig fields. It must never be a string, diff, YAML, Markdown, or full unchanged configuration.",
+        "Example: {\"summary\":\"Allow slower reasoning startup\",\"rationale\":\"Observed first-output timeouts\",\"patch\":{\"slowModelFirstEventTimeoutMs\":90000}}",
+        "Every result remains an untrusted draft until RouteTok validates it and the user modifies/revalidates/confirms it.",
+        `<configuration_advisor_snapshot_json>${configurationAdvisorContext(base)}</configuration_advisor_snapshot_json>`
+      ].join("\n") },
       { role: "user", content: input.prompt }
-    ], controller.signal, { maxTokens: 2_048 }, true);
+    ], controller.signal, { maxTokens: 4_096 }, true);
     if (result.error) throw new Error(result.error);
     if (config.revision() !== baseRevision) throw new Error("Configuration changed while the proposal was generated; ask again using the current settings");
     const parsed = parseProposalText(result.content || result.reasoning);
