@@ -454,6 +454,7 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
     const sandboxModelsCalled = calls.slice(sandboxCallsBefore).map((call) => call.model);
     assert.equal(sandboxModelsCalled.filter((model) => model === "good-model").length, 1);
     assert(sandboxModelsCalled.filter((model) => model === "bad-model").length <= 1, "sandbox must never fall back an explicit failed model");
+    assert(calls.slice(sandboxCallsBefore).every((call) => call.userAgent === "opencode/1.15.13"), "internal AgentRouter sandbox calls must use the supported OpenCode identity");
 
     const providerDefault = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/sandbox`, {
       method: "POST", headers: { "content-type": "application/json" },
