@@ -2261,7 +2261,7 @@ async function askForConfigProposal(prompt) {
       body: JSON.stringify({ model, prompt })
     });
     renderConfigProposal(payload.proposal);
-    pending.text.textContent = "Proposal ready below. Review or modify each setting, then revalidate before approval.";
+    pending.text.textContent = `Proposal prepared by ${payload.advisorModel || model}. Review or modify each setting below, then revalidate before approval.`;
     pending.article.classList.remove("pending");
     notify("Configuration proposal generated. It has not been applied.", true);
   } catch (error) {

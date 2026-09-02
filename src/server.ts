@@ -553,22 +553,37 @@ async function generateConfigProposal(request: IncomingMessage, response: Server
     const baseRevision = config.revision();
     const controller = new AbortController();
     response.once("close", () => { if (!response.writableEnded) controller.abort(); });
-    const result = await runDashboardModel(input.model, [
-      { role: "system", content: [
-        "You are RouteTok's configuration advisor. You cannot apply, save, or claim to have applied changes.",
-        "Return only one JSON object with keys summary, rationale, and patch.",
-        "patch MUST be a JSON object containing only changed RouterConfig fields. It must never be a string, diff, YAML, Markdown, or full unchanged configuration.",
-        "Example: {\"summary\":\"Allow slower reasoning startup\",\"rationale\":\"Observed first-output timeouts\",\"patch\":{\"slowModelFirstEventTimeoutMs\":90000}}",
-        "Every result remains an untrusted draft until RouteTok validates it and the user modifies/revalidates/confirms it.",
-        `<configuration_advisor_snapshot_json>${configurationAdvisorContext(base)}</configuration_advisor_snapshot_json>`
-      ].join("\n") },
-      { role: "user", content: input.prompt }
-    ], controller.signal, { maxTokens: 16_384 }, true);
-    if (result.error) throw new Error(result.error);
-    if (config.revision() !== baseRevision) throw new Error("Configuration changed while the proposal was generated; ask again using the current settings");
-    const parsed = parseProposalText(result.content || result.reasoning);
-    const proposal = proposalFromPatch(parsed.patch, parsed.summary, parsed.rationale, base, baseRevision);
-    json(response, 200, { proposal, generationMetrics: result.metrics });
+    const advisorCandidates = [...new Set([
+      input.model,
+      "kimi:k3-256k",
+      "openrouter:minimax/minimax-m3:free",
+      "openrouter:thinkingmachines/inkling:free"
+    ].filter((model): model is string => typeof model === "string" && sandboxEligible(model)))];
+    let lastError: Error = new Error("No configuration advisor produced a valid proposal");
+    for (const advisorModel of advisorCandidates) {
+      try {
+        const result = await runDashboardModel(advisorModel, [
+          { role: "system", content: [
+            "You are RouteTok's configuration advisor. You cannot apply, save, or claim to have applied changes.",
+            "Return only one JSON object with keys summary, rationale, and patch.",
+            "patch MUST be a JSON object containing only changed RouterConfig fields. It must never be a string, diff, YAML, Markdown, or full unchanged configuration.",
+            "Example: {\"summary\":\"Allow slower reasoning startup\",\"rationale\":\"Observed first-output timeouts\",\"patch\":{\"slowModelFirstEventTimeoutMs\":90000}}",
+            "Every result remains an untrusted draft until RouteTok validates it and the user modifies/revalidates/confirms it.",
+            `<configuration_advisor_snapshot_json>${configurationAdvisorContext(base)}</configuration_advisor_snapshot_json>`
+          ].join("\n") },
+          { role: "user", content: input.prompt }
+        ], controller.signal, { maxTokens: 4_096 }, true);
+        if (result.error) throw new Error(result.error);
+        if (config.revision() !== baseRevision) throw new Error("Configuration changed while the proposal was generated; ask again using the current settings");
+        const parsed = parseProposalText(result.content || result.reasoning);
+        const proposal = proposalFromPatch(parsed.patch, parsed.summary, parsed.rationale, base, baseRevision);
+        json(response, 200, { proposal, advisorModel, generationMetrics: result.metrics });
+        return;
+      } catch (error) {
+        lastError = error as Error;
+      }
+    }
+    throw lastError;
   } catch (error) {
     if (!response.destroyed) json(response, 400, { error: (error as Error).message });
   } finally {
