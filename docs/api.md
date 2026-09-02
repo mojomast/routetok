@@ -21,6 +21,8 @@ Response metadata includes `x-request-id`, `x-router-model`, `x-router-route`, `
 
 Admin endpoints under `/admin/api/` require `DASHBOARD_TOKEN` when configured. They cover status, history, live requests, catalogs, credits, configuration, proposals, sandbox inference, retained request inspection, credentials, and circuit reset.
 
+`POST /admin/api/assistant/plan` creates a bounded comparison plan from a natural-language request. It returns only validated `chat`/`design` mode, one to four eligible physical routes, optional generation parameters, an improved prompt, and rationale. It never executes configuration mutations.
+
 Credential mutation is write-only:
 
 - `PUT /admin/api/providers/:provider/credentials/apiKey`

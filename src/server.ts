@@ -547,6 +547,70 @@ async function generateConfigProposal(request: IncomingMessage, response: Server
   }
 }
 
+function parseAssistantJson(content: string): Record<string, unknown> {
+  const cleaned = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+  } catch {}
+  const start = cleaned.indexOf("{"); const end = cleaned.lastIndexOf("}");
+  if (start < 0 || end <= start) throw new Error("Assistant planner did not return JSON");
+  const parsed = JSON.parse(cleaned.slice(start, end + 1));
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Assistant plan must be a JSON object");
+  return parsed as Record<string, unknown>;
+}
+
+async function planAssistantComparison(request: IncomingMessage, response: ServerResponse): Promise<void> {
+  if (activeSandboxRequests >= 8) return json(response, 429, { error: "Sandbox concurrency limit reached" });
+  activeSandboxRequests += 1;
+  try {
+    const input = await readJson(request) as Record<string, unknown>;
+    if (typeof input.advisorModel !== "string" || !sandboxEligible(input.advisorModel)) throw new Error("Choose an eligible physical advisor model");
+    if (typeof input.request !== "string" || !input.request.trim() || input.request.length > 50_000) throw new Error("Assistant request is required");
+    const hint = input.modeHint === "design" || input.modeHint === "chat" ? input.modeHint : null;
+    const eligible = catalog.getModels().filter((model) => sandboxEligible(model.id)).map((model) => ({
+      id: model.id, provider: model.providerId ?? "agentrouter", displayName: model.displayName ?? model.id,
+      contextTokens: model.contextTokens ?? null, maxOutputTokens: model.maxOutputTokens ?? null,
+      pricing: model.pricing ?? null, capabilities: model.capabilities ?? null
+    }));
+    const controller = new AbortController();
+    response.once("close", () => { if (!response.writableEnded) controller.abort(); });
+    const result = await runDashboardModel(input.advisorModel, [
+      { role: "system", content: [
+        "You are RouteTok's bounded comparison planner.",
+        "Choose a chat or design comparison, 1-4 eligible physical models, generation settings, and an improved prompt based on the user's request.",
+        "Prefer a useful mix of quality, speed, cost, context, and capabilities. Do not favor any provider by default.",
+        "Omit maxTokens to use each provider's native default. Otherwise choose an integer from 256 to 262144. Temperature is 0-2 and topP is 0-1.",
+        `The UI hint is ${hint ?? "unspecified"}; follow it unless the user clearly requests another mode.`,
+        "Return only JSON: {\"mode\":\"chat|design\",\"models\":[\"physical-route\"],\"prompt\":\"...\",\"parameters\":{\"maxTokens\"?:number,\"temperature\"?:number,\"topP\"?:number},\"rationale\":\"...\"}.",
+        `<eligible_models_json>${JSON.stringify(eligible)}</eligible_models_json>`
+      ].join("\n") },
+      { role: "user", content: input.request }
+    ], controller.signal, { maxTokens: 1_024 });
+    if (result.error) throw new Error(result.error);
+    const value = parseAssistantJson(result.content);
+    if (value.mode !== "chat" && value.mode !== "design") throw new Error("Assistant selected an invalid comparison mode");
+    if (!Array.isArray(value.models) || value.models.length < 1 || value.models.length > 4 || value.models.some((model) => typeof model !== "string" || !sandboxEligible(model))) throw new Error("Assistant selected unavailable or incompatible models");
+    const models = [...new Set(value.models as string[])];
+    if (models.length !== value.models.length) throw new Error("Assistant selected duplicate models");
+    if (typeof value.prompt !== "string" || !value.prompt.trim() || value.prompt.length > 50_000) throw new Error("Assistant generated an invalid comparison prompt");
+    const rawParameters = value.parameters && typeof value.parameters === "object" && !Array.isArray(value.parameters) ? value.parameters as Record<string, unknown> : {};
+    if (rawParameters.maxTokens !== undefined && (!Number.isInteger(rawParameters.maxTokens) || Number(rawParameters.maxTokens) < 256 || Number(rawParameters.maxTokens) > 262_144)) throw new Error("Assistant selected invalid maxTokens");
+    if (rawParameters.temperature !== undefined && (typeof rawParameters.temperature !== "number" || rawParameters.temperature < 0 || rawParameters.temperature > 2)) throw new Error("Assistant selected invalid temperature");
+    if (rawParameters.topP !== undefined && (typeof rawParameters.topP !== "number" || rawParameters.topP < 0 || rawParameters.topP > 1)) throw new Error("Assistant selected invalid topP");
+    const parameters = {
+      ...(typeof rawParameters.maxTokens === "number" ? { maxTokens: rawParameters.maxTokens } : {}),
+      ...(typeof rawParameters.temperature === "number" ? { temperature: rawParameters.temperature } : {}),
+      ...(typeof rawParameters.topP === "number" ? { topP: rawParameters.topP } : {})
+    };
+    json(response, 200, { plan: { mode: value.mode, models, prompt: value.prompt.trim(), parameters, rationale: typeof value.rationale === "string" ? value.rationale.slice(0, 2_000) : "Selected for the requested comparison." }, generationMetrics: result.metrics });
+  } catch (error) {
+    if (!response.destroyed) json(response, 400, { error: (error as Error).message });
+  } finally {
+    activeSandboxRequests -= 1;
+  }
+}
+
 function unauthorized(response: ServerResponse, protocol: Protocol): void {
   if (protocol === "anthropic") {
     json(response, 401, {
@@ -804,6 +868,11 @@ const server = createServer(async (request, response) => {
 
       if (request.method === "POST" && pathname === "/admin/api/config/proposals/generate") {
         await generateConfigProposal(request, response);
+        return;
+      }
+
+      if (request.method === "POST" && pathname === "/admin/api/assistant/plan") {
+        await planAssistantComparison(request, response);
         return;
       }
 

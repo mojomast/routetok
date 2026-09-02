@@ -111,6 +111,8 @@ The sandbox runs up to four models in parallel, keeps independent multi-turn bra
 
 The assistant can propose routing changes but cannot apply them. Proposals are validated, displayed as typed interactive settings, editable, revalidated after changes, revision-bound, and require a separate exact-diff confirmation.
 
+In Assistant mode, natural-language requests to suggest configuration changes invoke that proposal workflow automatically. Requests to run a chat or design comparison invoke a bounded planner: the selected advisor chooses one to four currently eligible physical models, generation settings, comparison mode, and an improved prompt. RouteTok validates the complete plan before starting a fresh saved arena run.
+
 Provider keys entered in the dashboard are write-only. Stored overrides live under `DATA_DIR/secrets/provider-credentials.json` in a `0700` directory and `0600` file. Values are never returned in status, metrics, logs, proposals, or browser storage.
 
 ## Data And Privacy

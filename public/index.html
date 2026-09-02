@@ -44,7 +44,7 @@
         } catch (_) {}
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20260902-routetok1">
+    <link rel="stylesheet" href="/styles.css?v=20260902-routetok2">
   </head>
   <body>
     <a class="skip-link" href="#dashboard-main">SKIP TO MAIN CONTENT</a>
@@ -565,7 +565,7 @@
         <div class="help-grid">
           <section><h3>Chat</h3><p>Select up to four models and send one prompt. Requests run in parallel, with independent branches, progress estimates, and exact final metrics.</p></section>
           <section><h3>Design</h3><p>Models generate self-contained HTML. Preview, inspect source, copy, and download it. Designs are automatically added to Saved.</p></section>
-          <section><h3>Assistant</h3><p>Assistant mode receives a redacted operational snapshot for diagnosis. PROPOSE CONFIG creates an editable draft that cannot apply without your confirmation.</p></section>
+          <section><h3>Assistant</h3><p>Ask for diagnosis or configuration suggestions. You can also ask it to run a chat/design comparison; the advisor chooses eligible models, settings, and a focused prompt before RouteTok validates and executes the plan.</p></section>
           <section><h3>Saved</h3><p>Completed prompts, outputs, reasoning, metrics, and designs are stored in this browser using IndexedDB. Delete them from the Saved catalog or clear browser site data.</p></section>
           <section><h3>Live Flow</h3><p>Shows model, route phase, attempts, elapsed time, TTFT, estimated tokens, and tokens per second. The hold slider controls how long finished rows remain.</p></section>
           <section><h3>API Keys</h3><p>Keys are write-only. They are sent to this router, stored under owner-only filesystem permissions, never returned to the browser, and take effect for future requests.</p></section>
@@ -577,6 +577,6 @@
       <form method="dialog"><p class="section-index">SECURE CREDENTIAL INGRESS</p><h2 id="api-keys-title">Provider API Keys</h2><p>Values are write-only and never displayed again. Stored overrides use <code>DATA_DIR/secrets</code> with owner-only permissions.</p><div id="api-key-manager" class="api-key-manager"></div><button class="button secondary" value="close">CLOSE</button></form>
     </dialog>
 
-    <script type="module" src="/app.js?v=20260902-routetok1"></script>
+    <script type="module" src="/app.js?v=20260902-routetok2"></script>
   </body>
 </html>

@@ -119,6 +119,12 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
       response.once("close", () => clearInterval(heartbeat));
       return;
     }
+    if (payload.model === "good-model" && payload.stream === true && messages.some((message) => JSON.stringify(message).includes("bounded comparison planner"))) {
+      const plan = JSON.stringify({ mode: "design", models: ["good-model"], prompt: "Design a synthetic status card.", parameters: { maxTokens: 2048, temperature: 0.4 }, rationale: "The selected model supports the requested design task." });
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.end(`data: ${JSON.stringify({ id: "planner", object: "chat.completion.chunk", model: "good-model", choices: [{ index: 0, delta: { content: plan }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ id: "planner", object: "chat.completion.chunk", model: "good-model", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`);
+      return;
+    }
     if (payload.model === "good-model" && payload.stream === true) {
       response.writeHead(200, { "content-type": "text/event-stream" });
       response.write([
@@ -480,6 +486,17 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ purpose: "shell", requests: [] })
     });
     assert.equal(invalidPurpose.status, 400);
+
+    const planned = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/assistant/plan`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ advisorModel: "good-model", request: "Run a design comparison for a compact status card", modeHint: "design" })
+    });
+    assert.equal(planned.status, 200);
+    const plannedPayload = await planned.json() as { plan: { mode: string; models: string[]; prompt: string; parameters: { maxTokens?: number; temperature?: number }; rationale: string } };
+    assert.equal(plannedPayload.plan.mode, "design");
+    assert.deepEqual(plannedPayload.plan.models, ["good-model"]);
+    assert.equal(plannedPayload.plan.parameters.maxTokens, 2048);
+    assert.match(plannedPayload.plan.prompt, /status card/i);
 
     const beforeProposal = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/status`).then((response) => response.json()) as {
       configRevision: string;

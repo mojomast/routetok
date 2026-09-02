@@ -5,6 +5,7 @@ const state = {
   chatTurns: [],
   sandboxRunId: crypto.randomUUID(),
   sandboxLibraryOpen: false,
+  assistantPlan: null,
   pendingSandboxCards: new Map(),
   chatBusy: false,
   chatController: null,
@@ -285,6 +286,7 @@ async function saveSandboxRun() {
     updatedAt: now,
     mode: state.sandboxMode,
     models: [...state.sandboxSelectedModels],
+    assistantPlan: state.assistantPlan ? structuredClone(state.assistantPlan) : null,
     turns: structuredClone(state.chatTurns)
   };
   await sandboxStore("readwrite", (store) => store.put(record));
@@ -2246,19 +2248,79 @@ async function askForConfigProposal(prompt) {
   if (!model) return notify("Select a model to act as the configuration advisor.");
   if (!prompt) return notify("Describe the configuration change you want proposed.");
   const button = byId("propose-config");
+  chatBubble("user", prompt);
+  const pending = chatBubble("assistant", "Analyzing the current policy and preparing an editable configuration proposal...");
+  pending.article.classList.add("pending");
+  state.chatBusy = true;
   button.disabled = true;
+  byId("send-chat").disabled = true;
+  byId("chat-route").textContent = `CONFIG ADVISOR / ${model}`;
   try {
     const payload = await api("/admin/api/config/proposals/generate", {
       method: "POST",
       body: JSON.stringify({ model, prompt })
     });
     renderConfigProposal(payload.proposal);
+    pending.text.textContent = "Proposal ready below. Review or modify each setting, then revalidate before approval.";
+    pending.article.classList.remove("pending");
     notify("Configuration proposal generated. It has not been applied.", true);
   } catch (error) {
+    pending.text.textContent = `Could not generate a configuration proposal: ${error.message}`;
+    pending.article.classList.remove("pending");
+    pending.article.classList.add("failed");
     notify(error.message);
   } finally {
+    state.chatBusy = false;
     button.disabled = false;
+    byId("send-chat").disabled = false;
   }
+}
+
+function assistantIntent(message) {
+  const text = message.toLowerCase();
+  const configuration = /\b(config(?:uration|ure)?|settings?|routing policy|fallback|timeouts?|circuits?|cascades?|model orders?|queues?)\b/.test(text);
+  const propose = /\b(suggest|propose|recommend|change|adjust|update|tune|optimi[sz]e|improve|configure)\b/.test(text);
+  if (configuration && propose) return "config";
+  const comparison = /\b(compare|comparison|arena|side[- ]by[- ]side)\b/.test(text);
+  const run = /\b(run|start|launch|perform|create|make|do)\b/.test(text);
+  if (run && /\b(design|ui|ux|html|page|component|layout|website)\b/.test(text)) return "design";
+  if (comparison && run) return "chat";
+  return "respond";
+}
+
+async function runAssistantComparison(modeHint, message) {
+  const advisorModel = [...state.sandboxSelectedModels][0];
+  if (!advisorModel) return notify("Select at least one advisor model first.");
+  chatBubble("user", message);
+  const pending = chatBubble("assistant", "Planning the comparison: selecting models, settings, and a focused prompt...");
+  pending.article.classList.add("pending");
+  state.chatBusy = true; byId("send-chat").disabled = true;
+  let plan;
+  try {
+    const payload = await api("/admin/api/assistant/plan", { method: "POST", body: JSON.stringify({ advisorModel, request: message, modeHint }) });
+    plan = payload.plan;
+  } catch (error) {
+    pending.text.textContent = `Could not plan the comparison: ${error.message}`; pending.article.classList.remove("pending"); pending.article.classList.add("failed"); notify(error.message); return;
+  } finally {
+    state.chatBusy = false; byId("send-chat").disabled = false;
+  }
+  state.chatTurns = [];
+  state.sandboxRunId = crypto.randomUUID();
+  state.configProposal = null;
+  state.assistantPlan = { request: message, advisorModel, ...plan };
+  state.sandboxSelectedModels = new Set(plan.models);
+  localStorage.setItem(SANDBOX_MODELS_KEY, JSON.stringify(plan.models));
+  resetChatMessages();
+  setSandboxMode(plan.mode, true);
+  byId("sandbox-provider-default-max").checked = plan.parameters.maxTokens == null;
+  byId("sandbox-max-tokens").disabled = plan.parameters.maxTokens == null;
+  byId("sandbox-max-tokens").value = plan.parameters.maxTokens ?? "";
+  byId("sandbox-temperature").value = plan.parameters.temperature ?? "";
+  byId("sandbox-top-p").value = plan.parameters.topP ?? "";
+  renderChatModelOptions(state.status?.config || {});
+  chatBubble("assistant", `Assistant plan: ${plan.rationale}\n\nMode: ${plan.mode}\nModels: ${plan.models.join(", ")}\nPrompt: ${plan.prompt}`);
+  notify(`Assistant planned a ${plan.mode} comparison with ${plan.models.length} model${plan.models.length === 1 ? "" : "s"}.`, true);
+  await sendChat(plan.prompt);
 }
 
 async function load(silent = false) {
@@ -2756,6 +2818,11 @@ byId("chat-form").addEventListener("submit", (event) => {
   const message = input.value.trim();
   if (!message) return;
   input.value = "";
+  if (state.sandboxMode === "diagnose") {
+    const intent = assistantIntent(message);
+    if (intent === "config") return void askForConfigProposal(message);
+    if (intent === "design" || intent === "chat") return void runAssistantComparison(intent, message);
+  }
   void sendChat(message);
 });
 
@@ -2889,7 +2956,7 @@ function setSandboxMode(mode, force = false) {
   byId("chat-input").placeholder = mode === "design"
     ? "Describe a responsive page or component to generate..."
     : mode === "diagnose"
-      ? "Ask models to analyze current routing, health, costs, or an incident..."
+      ? "Ask for diagnosis, configuration suggestions, or a planned chat/design comparison..."
       : "Send one prompt to every selected model...";
   byId("send-chat").textContent = mode === "design" ? "GENERATE" : "SEND";
 }
