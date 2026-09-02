@@ -1,0 +1,26 @@
+{
+  "providers": {
+    "router-anthropic": {
+      "baseUrl": "http://127.0.0.1:8787",
+      "api": "anthropic-messages",
+      "apiKey": "$ROUTETOK_PROXY_KEY",
+      "models": [
+        {
+          "id": "best",
+          "name": "Best available via RouteTok"
+        }
+      ]
+    },
+    "router-openai": {
+      "baseUrl": "http://127.0.0.1:8787/v1",
+      "api": "openai-completions",
+      "apiKey": "$ROUTETOK_PROXY_KEY",
+      "models": [
+        {
+          "id": "best",
+          "name": "Best OpenAI-compatible model via RouteTok"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env*
+!.env.example
+data-dev/
+data/
+*.log
+**/secrets/provider-credentials.json
+artifacts/
+coverage/
+*.tgz
+.DS_Store
+.idea/
+.vscode/

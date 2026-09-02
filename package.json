@@ -1,0 +1,29 @@
+{
+  "name": "routetok",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local OpenAI- and Anthropic-compatible token router with health-aware failover, observability, and a model sandbox",
+  "license": "MIT",
+  "author": "mojomast",
+  "repository": { "type": "git", "url": "git+https://github.com/mojomast/routetok.git" },
+  "homepage": "https://github.com/mojomast/routetok#readme",
+  "bugs": { "url": "https://github.com/mojomast/routetok/issues" },
+  "keywords": ["llm", "llm-router", "openai", "anthropic", "proxy", "failover", "prometheus", "observability"],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env --import tsx --watch src/server.ts",
+    "dev:isolated": "node --env-file-if-exists=.env.development --import tsx --watch src/server.ts",
+    "build": "tsc",
+    "start": "node --env-file-if-exists=.env dist/src/server.js",
+    "test": "tsx --test test/**/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.3"
+  }
+}

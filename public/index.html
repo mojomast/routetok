@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark light">
+    <title>RouteTok Console</title>
+    <script>
+      (() => {
+        const defaults = { version: 3, theme: "router", accent: null, density: "comfortable", motion: "system", glow: 50, inflightPlacement: "left" };
+        let saved = defaults;
+        try {
+          const key = "routetok-dashboard-preferences";
+          const parsed = JSON.parse(localStorage.getItem(key) || localStorage.getItem("agentrouter-dashboard-preferences") || "null");
+          if (parsed && [1, 2, 3].includes(parsed.version)) saved = { ...defaults, ...parsed };
+        } catch (_) {}
+        try {
+          const oneOf = (value, values, fallback) => values.includes(value) ? value : fallback;
+          const theme = oneOf(saved.theme, ["system", "router", "abyss", "ultraviolet", "ember", "paper"], defaults.theme);
+          const density = oneOf(saved.density, ["compact", "comfortable", "spacious"], defaults.density);
+          const motion = oneOf(saved.motion, ["system", "full", "reduced"], defaults.motion);
+          const glow = typeof saved.glow === "number" && Number.isFinite(saved.glow) ? Math.min(100, Math.max(0, saved.glow)) : defaults.glow;
+          const accent = typeof saved.accent === "string" && /^#[0-9a-f]{6}$/i.test(saved.accent) ? saved.accent.toLowerCase() : null;
+          const media = (query) => typeof matchMedia === "function" && matchMedia(query).matches;
+          const root = document.documentElement;
+          root.dataset.themeSetting = theme;
+          root.dataset.theme = theme === "system" ? (media("(prefers-color-scheme: light)") ? "paper" : "router") : theme;
+          root.dataset.density = density;
+          root.dataset.motionSetting = motion;
+          root.dataset.motion = motion === "system" ? (media("(prefers-reduced-motion: reduce)") ? "reduced" : "full") : motion;
+          const placement = ["left", "right", "main"].includes(saved.inflightPlacement)
+            ? saved.inflightPlacement
+            : saved.railSide === "right" ? "right" : "left";
+          root.dataset.railSide = placement === "right" ? "right" : "left";
+          root.dataset.inflightPlacement = placement;
+          root.dataset.accent = accent ? "custom" : "theme";
+          root.style.setProperty("--glow-multiplier", String(glow / 50));
+          root.style.colorScheme = root.dataset.theme === "paper" ? "light" : "dark";
+          if (accent) {
+            const rgb = [1, 3, 5].map((offset) => parseInt(accent.slice(offset, offset + 2), 16)).join(", ");
+            root.style.setProperty("--acid", accent);
+            root.style.setProperty("--acid-rgb", rgb);
+          }
+        } catch (_) {}
+      })();
+    </script>
+    <link rel="stylesheet" href="/styles.css?v=20260902-routetok1">
+  </head>
+  <body>
+    <a class="skip-link" href="#dashboard-main">SKIP TO MAIN CONTENT</a>
+    <div class="noise" aria-hidden="true"></div>
+    <header class="masthead">
+      <div>
+        <p class="eyebrow">LOCAL INFERENCE CONTROL</p>
+        <h1>ROUTETOK<span>/01</span></h1>
+      </div>
+      <div class="masthead-controls">
+        <div id="router-connection" class="header-status" role="status" aria-live="polite" tabindex="-1">
+          <span id="live-dot" class="live-dot"></span>
+          <div>
+            <strong id="connection-label">CONNECTING</strong>
+            <small id="updated-at">Awaiting telemetry</small>
+          </div>
+        </div>
+        <div class="masthead-actions" aria-label="Dashboard actions">
+          <button id="open-sandbox" class="button primary-button" type="button" aria-controls="chat-drawer" aria-expanded="false">MODEL SANDBOX</button>
+          <button id="open-assistant" class="button secondary" type="button" aria-controls="chat-drawer" aria-expanded="false">ASSISTANT AGENT</button>
+          <button id="open-help" class="button secondary" type="button">HELP</button>
+          <button id="open-api-keys" class="button secondary" type="button">API KEYS</button>
+          <button id="open-config" class="button secondary" type="button" aria-controls="config-drawer" aria-expanded="false">SETTINGS</button>
+          <details class="masthead-menu">
+            <summary class="button secondary">BASELINE</summary>
+            <div class="masthead-menu-panel baseline-control">
+              <button id="set-baseline" class="button secondary" type="button">SET BASELINE</button>
+              <button id="clear-baseline" class="button secondary" type="button">CLEAR BASELINE</button>
+              <span id="baseline-status" class="baseline-status" role="status">No baseline set.</span>
+            </div>
+          </details>
+          <details class="masthead-menu">
+            <summary class="button secondary">LAYOUT</summary>
+            <div class="masthead-menu-panel layout-control-bar" role="toolbar" aria-label="Dashboard section layout">
+              <button id="collapse-all-sections" class="button secondary" type="button">COLLAPSE ALL</button>
+              <button id="expand-all-sections" class="button secondary" type="button">EXPAND ALL</button>
+              <button id="reset-section-layout" class="button secondary" type="button">RESET LAYOUT</button>
+            </div>
+          </details>
+          <button id="refresh-status" class="button secondary" type="button" accesskey="u" aria-keyshortcuts="U">REFRESH</button>
+          <button id="open-command" class="button secondary" type="button" aria-keyshortcuts="Control+K" aria-controls="command-palette" aria-expanded="false">COMMAND</button>
+          <button id="open-customize" class="button secondary" type="button" aria-controls="customize-drawer" aria-expanded="false">CUSTOMIZE</button>
+        </div>
+      </div>
+    </header>
+
+    <main id="dashboard-main">
+      <section id="notice" class="notice hidden" role="alert"></section>
+
+      <section class="overview" aria-label="Router totals">
+        <article class="metric-card primary">
+          <span>SUCCESS RATE</span>
+          <strong id="success-rate">--</strong>
+          <small id="delta-success" class="metric-delta">NO BASELINE</small>
+          <div class="meter"><i id="success-meter"></i></div>
+        </article>
+        <article class="metric-card">
+          <span>COMPLETED REQUESTS</span>
+          <strong id="request-count">0</strong>
+          <small id="delta-requests" class="metric-delta">NO BASELINE</small>
+          <small id="request-detail">0 active / 0 upstream attempts</small>
+        </article>
+        <article class="metric-card">
+          <span>REPORTED MODEL TOKENS</span>
+          <strong id="token-count">0</strong>
+          <small id="delta-tokens" class="metric-delta">NO BASELINE</small>
+          <small id="token-split">0 in / 0 out</small>
+        </article>
+        <article class="metric-card live-card">
+          <span>LIVE OUTPUT SPEED <i id="live-pulse"></i></span>
+          <strong id="live-throughput">0.0</strong>
+          <small id="live-throughput-detail">EST. TOK/S / NO ACTIVE STREAMS</small>
+        </article>
+        <article class="metric-card">
+          <span>ESTIMATED SPEND</span>
+          <strong id="cost-count">$0.0000</strong>
+          <small id="delta-cost" class="metric-delta">NO BASELINE</small>
+          <small id="reported-cost">Reported billing: CNY0.0000</small>
+        </article>
+        <article class="metric-card">
+          <span>CACHE ACTIVITY</span>
+          <strong id="cache-count">0</strong>
+          <small id="delta-cache" class="metric-delta">NO BASELINE</small>
+          <small id="cache-detail">0 read / 0 write</small>
+        </article>
+      </section>
+
+      <section class="telemetry-strip" aria-label="Derived router telemetry">
+        <article><span>AVG REQUEST</span><strong id="average-latency">--</strong></article>
+        <article><span>AVG TTFT</span><strong id="average-ttft">--</strong></article>
+        <article><span>EXACT OUTPUT SPEED</span><strong id="exact-throughput">--</strong></article>
+        <article><span>ATTEMPTS / REQUEST</span><strong id="attempts-per-request">--</strong></article>
+        <article><span>FALLBACK RATE</span><strong id="fallback-rate">--</strong></article>
+        <article><span>FAILURES</span><strong id="failure-count">0</strong></article>
+      </section>
+
+      <div id="inflight-main-slot" class="inflight-main-slot"></div>
+
+      <section class="panel history-panel">
+        <div class="panel-heading compact">
+          <div>
+            <p class="section-index">01 / SIGNAL HISTORY</p>
+            <h2>Performance Trends</h2>
+          </div>
+          <div class="history-controls">
+            <span id="history-retained">0 SAMPLES</span>
+            <label>
+              <span>WINDOW</span>
+              <select id="history-range">
+                <option value="100">Last 100</option>
+                <option value="500" selected>Last 500</option>
+                <option value="2000">Last 2,000</option>
+                <option value="5000">Last 5,000</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="chart-grid">
+          <article class="chart-card featured-chart">
+            <header>
+              <div><span>EXACT OUTPUT SPEED</span><strong id="throughput-chart-value">--</strong></div>
+              <div class="chart-legend"><i class="cyan"></i> TOKENS / SECOND</div>
+            </header>
+            <svg id="throughput-chart" class="metric-chart" viewBox="0 0 640 220" role="img" aria-label="Historical exact output tokens per second"></svg>
+          </article>
+          <article class="chart-card">
+            <header>
+              <div><span>LATENCY PROFILE</span><strong id="latency-chart-value">--</strong></div>
+              <div class="chart-legend"><i class="acid"></i> TOTAL <i class="amber"></i> TTFT</div>
+            </header>
+            <svg id="latency-chart" class="metric-chart" viewBox="0 0 640 220" role="img" aria-label="Historical total latency and time to first token"></svg>
+          </article>
+          <article class="chart-card">
+            <header>
+              <div><span>TOKEN VOLUME</span><strong id="tokens-chart-value">--</strong></div>
+              <div class="chart-legend"><i class="acid"></i> INPUT <i class="cyan"></i> OUTPUT <i class="violet"></i> CACHE</div>
+            </header>
+            <svg id="tokens-chart" class="metric-chart" viewBox="0 0 640 220" role="img" aria-label="Historical token volume"></svg>
+          </article>
+          <article class="chart-card">
+            <header>
+              <div><span>ESTIMATED SPEND</span><strong id="cost-chart-value">--</strong></div>
+              <div class="chart-legend"><i class="amber"></i> USD / WINDOW</div>
+            </header>
+            <svg id="cost-chart" class="metric-chart" viewBox="0 0 640 220" role="img" aria-label="Historical estimated spend"></svg>
+          </article>
+          <article class="chart-card wide-chart">
+            <header>
+              <div><span>REQUEST RELIABILITY</span><strong id="success-chart-value">--</strong></div>
+              <div class="chart-legend"><i class="acid"></i> SUCCESS % <i class="red"></i> FAILURES</div>
+            </header>
+            <svg id="success-chart" class="metric-chart" viewBox="0 0 1280 220" role="img" aria-label="Historical request success rate and failures"></svg>
+          </article>
+        </div>
+      </section>
+
+      <div class="layout">
+        <section class="panel health-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="section-index">02 / MODEL FABRIC</p>
+              <h2>Route Health</h2>
+            </div>
+            <button id="refresh-catalog" class="button secondary" type="button">REFRESH CATALOG</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>MODEL</th>
+                  <th>WIRE</th>
+                  <th>STATE</th>
+                  <th>SUCCESS</th>
+                  <th>EWMA</th>
+                  <th>IN FLIGHT</th>
+                  <th>ATTEMPTS</th>
+                  <th>TOKENS IN / OUT</th>
+                  <th>CACHE R / W</th>
+                  <th>EST. COST</th>
+                </tr>
+              </thead>
+              <tbody id="health-table"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <aside class="panel system-panel">
+          <div class="panel-heading compact">
+            <div>
+              <p class="section-index">02 / SYSTEM</p>
+              <h2>Runtime</h2>
+            </div>
+          </div>
+          <dl class="system-list">
+            <div><dt>UPTIME</dt><dd id="uptime">--</dd></div>
+            <div><dt>NODE</dt><dd id="node-version">--</dd></div>
+            <div><dt>PROVIDERS</dt><dd id="upstream">--</dd></div>
+            <div><dt>CLIENT AUTH</dt><dd id="client-auth">--</dd></div>
+            <div><dt>CATALOG</dt><dd><span id="model-count">0</span> models / <span id="catalog-source">fallback data</span></dd></div>
+            <div><dt>CATALOG SYNC</dt><dd id="catalog-sync">--</dd></div>
+          </dl>
+          <button id="reset-circuits" class="button danger" type="button">RESET HEALTH STATE</button>
+        </aside>
+      </div>
+
+      <section id="config-drawer" class="panel config-panel config-drawer" aria-hidden="true">
+        <div id="config-resize-handle" class="config-resize-handle" aria-hidden="true"></div>
+        <div class="panel-heading">
+          <div>
+            <p class="section-index">03 / POLICY</p>
+            <h2>Routing Configuration</h2>
+          </div>
+          <div class="config-actions">
+            <button id="save-config" class="button primary-button" type="button">APPLY POLICY</button>
+            <button id="close-config" class="button secondary" type="button">CLOSE</button>
+          </div>
+        </div>
+        <form id="config-form">
+          <div class="config-grid">
+            <label>
+              <span>MAX ATTEMPTS</span>
+              <input id="maxAttempts" type="number" min="1" max="5">
+              <small>Total models tried before failure.</small>
+            </label>
+            <label>
+              <span>REQUEST DEADLINE / MS</span>
+              <input id="requestTimeoutMs" type="number" min="5000" max="600000" step="1000">
+              <small>One deadline shared by all attempts.</small>
+            </label>
+            <label>
+              <span>FIRST EVENT / MS</span>
+              <input id="firstEventTimeoutMs" type="number" min="1000" max="120000" step="1000">
+              <small>Headers-to-output deadline for GPT, GLM, and DeepSeek.</small>
+            </label>
+            <label>
+              <span>SLOW MODEL FIRST EVENT / MS</span>
+              <input id="slowModelFirstEventTimeoutMs" type="number" min="5000" max="180000" step="1000">
+              <small>Longer deadline for Claude extended-thinking requests.</small>
+            </label>
+            <label>
+              <span>STREAM IDLE / MS</span>
+              <input id="streamIdleTimeoutMs" type="number" min="5000" max="300000" step="1000">
+              <small>Ends committed streams that stop producing events.</small>
+            </label>
+            <label>
+              <span>CIRCUIT FAILURES</span>
+              <input id="circuitFailureThreshold" type="number" min="1" max="20">
+              <small>Consecutive transient failures to open.</small>
+            </label>
+            <label>
+              <span>CIRCUIT OPEN / MS</span>
+              <input id="circuitOpenMs" type="number" min="1000" max="3600000" step="1000">
+              <small>Cooldown before one half-open probe.</small>
+            </label>
+            <label>
+              <span>CIRCUIT WINDOW</span>
+              <input id="circuitWindowSize" type="number" min="2" max="200">
+              <small>Recent outcomes retained per model and wire.</small>
+            </label>
+            <label>
+              <span>MINIMUM SAMPLES</span>
+              <input id="circuitMinimumSamples" type="number" min="1" max="100">
+              <small>Samples required before failure-rate opening.</small>
+            </label>
+            <label>
+              <span>CATALOG REFRESH / HOURS</span>
+              <input id="catalogRefreshHours" type="number" min="1" max="168">
+              <small>Backoff applies to successful and failed syncs.</small>
+            </label>
+            <label class="check-label">
+              <input id="fallbackExplicitModels" type="checkbox">
+              <span>
+                FALL BACK EXPLICIT MODELS
+                <small>Try compatible alternatives after transient failures.</small>
+              </span>
+            </label>
+            <label>
+              <span>THINKING FALLBACK</span>
+              <select id="thinkingFallbackMode">
+                <option value="strip">Strip thinking for fallback</option>
+                <option value="pin">Pin physical Claude model</option>
+              </select>
+              <small>Preserves visible text and tool history without replaying model-specific signatures.</small>
+            </label>
+          </div>
+          <div id="model-manager" class="model-manager" aria-labelledby="model-manager-title">
+            <input id="openaiOrder" type="hidden"><input id="anthropicOrder" type="hidden"><input id="freeModelOrder" type="hidden"><input id="disabledModels" type="hidden"><input id="enabledExternalModels" type="hidden">
+            <div class="model-manager-heading">
+              <div><p class="section-index">MODEL CATALOG</p><h3 id="model-manager-title">Model Manager</h3></div>
+              <button id="refresh-provider-credits" class="button secondary" type="button">REFRESH ALL CREDITS</button>
+            </div>
+            <div id="provider-cards" class="provider-cards" aria-label="Provider status"></div>
+            <div class="model-toolbar" aria-label="Model browser controls">
+              <label><span>SEARCH</span><input id="model-search" type="search" placeholder="Name or route ID"></label>
+              <label><span>PROVIDER</span><select id="model-provider-filter"><option value="all">All providers</option></select></label>
+              <label><span>PROTOCOL</span><select id="model-protocol-filter"><option value="all">All protocols</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option></select></label>
+              <label><span>MODALITY</span><select id="model-modality-filter"><option value="all">All modalities</option><option value="text">Text</option><option value="image">Image</option><option value="audio">Audio</option><option value="video">Video</option></select></label>
+              <label><span>STATE</span><select id="model-state-filter"><option value="all">All states</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option></select></label>
+              <label><span>ORDER</span><select id="model-order-filter"><option value="all">Any order</option><option value="openai">OpenAI order</option><option value="anthropic">Anthropic order</option><option value="free">Free cascade</option><option value="unordered">Not ordered</option></select></label>
+              <label class="model-filter-check"><input id="model-free-only" type="checkbox"><span>FREE ONLY</span></label>
+              <label><span>PRICE BASIS</span><select id="model-price-basis"><option value="input">Input / million</option><option value="output">Output / million</option></select></label>
+              <label><span>MIN PRICE USD</span><input id="model-price-min" type="number" min="0" step="0.001" placeholder="No minimum"></label>
+              <label><span>MAX PRICE USD</span><input id="model-price-max" type="number" min="0" step="0.001" placeholder="No maximum"></label>
+              <label><span>SORT</span><select id="model-sort"><option value="name">Name</option><option value="context">Context</option><option value="inputPrice">Input price</option><option value="outputPrice">Output price</option><option value="quality">Quality</option></select></label>
+              <label><span>DIRECTION</span><select id="model-sort-direction"><option value="asc">Cheapest / lowest first</option><option value="desc">Highest first</option></select></label>
+            </div>
+            <div class="model-bulk" role="group" aria-label="Selected model actions">
+              <span id="model-selection-count">0 SELECTED</span>
+              <button id="models-enable" class="button secondary" type="button">ENABLE</button>
+              <button id="models-disable" class="button secondary" type="button">DISABLE</button>
+              <button id="models-add-openai" class="button secondary" type="button">ADD TO OPENAI</button>
+              <button id="models-add-anthropic" class="button secondary" type="button">ADD TO ANTHROPIC</button>
+              <button id="models-add-free" class="button secondary" type="button">ADD TO FREE CASCADE</button>
+            </div>
+            <div class="model-browser-wrap">
+              <div class="model-result-bar"><p id="model-result-count" class="model-result-count" role="status">0 MODELS</p><button id="model-show-all" class="button secondary" type="button" hidden>SHOW ALL</button></div>
+              <table class="model-browser-table">
+                <thead><tr><th><input id="model-select-all" type="checkbox" aria-label="Select visible models"></th><th>MODEL / PROVIDER</th><th>LIMITS / FEATURES</th><th>PRICE / MILLION</th><th>WIRE / HEALTH</th><th>ORDER</th><th>ENABLED</th></tr></thead>
+                <tbody id="model-browser"></tbody>
+              </table>
+            </div>
+            <section id="model-detail" class="model-detail" aria-live="polite"><p>Select a model for details.</p></section>
+            <div class="quality-orders">
+              <section><h4>OPENAI QUALITY ORDER</h4><p>Highest quality first. Alt+Arrow/Home/End/Delete moves or removes.</p><ol id="openai-order-list" data-protocol="openai" aria-label="OpenAI quality order"></ol></section>
+              <section><h4>ANTHROPIC QUALITY ORDER</h4><p>Only compatible models can be added.</p><ol id="anthropic-order-list" data-protocol="anthropic" aria-label="Anthropic quality order"></ol></section>
+              <section><h4>FREE CASCADE</h4><p>Zero-cost OpenRouter and Requesty routes only.</p><ol id="free-order-list" data-protocol="free" aria-label="Free model quality order"></ol></section>
+            </div>
+            <section class="custom-cascades"><header><div><h4>CUSTOM CASCADE MODELS</h4><p>Create a named virtual model advertised by the proxy. Requests try its physical members in order.</p></div><input id="custom-cascade-name" type="text" maxlength="64" pattern="[a-z0-9][a-z0-9._-]*" placeholder="coding-fast"><button id="create-custom-cascade" class="button secondary" type="button">CREATE QUEUE</button></header><div id="custom-cascade-list"></div></section>
+          </div>
+        </form>
+      </section>
+      <div id="config-scrim" class="config-scrim" aria-hidden="true"></div>
+
+      <section class="panel recent-panel">
+        <div class="panel-heading compact">
+          <div>
+            <p class="section-index">04 / REQUEST LOG</p>
+            <h2>Recent Decisions</h2>
+          </div>
+          <span class="privacy-note">CONTENT IS MEMORY-ONLY AND LOADED ON DEMAND.</span>
+        </div>
+        <div id="request-list" class="request-list"></div>
+      </section>
+    </main>
+
+    <aside id="customize-drawer" class="customize-drawer" role="dialog" aria-modal="true" aria-labelledby="customize-title" aria-hidden="true" inert>
+      <header class="customize-header">
+        <div>
+          <p class="section-index">DISPLAY SETTINGS</p>
+          <h2 id="customize-title">Customize Dashboard</h2>
+        </div>
+        <button id="close-customize" class="button secondary" type="button" aria-label="Close customization">CLOSE</button>
+      </header>
+      <form id="customize-form" class="customize-form">
+        <label for="customize-theme">THEME</label>
+        <select id="customize-theme" name="theme">
+          <option value="system">System</option>
+          <option value="router">Router</option>
+          <option value="abyss">Abyss</option>
+          <option value="ultraviolet">Ultraviolet</option>
+          <option value="ember">Ember</option>
+          <option value="paper">Paper</option>
+        </select>
+        <div class="theme-swatches" aria-label="Theme previews">
+          <button class="theme-swatch" type="button" data-preference="theme" data-value="router"><i></i><span>Router</span></button>
+          <button class="theme-swatch" type="button" data-preference="theme" data-value="abyss"><i></i><span>Abyss</span></button>
+          <button class="theme-swatch" type="button" data-preference="theme" data-value="ultraviolet"><i></i><span>Ultraviolet</span></button>
+          <button class="theme-swatch" type="button" data-preference="theme" data-value="ember"><i></i><span>Ember</span></button>
+          <button class="theme-swatch" type="button" data-preference="theme" data-value="paper"><i></i><span>Paper</span></button>
+          <button class="theme-swatch" type="button" data-preference="theme" data-value="system"><i></i><span>System</span></button>
+        </div>
+
+        <label for="customize-accent">ACCENT</label>
+        <div class="customize-accent-control">
+          <input id="customize-accent" name="accent" type="color" value="#b7ff3c">
+          <button id="customize-accent-reset" class="button secondary" type="button">USE THEME ACCENT</button>
+        </div>
+        <span id="customize-accent-status" role="status">Using theme accent.</span>
+
+        <label for="customize-density">DENSITY</label>
+        <select id="customize-density" name="density">
+          <option value="compact">Compact</option>
+          <option value="comfortable">Comfortable</option>
+          <option value="spacious">Spacious</option>
+        </select>
+
+        <label for="customize-motion">MOTION</label>
+        <select id="customize-motion" name="motion">
+          <option value="system">System</option>
+          <option value="full">Full</option>
+          <option value="reduced">Reduced</option>
+        </select>
+
+        <label for="customize-rail-side">IN-FLIGHT PLACEMENT</label>
+        <select id="customize-rail-side" name="inflightPlacement">
+          <option value="left">Left rail</option>
+          <option value="right">Right rail</option>
+          <option value="main">Main column</option>
+        </select>
+
+        <label for="customize-glow">GLOW</label>
+        <div class="customize-glow-control">
+          <input id="customize-glow" name="glow" type="range" min="0" max="100" step="10" value="50">
+          <output id="customize-glow-value" for="customize-glow">50%</output>
+        </div>
+
+        <button id="reset-customize" class="button secondary" type="button">RESET CUSTOMIZATION</button>
+        <span id="customize-status" role="status" aria-live="polite"></span>
+      </form>
+    </aside>
+    <div id="customize-scrim" class="customize-scrim" aria-hidden="true"></div>
+
+    <div id="inflight-rail-anchor"></div>
+    <aside id="inflight-rail" class="inflight-rail" aria-label="In-flight requests">
+      <button id="toggle-inflight-rail" class="inflight-rail-toggle" type="button" aria-controls="inflight-rail-body" aria-expanded="false">
+        <span class="live-dot" aria-hidden="true"></span><strong id="active-count">0 ACTIVE</strong><span class="rail-toggle-label">IN-FLIGHT</span>
+      </button>
+      <div id="inflight-rail-body" class="inflight-rail-body">
+        <header><div><p class="section-index">00 / LIVE FLOW</p><h2>In-Flight Requests</h2></div><label class="linger-control"><span>FINISHED HOLD</span><input id="inflight-linger" type="range" min="0" max="30" step="1" value="4"><output id="inflight-linger-value">4s</output></label><button id="close-inflight-rail" class="button secondary" type="button" aria-label="Collapse in-flight rail">CLOSE</button></header>
+        <div id="live-request-list" class="live-request-list"><p class="live-empty">No requests in flight.</p></div>
+      </div>
+    </aside>
+
+    <dialog id="command-palette" aria-labelledby="command-title">
+      <form id="command-form">
+        <header class="command-header">
+          <h2 id="command-title">Command Palette</h2>
+          <button id="close-command" class="button secondary" type="button" aria-label="Close command palette">CLOSE</button>
+        </header>
+        <label for="command-input">SEARCH COMMANDS</label>
+        <input id="command-input" type="search" autocomplete="off" placeholder="Type a command">
+        <div id="command-results" role="listbox" aria-label="Commands"></div>
+        <small>Arrow keys navigate. Enter selects. Escape closes.</small>
+      </form>
+    </dialog>
+
+    <div id="chat-drawer" class="chat-drawer" aria-hidden="true">
+      <div id="chat-resize-handle" class="chat-resize-handle"></div>
+      <div class="chat-drawer-header">
+        <div class="chat-drawer-title">
+          <span class="section-index">MODEL SANDBOX</span>
+          <div id="sandbox-mode" class="sandbox-mode" role="group" aria-label="Sandbox mode">
+            <button class="button secondary active" data-sandbox-mode="chat" type="button" aria-pressed="true">CHAT</button>
+            <button class="button secondary" data-sandbox-mode="design" type="button" aria-pressed="false">DESIGN</button>
+            <button class="button secondary" data-sandbox-mode="diagnose" type="button" aria-pressed="false">ASSISTANT</button>
+          </div>
+          <span id="chat-route" class="route-badge">SELECT MODELS</span>
+          <details id="chat-model-picker" class="chat-model-picker">
+            <summary><span id="chat-model-count">0 / 4 MODELS</span></summary>
+            <fieldset id="chat-model-options"><legend class="sr-only">Models to compare</legend></fieldset>
+          </details>
+        </div>
+        <div class="chat-drawer-actions">
+          <button id="clear-chat" class="button secondary" type="button">CLEAR</button>
+          <button id="open-sandbox-library" class="button secondary" type="button">SAVED</button>
+          <button id="export-chat" class="button secondary" type="button">EXPORT</button>
+          <button id="popout-sandbox" class="button secondary" type="button">POPOUT</button>
+          <button id="sandbox-help" class="button secondary" type="button">HELP</button>
+          <button id="stop-chat" class="button danger" type="button" hidden>STOP</button>
+          <button id="toggle-chat" class="button" type="button" aria-label="Minimize chat">_</button>
+        </div>
+      </div>
+      <div id="chat-messages" class="chat-messages" aria-live="polite">
+        <p class="chat-empty">Choose up to four models. Prompts are sent to their providers. Assistant mode shares operational metadata, never request bodies or credentials. Results and designs are saved locally in this browser.</p>
+        <section id="config-proposal-host" class="config-proposal-host" aria-live="polite"></section>
+      </div>
+      <section id="sandbox-library" class="sandbox-library hidden" aria-label="Saved sandbox results">
+        <header><strong>SAVED RUNS &amp; DESIGN CATALOG</strong><select id="sandbox-library-filter"><option value="all">All results</option><option value="chat">Chat</option><option value="design">Designs</option><option value="diagnose">Assistant</option></select><button id="close-sandbox-library" class="button secondary" type="button">BACK</button></header>
+        <div id="sandbox-library-list" class="sandbox-library-list"></div>
+        <div id="sandbox-library-detail" class="sandbox-library-detail"></div>
+      </section>
+      <details id="sandbox-settings" class="sandbox-settings">
+        <summary>GENERATION CONTROLS</summary>
+        <div>
+          <label><span>MAX OUTPUT TOKENS</span><input id="sandbox-max-tokens" type="number" min="256" max="8192" step="256" value="4096"></label>
+          <label class="check-label sandbox-default-output"><input id="sandbox-provider-default-max" type="checkbox"><span>PROVIDER DEFAULT MAX<small>Omit max_tokens and let each provider choose its native output limit.</small></span></label>
+          <label><span>TEMPERATURE</span><input id="sandbox-temperature" type="number" min="0" max="2" step="0.1" placeholder="Provider default"></label>
+          <label><span>TOP P</span><input id="sandbox-top-p" type="number" min="0" max="1" step="0.05" placeholder="Provider default"></label>
+        </div>
+      </details>
+      <form id="chat-form" class="chat-compose">
+        <textarea id="chat-input" rows="1" maxlength="50000" placeholder="Send one prompt to every selected model..." required></textarea>
+        <button id="propose-config" class="button secondary" type="button">PROPOSE CONFIG</button>
+        <button id="send-chat" class="button primary-button" type="submit">SEND</button>
+      </form>
+    </div>
+
+    <button id="open-chat" class="chat-fab" type="button" title="Open model sandbox" aria-label="Open model sandbox" aria-controls="chat-drawer" aria-expanded="false">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    </button>
+
+    <dialog id="auth-dialog">
+      <form method="dialog" id="auth-form">
+        <p class="section-index">CONSOLE ACCESS</p>
+        <h2>Dashboard token required</h2>
+        <p>Enter the local <code>DASHBOARD_TOKEN</code>. It stays in this browser's local storage.</p>
+        <input id="dashboard-token" type="password" autocomplete="current-password" placeholder="Dashboard token">
+        <button class="button primary-button" value="default">CONNECT</button>
+      </form>
+    </dialog>
+
+    <dialog id="proposal-confirm-dialog" aria-labelledby="proposal-confirm-title">
+      <form method="dialog" id="proposal-confirm-form">
+        <p class="section-index">HUMAN CONFIRMATION</p>
+        <h2 id="proposal-confirm-title">Apply reviewed configuration?</h2>
+        <div id="proposal-confirm-changes"></div>
+        <p>This applies only the exact validated patch shown above. The agent cannot apply it itself.</p>
+        <div class="proposal-confirm-actions">
+          <button class="button secondary" value="cancel">CANCEL</button>
+          <button id="confirm-apply-proposal" class="button primary-button" value="apply">APPLY CONFIGURATION</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="help-dialog" class="wide-dialog" aria-labelledby="help-title">
+      <form method="dialog">
+        <p class="section-index">DASHBOARD GUIDE</p><h2 id="help-title">How Everything Works</h2>
+        <div class="help-grid">
+          <section><h3>Chat</h3><p>Select up to four models and send one prompt. Requests run in parallel, with independent branches, progress estimates, and exact final metrics.</p></section>
+          <section><h3>Design</h3><p>Models generate self-contained HTML. Preview, inspect source, copy, and download it. Designs are automatically added to Saved.</p></section>
+          <section><h3>Assistant</h3><p>Assistant mode receives a redacted operational snapshot for diagnosis. PROPOSE CONFIG creates an editable draft that cannot apply without your confirmation.</p></section>
+          <section><h3>Saved</h3><p>Completed prompts, outputs, reasoning, metrics, and designs are stored in this browser using IndexedDB. Delete them from the Saved catalog or clear browser site data.</p></section>
+          <section><h3>Live Flow</h3><p>Shows model, route phase, attempts, elapsed time, TTFT, estimated tokens, and tokens per second. The hold slider controls how long finished rows remain.</p></section>
+          <section><h3>API Keys</h3><p>Keys are write-only. They are sent to this router, stored under owner-only filesystem permissions, never returned to the browser, and take effect for future requests.</p></section>
+        </div><button class="button primary-button" value="close">CLOSE GUIDE</button>
+      </form>
+    </dialog>
+
+    <dialog id="api-keys-dialog" class="wide-dialog" aria-labelledby="api-keys-title">
+      <form method="dialog"><p class="section-index">SECURE CREDENTIAL INGRESS</p><h2 id="api-keys-title">Provider API Keys</h2><p>Values are write-only and never displayed again. Stored overrides use <code>DATA_DIR/secrets</code> with owner-only permissions.</p><div id="api-key-manager" class="api-key-manager"></div><button class="button secondary" value="close">CLOSE</button></form>
+    </dialog>
+
+    <script type="module" src="/app.js?v=20260902-routetok1"></script>
+  </body>
+</html>

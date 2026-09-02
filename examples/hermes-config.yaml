@@ -1,0 +1,8 @@
+# Merge this named provider into ~/.hermes/config.yaml, or enter the same
+# values through `hermes model` -> Custom endpoint.
+custom_providers:
+  - name: routetok
+    base_url: http://127.0.0.1:8787/v1
+    key_env: ROUTETOK_PROXY_KEY
+    api_mode: chat_completions
+    model: best
