@@ -793,6 +793,7 @@ textarea { resize: vertical; }
 .sandbox-progress-metrics b { font-weight: 600; }
 @keyframes sandboxProgress { 0% { transform: translateX(-110%); } 100% { transform: translateX(280%); } }
 .sandbox-result > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 11px 13px; border-bottom: 1px solid var(--line); }
+.sandbox-star { flex: 0 0 auto; width: 29px; min-height: 29px; padding: 0; border: 1px solid var(--line); background: transparent; color: var(--dim); cursor: pointer; font-size: 1rem; }.sandbox-star:hover, .sandbox-star.active { border-color: var(--amber); color: var(--amber); background: rgba(var(--amber-rgb), .08); }
 .sandbox-result > header strong { overflow-wrap: anywhere; font: 650 .68rem/1.35 var(--mono); }
 .sandbox-result .content { flex: 1; width: 100%; min-width: 0; max-width: 100%; padding: 14px; overflow: visible; overflow-wrap: anywhere; word-break: break-word; color: var(--ink); font: .74rem/1.65 var(--mono); }
 .sandbox-result .content * { max-width: 100%; overflow-wrap: anywhere; word-break: break-word; }

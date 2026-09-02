@@ -44,7 +44,7 @@
         } catch (_) {}
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20260902-routetok3">
+    <link rel="stylesheet" href="/styles.css?v=20260902-routetok4">
   </head>
   <body>
     <a class="skip-link" href="#dashboard-main">SKIP TO MAIN CONTENT</a>
@@ -500,6 +500,7 @@
         <div class="chat-drawer-actions">
           <button id="clear-chat" class="button secondary" type="button">CLEAR</button>
           <button id="open-sandbox-library" class="button secondary" type="button">SAVED</button>
+          <button id="open-starred-gallery" class="button secondary" type="button">STARRED</button>
           <button id="export-chat" class="button secondary" type="button">EXPORT</button>
           <button id="popout-sandbox" class="button secondary" type="button">POPOUT</button>
           <button id="sandbox-help" class="button secondary" type="button">HELP</button>
@@ -512,7 +513,7 @@
         <section id="config-proposal-host" class="config-proposal-host" aria-live="polite"></section>
       </div>
       <section id="sandbox-library" class="sandbox-library hidden" aria-label="Saved sandbox results">
-        <header><strong>SAVED RUNS &amp; DESIGN CATALOG</strong><select id="sandbox-library-filter"><option value="all">All results</option><option value="chat">Chat</option><option value="design">Designs</option><option value="diagnose">Assistant</option></select><button id="close-sandbox-library" class="button secondary" type="button">BACK</button></header>
+        <header><strong>SAVED RUNS &amp; DESIGN CATALOG</strong><select id="sandbox-library-filter"><option value="all">All results</option><option value="starred">Starred gallery</option><option value="chat">Chat</option><option value="design">Designs</option><option value="diagnose">Assistant</option></select><button id="close-sandbox-library" class="button secondary" type="button">BACK</button></header>
         <div id="sandbox-library-list" class="sandbox-library-list"></div>
         <div id="sandbox-library-detail" class="sandbox-library-detail"></div>
       </section>
@@ -564,9 +565,9 @@
         <p class="section-index">DASHBOARD GUIDE</p><h2 id="help-title">How Everything Works</h2>
         <div class="help-grid">
           <section><h3>Chat</h3><p>Select up to four models and send one prompt. Requests run in parallel, with independent branches, progress estimates, and exact final metrics.</p></section>
-          <section><h3>Design</h3><p>Models generate self-contained HTML. Preview, inspect source, copy, and download it. Designs are automatically added to Saved.</p></section>
-          <section><h3>Assistant</h3><p>Ask for diagnosis or configuration suggestions. You can also ask it to run a chat/design comparison; the advisor chooses eligible models, settings, and a focused prompt before RouteTok validates and executes the plan.</p></section>
-          <section><h3>Saved</h3><p>Completed prompts, outputs, reasoning, metrics, and designs are stored in this browser using IndexedDB. Delete them from the Saved catalog or clear browser site data.</p></section>
+          <section><h3>Design</h3><p>Models generate self-contained HTML. Preview, inspect source, enable JavaScript in an opaque sandbox, pop out a card, copy, or download a safe static document.</p></section>
+          <section><h3>Assistant</h3><p>Ask for diagnosis or configuration suggestions. For diagnosis, the agent first requests only the bounded dashboard API resources it needs. It can also plan and run chat/design comparisons.</p></section>
+          <section><h3>Saved</h3><p>Completed prompts, outputs, reasoning, metrics, and designs are stored in IndexedDB. Star any generation card and browse it through the Starred gallery.</p></section>
           <section><h3>Live Flow</h3><p>Shows model, route phase, attempts, elapsed time, TTFT, estimated tokens, and tokens per second. The hold slider controls how long finished rows remain.</p></section>
           <section><h3>API Keys</h3><p>Keys are write-only. They are sent to this router, stored under owner-only filesystem permissions, never returned to the browser, and take effect for future requests.</p></section>
         </div><button class="button primary-button" value="close">CLOSE GUIDE</button>
@@ -577,6 +578,6 @@
       <form method="dialog"><p class="section-index">SECURE CREDENTIAL INGRESS</p><h2 id="api-keys-title">Provider API Keys</h2><p>Values are write-only and never displayed again. Stored overrides use <code>DATA_DIR/secrets</code> with owner-only permissions.</p><div id="api-key-manager" class="api-key-manager"></div><button class="button secondary" value="close">CLOSE</button></form>
     </dialog>
 
-    <script type="module" src="/app.js?v=20260902-routetok3"></script>
+    <script type="module" src="/app.js?v=20260902-routetok4"></script>
   </body>
 </html>

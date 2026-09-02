@@ -125,6 +125,12 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
       response.end(`data: ${JSON.stringify({ id: "planner", object: "chat.completion.chunk", model: "good-model", choices: [{ index: 0, delta: { content: plan }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ id: "planner", object: "chat.completion.chunk", model: "good-model", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`);
       return;
     }
+    if (payload.model === "good-model" && payload.stream === true && messages.some((message) => JSON.stringify(message).includes("selecting RouteTok dashboard API resources"))) {
+      const request = JSON.stringify({ needs: ["totals", "health"] }).replace(/}$/, ",}");
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.end(`data: ${JSON.stringify({ id: "needs", object: "chat.completion.chunk", model: "good-model", choices: [{ index: 0, delta: { content: request }, finish_reason: null }] })}\n\ndata: [DONE]\n\n`);
+      return;
+    }
     if (payload.model === "good-model" && payload.stream === true) {
       response.writeHead(200, { "content-type": "text/event-stream" });
       response.write([
@@ -497,6 +503,20 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
     assert.deepEqual(plannedPayload.plan.models, ["good-model"]);
     assert.equal(plannedPayload.plan.parameters.maxTokens, 2048);
     assert.match(plannedPayload.plan.prompt, /status card/i);
+
+    const diagnosisCallsBefore = calls.length;
+    const diagnosed = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/sandbox`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ purpose: "diagnose", requests: [{ id: "diagnose", model: "good-model", parameters: { maxTokens: 512 }, messages: [{ role: "user", content: "Analyze token totals and model health" }] }] })
+    });
+    assert.equal(diagnosed.status, 200);
+    await diagnosed.text();
+    const diagnosisCalls = calls.slice(diagnosisCallsBefore);
+    assert.equal(diagnosisCalls.length, 2);
+    assert.doesNotMatch(JSON.stringify(diagnosisCalls[0]?.messages), /dashboard_api_response_json|"totals"\s*:/);
+    assert.match(JSON.stringify(diagnosisCalls[1]?.messages), /dashboard_api_response_json/);
+    assert.match(JSON.stringify(diagnosisCalls[1]?.messages), /requestedResources.*totals.*health/);
+    assert.doesNotMatch(JSON.stringify(diagnosisCalls[1]?.messages), /"history"\s*:/);
 
     const beforeProposal = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/status`).then((response) => response.json()) as {
       configRevision: string;

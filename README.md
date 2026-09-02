@@ -16,6 +16,8 @@ RouteTok is a local-first token router that exposes OpenAI- and Anthropic-compat
 - Persistent metrics, live request telemetry, costs, cache usage, TTFT, and throughput
 - Parallel multi-model arena with retries, multi-turn branches, saved runs, and exact metrics
 - Static, sandboxed HTML design playground and saved design catalog
+- Per-design JavaScript sandboxing and fullscreen card popouts
+- Per-generation stars with a persistent starred gallery
 - Human-reviewed configuration proposals with typed editable controls
 - Write-only provider credential ingress with owner-only filesystem permissions
 
@@ -112,6 +114,8 @@ The sandbox runs up to four models in parallel, keeps independent multi-turn bra
 The assistant can propose routing changes but cannot apply them. Proposals are validated, displayed as typed interactive settings, editable, revalidated after changes, revision-bound, and require a separate exact-diff confirmation.
 
 In Assistant mode, natural-language requests to suggest configuration changes invoke that proposal workflow automatically. Requests to run a chat or design comparison invoke a bounded planner: the selected advisor chooses one to four currently eligible physical models, generation settings, comparison mode, and an improved prompt. RouteTok validates the complete plan before starting a fresh saved arena run.
+
+Operational diagnosis uses lazy data retrieval. Each assistant model first requests only the bounded dashboard resources needed for the question, such as totals, health, recent failures, history, providers, or configuration. RouteTok then supplies only those API results instead of embedding the entire catalog and metrics history in every prompt.
 
 Provider keys entered in the dashboard are write-only. Stored overrides live under `DATA_DIR/secrets/provider-credentials.json` in a `0700` directory and `0600` file. Values are never returned in status, metrics, logs, proposals, or browser storage.
 

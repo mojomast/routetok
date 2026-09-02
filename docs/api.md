@@ -23,6 +23,8 @@ Admin endpoints under `/admin/api/` require `DASHBOARD_TOKEN` when configured. T
 
 `POST /admin/api/assistant/plan` creates a bounded comparison plan from a natural-language request. It returns only validated `chat`/`design` mode, one to four eligible physical routes, optional generation parameters, an improved prompt, and rationale. It never executes configuration mutations.
 
+Assistant diagnosis uses a two-stage lazy resource request. The first model pass selects from an allowlist of dashboard resources; the final pass receives only those bounded API results. Raw request bodies are never available to this workflow.
+
 Credential mutation is write-only:
 
 - `PUT /admin/api/providers/:provider/credentials/apiKey`
