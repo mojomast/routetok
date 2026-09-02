@@ -345,7 +345,8 @@ async function runDashboardModel(
   model: string,
   messages: Array<ChatMessage | { role: "system"; content: string }>,
   signal: AbortSignal,
-  parameters: SandboxParameters = {}
+  parameters: SandboxParameters = {},
+  jsonMode = false
 ) {
   const localHost = host === "::1" ? "[::1]" : host;
   const upstream = await fetch(`http://${localHost}:${port}/v1/chat/completions`, {
@@ -362,6 +363,7 @@ async function runDashboardModel(
       messages,
       stream: true,
       stream_options: { include_usage: true },
+      ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
       ...(parameters.maxTokens === undefined ? {} : { max_tokens: parameters.maxTokens }),
       ...(parameters.temperature === undefined ? {} : { temperature: parameters.temperature }),
       ...(parameters.topP === undefined ? {} : { top_p: parameters.topP })
@@ -586,9 +588,9 @@ async function planAssistantComparison(request: IncomingMessage, response: Serve
         `<eligible_models_json>${JSON.stringify(eligible)}</eligible_models_json>`
       ].join("\n") },
       { role: "user", content: input.request }
-    ], controller.signal, { maxTokens: 1_024 });
+    ], controller.signal, { maxTokens: 2_048 }, true);
     if (result.error) throw new Error(result.error);
-    const value = parseAssistantJson(result.content);
+    const value = parseAssistantJson(result.content || result.reasoning);
     if (value.mode !== "chat" && value.mode !== "design") throw new Error("Assistant selected an invalid comparison mode");
     if (!Array.isArray(value.models) || value.models.length < 1 || value.models.length > 4 || value.models.some((model) => typeof model !== "string" || !sandboxEligible(model))) throw new Error("Assistant selected unavailable or incompatible models");
     const models = [...new Set(value.models as string[])];
