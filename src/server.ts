@@ -536,10 +536,10 @@ async function generateConfigProposal(request: IncomingMessage, response: Server
     const result = await runDashboardModel(input.model, [
       { role: "system", content: `${dashboardAssistantContext(base)}\nYou cannot apply configuration. Return only JSON with keys summary, rationale, and patch. The patch must contain only changed RouterConfig fields and will remain unapplied until human review and confirmation.` },
       { role: "user", content: input.prompt }
-    ], controller.signal);
+    ], controller.signal, { maxTokens: 2_048 }, true);
     if (result.error) throw new Error(result.error);
     if (config.revision() !== baseRevision) throw new Error("Configuration changed while the proposal was generated; ask again using the current settings");
-    const parsed = parseProposalText(result.content);
+    const parsed = parseProposalText(result.content || result.reasoning);
     const proposal = proposalFromPatch(parsed.patch, parsed.summary, parsed.rationale, base, baseRevision);
     json(response, 200, { proposal, generationMetrics: result.metrics });
   } catch (error) {
