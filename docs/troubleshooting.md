@@ -8,9 +8,21 @@ Check provider key status, catalog errors, and base URLs in the dashboard. Unkno
 
 Catalog visibility does not guarantee provider entitlement or current capacity. Inspect the request attempt chain, HTTP status, first-output deadline, and provider-specific error.
 
+## Local 400 has no selected route
+
+If a `400` has `x-request-id` but no `x-router-model`, `x-router-route`, or `x-router-provider`, RouteTok rejected the request before routing. Validate handcrafted payloads with `jq` or another JSON parser; common mistakes include trailing commas, comments, unescaped quotes or newlines, and shell interpolation that produces invalid JSON. The top level must be an object, `model` must be a non-empty string, and `stream`, when present, must be boolean.
+
+RouteTok intentionally does not locally validate tool schemas, `oneOf`, `enum`, or `tool_choice`. A rejection involving those fields after routing is provider behavior; inspect the selected-route headers and attempt summary.
+
+## Verify one exact Qwen attempt
+
+Temporarily set `maxAttempts` to `1`, send a minimal non-stream Chat Completions request to the exact enabled `openrouter:` Qwen model ID, and omit tools and optional generation fields. Confirm `x-router-route` equals that ID, `x-router-provider` is `openrouter`, `x-router-attempts` is `1`, and `x-router-terminal` explains the terminal result. Decode `x-router-attempt-summary` with a base64url-aware decoder and verify its sole `a` entry (`p`, `m`, `s`, and `o`).
+
+This isolates entitlement and upstream behavior from the paid fallback chain. Restore the previous `maxAttempts` afterward. Do not infer deployed Nex, DeepSeek, or Solar IDs from display names; exact catalog IDs remain operator-controlled.
+
 ## Streams time out
 
-Reasoning models may need `slowModelFirstEventTimeoutMs`. Heartbeats and metadata do not satisfy the semantic-output deadline.
+Reasoning models may need `slowModelFirstEventTimeoutMs`. Heartbeats and metadata do not satisfy the semantic-output deadline. A first-output timeout can try another candidate, but after semantic or tool output commits, a later timeout or disconnect ends that same stream without fallback.
 
 ## Generic endpoint unavailable
 

@@ -29,6 +29,7 @@ export const DEFAULT_CONFIG: RouterConfig = {
     "glm-5.3",
     "deepseek-v4-flash"
   ],
+  paidOpenRouterFallbackOrder: [],
   disabledModels: [],
   enabledExternalModels: [
     "kimi:k3",
@@ -80,6 +81,7 @@ const CONFIG_FIELDS = new Set<keyof RouterConfig>([
   "thinkingFallbackMode",
   "openaiOrder",
   "anthropicOrder",
+  "paidOpenRouterFallbackOrder",
   "disabledModels",
   "enabledExternalModels",
   "freeModelOrder",
@@ -214,6 +216,11 @@ export class ConfigStore {
     }
     if (value.anthropicOrder !== undefined) {
       next.anthropicOrder = uniqueStrings(value.anthropicOrder, "anthropicOrder");
+    }
+    if (value.paidOpenRouterFallbackOrder !== undefined) {
+      const order = uniqueStrings(value.paidOpenRouterFallbackOrder, "paidOpenRouterFallbackOrder");
+      if (order.some((model) => !model.startsWith("openrouter:"))) throw new Error("paidOpenRouterFallbackOrder must contain only namespaced OpenRouter model IDs");
+      next.paidOpenRouterFallbackOrder = order;
     }
     if (value.disabledModels !== undefined) {
       next.disabledModels = uniqueStrings(value.disabledModels, "disabledModels");

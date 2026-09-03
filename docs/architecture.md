@@ -7,7 +7,13 @@ RouteTok is a single Node.js process with four core backend layers:
 3. `ProxyHandler` replaces credentials, dispatches attempts, validates streams, and records usage.
 4. `MetricsStore` persists bounded metadata/history and exposes live/Prometheus views.
 
-Clients call OpenAI or Anthropic-compatible endpoints. RouteTok resolves a virtual or physical route, filters endpoint-compatible candidates, and attempts models sequentially until output begins. After semantic output is committed, no cross-model fallback is allowed.
+Clients call OpenAI or Anthropic-compatible endpoints. RouteTok resolves a virtual or physical route, filters endpoint-compatible candidates, and attempts models sequentially until output begins. Transport failures, first-output failures, and configured transient statuses can move to the next candidate only before semantic or tool output. A complete successful response and a stream committed by text, reasoning, refusal, or tool/function output never move to another model; later stream failure remains on that committed stream.
+
+Explicit paid OpenRouter requests have a dedicated provider-tiered fallback path. The requested model remains first, configured paid OpenRouter alternatives retain their exact order, and only then may compatible AgentRouter models from the protocol order be used. Health suppression may remove a candidate but cannot move AgentRouter ahead of a healthy configured OpenRouter alternative. Other request classes retain their existing protocol, free, explicit, or custom-cascade behavior.
+
+The intended Qwen policy is conceptually requested Qwen -> Nex N2 Mini -> OpenRouter DeepSeek V4 Flash -> Solar Pro 4 -> AgentRouter. It is not a hard-coded route mapping: operators select and enable the exact deployed `openrouter:` IDs, while catalog availability, compatibility, health, and `maxAttempts` still apply.
+
+Each attempt receives the original request fields with only the physical `model` substituted. Anthropic Messages retains its thinking pin/strip and AgentRouter DeepSeek historical-tool compatibility transformations; OpenAI Chat Completions does not apply those transformations. Terminal routing headers identify the selected route and expose only a bounded base64url attempt projection of model, provider, status, and outcome.
 
 ## Product Surfaces
 
@@ -25,7 +31,8 @@ Provider catalogs, credits, routing configuration, metrics, dashboard content, a
 - `DATA_DIR/metrics.json`: bounded usage metadata/history, mode `0600`
 - `DATA_DIR/secrets/provider-credentials.json`: optional write-only overrides, directory `0700`, file `0600`
 - `DATA_DIR/secrets/client-api-keys.json`: hashes and metadata for managed proxy client keys, mode `0600`
-- Dashboard IndexedDB: saved arena runs and designs
+- Dashboard browser storage: Support workspace preferences and local drafts
+- Fieldbook IndexedDB: saved notes, comparisons, rooms, evaluations, and Studio projects
 - Fieldbook IndexedDB: notes, text results, evaluations, Room state, scratchpad revisions, and virtual Studio projects
 - Process memory: health circuits, catalogs, credits cache, in-flight requests, bounded request-content inspection
 

@@ -1,7 +1,7 @@
 import type { ProviderCredits, ProviderId, ProviderRuntime } from "./types.js";
 
 const amount = (value: unknown): number | null => {
-  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  const parsed = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
   return Number.isFinite(parsed) ? parsed : null;
 };
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value)

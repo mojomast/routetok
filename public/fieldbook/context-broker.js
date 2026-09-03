@@ -1,6 +1,6 @@
 export const CONTEXT_LIMITS = Object.freeze({ resources: 8, perResource: 60_000, total: 120_000 });
 
-export function createContextBroker({ document, getResources, onStatus = () => {} }) {
+export function createContextBroker({ document, getResources, getIdentity, onStatus = () => {} }) {
   const selected = new Map();
   let activeScope = null;
   const dialog = document.createElement("dialog");
@@ -16,25 +16,32 @@ export function createContextBroker({ document, getResources, onStatus = () => {
     return (getResources() || []).filter((item) => item && typeof item.id === "string" && typeof item.content === "string");
   }
 
+  function selectionKey(scope, identity = getIdentity?.()) {
+    if (!identity) throw new Error("Context cannot be attached without an active note");
+    return `${identity}\u0000${scope}`;
+  }
+
   function open(scope) {
     activeScope = scope;
     const list = dialog.querySelector(".context-picker-list");
     list.replaceChildren();
-    const chosen = selected.get(scope) || new Set();
+    const identity = getIdentity?.();
+    const chosen = selected.get(selectionKey(scope, identity)) || new Set();
     for (const resource of available()) {
       const label = document.createElement("label");
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
       checkbox.checked = chosen.has(resource.id);
-      checkbox.addEventListener("change", () => { checkbox.checked = toggle(scope, resource.id, checkbox.checked); });
+      checkbox.addEventListener("change", () => { checkbox.checked = toggle(scope, resource.id, checkbox.checked, identity); });
       label.append(checkbox, document.createTextNode(`${resource.label} · ${resource.content.length.toLocaleString()} chars · ${resource.provenance}`));
       list.append(label);
     }
     dialog.showModal();
   }
 
-  function toggle(scope, id, enabled) {
-    const chosen = selected.get(scope) || new Set();
+  function toggle(scope, id, enabled, identity = getIdentity?.()) {
+    const key = selectionKey(scope, identity);
+    const chosen = selected.get(key) || new Set();
     if (enabled) {
       if (chosen.size >= CONTEXT_LIMITS.resources) {
         onStatus("Context is limited to 8 resources");
@@ -43,7 +50,7 @@ export function createContextBroker({ document, getResources, onStatus = () => {
       }
       chosen.add(id);
     } else chosen.delete(id);
-    selected.set(scope, chosen);
+    selected.set(key, chosen);
     renderChips(scope);
     return chosen.has(id);
   }
@@ -53,7 +60,9 @@ export function createContextBroker({ document, getResources, onStatus = () => {
     if (!host) return;
     host.replaceChildren();
     const resources = new Map(available().map((item) => [item.id, item]));
-    for (const id of selected.get(scope) || []) {
+    const identity = getIdentity?.();
+    if (!identity) return;
+    for (const id of selected.get(selectionKey(scope, identity)) || []) {
       const resource = resources.get(id);
       if (!resource) continue;
       const chip = document.createElement("button");
@@ -61,16 +70,19 @@ export function createContextBroker({ document, getResources, onStatus = () => {
       chip.className = "context-chip";
       chip.textContent = `${resource.label} ×`;
       chip.title = `${resource.provenance}; remove attachment`;
-      chip.addEventListener("click", () => toggle(scope, id, false));
+      chip.addEventListener("click", () => toggle(scope, id, false, identity));
       host.append(chip);
     }
   }
 
   function consume(scope) {
-    const chosen = selected.get(scope) || new Set();
+    const identity = getIdentity?.();
+    const key = selectionKey(scope, identity);
+    const chosen = selected.get(key) || new Set();
     const resources = new Map(available().map((item) => [item.id, item]));
     const frozen = [...chosen].map((id) => resources.get(id)).filter(Boolean).map((item) => Object.freeze({
       id: item.id,
+      conversationId: identity,
       label: item.label,
       revision: String(item.revision ?? "current"),
       provenance: item.provenance,
@@ -80,7 +92,8 @@ export function createContextBroker({ document, getResources, onStatus = () => {
     const total = frozen.reduce((sum, item) => sum + item.content.length, 0);
     if (oversized) throw new Error(`“${oversized.label}” is ${oversized.content.length.toLocaleString()} characters; the per-resource limit is 60,000. Nothing was sent.`);
     if (total > CONTEXT_LIMITS.total) throw new Error(`Selected context is ${total.toLocaleString()} characters; the total limit is 120,000. Nothing was sent.`);
-    selected.delete(scope);
+    if (frozen.length !== chosen.size) throw new Error("Selected context changed or is no longer available in this note. Nothing was sent.");
+    selected.delete(key);
     renderChips(scope);
     return Object.freeze(frozen);
   }

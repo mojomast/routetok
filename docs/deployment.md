@@ -22,7 +22,7 @@ Upgrade procedure:
 
 Keep the complete `public/` directory beside the built service. The Fieldbook imports explicitly routed modules from `public/fieldbook/`, and the optional static benchmark gallery uses `public/image-gallery/`.
 
-If local transcription is enabled, operate Speaches as a separate loopback-only service and preserve its model cache independently from RouteTok's `DATA_DIR`.
+If local transcription is enabled, operate Speaches as a separate loopback-only service and preserve its model cache independently from RouteTok's `DATA_DIR`. The included `model-init` service retries transient HTTP/network failures and has a bounded on-failure restart policy; persistent failures remain visible through `docker compose ps` and logs.
 
 ## Docker Compose
 

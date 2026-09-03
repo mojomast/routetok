@@ -150,6 +150,120 @@ function emptyModel(): ModelAggregate {
   };
 }
 
+function object(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function nonNegative(value: unknown, fallback = 0): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function nullableNonNegative(value: unknown): number | null {
+  return value === null || value === undefined ? null : nonNegative(value, 0);
+}
+
+function normalizeTotals(input: unknown): AggregateTotals {
+  const value = object(input);
+  if (!value) throw new Error("metrics totals must be an object");
+  const output = emptyMetrics().totals;
+  for (const key of Object.keys(output) as Array<keyof AggregateTotals>) output[key] = nonNegative(value[key]);
+  output.costUsd = nonNegative(value.costUsd, output.reportedCostUsd + output.estimatedCostUsd);
+  return output;
+}
+
+function normalizeModel(input: unknown): ModelAggregate | null {
+  const value = object(input);
+  if (!value) return null;
+  const output = emptyModel();
+  for (const key of Object.keys(output) as Array<keyof ModelAggregate>) {
+    if (key !== "errors") (output[key] as number) = nonNegative(value[key]);
+  }
+  output.costUsd = nonNegative(value.costUsd, output.reportedCostUsd + output.estimatedCostUsd);
+  const errors = object(value.errors);
+  output.errors = errors ? Object.fromEntries(Object.entries(errors)
+    .filter(([key, count]) => key.length <= 1_000 && nonNegative(count, -1) >= 0)
+    .map(([key, count]) => [key, nonNegative(count)])) : {};
+  return output;
+}
+
+function normalizeRecord(input: unknown): RequestRecord | null {
+  const value = object(input);
+  const usage = object(value?.usage);
+  if (!value || !usage || !Array.isArray(value.attempts) || typeof value.id !== "string" || typeof value.timestamp !== "string" ||
+    !Number.isFinite(Date.parse(value.timestamp)) || (value.protocol !== "openai" && value.protocol !== "anthropic") ||
+    typeof value.path !== "string" || typeof value.requestedModel !== "string" ||
+    (value.selectedModel !== null && typeof value.selectedModel !== "string") || typeof value.stream !== "boolean") return null;
+  const attempts = value.attempts.flatMap((inputAttempt) => {
+    const attempt = object(inputAttempt);
+    if (!attempt || typeof attempt.model !== "string" || !["success", "transient_error", "permanent_error", "rate_limited", "cancelled"].includes(String(attempt.outcome))) return [];
+    return [{
+      ...attempt,
+      status: attempt.status === null ? null : nonNegative(attempt.status),
+      durationMs: nonNegative(attempt.durationMs),
+      firstOutputMs: nullableNonNegative(attempt.firstOutputMs)
+    }];
+  });
+  if (attempts.length !== value.attempts.length) return null;
+  return {
+    ...value,
+    status: nonNegative(value.status),
+    durationMs: nonNegative(value.durationMs),
+    ttftMs: nullableNonNegative(value.ttftMs),
+    generationDurationMs: nullableNonNegative(value.generationDurationMs),
+    outputTokensPerSecond: nullableNonNegative(value.outputTokensPerSecond),
+    attempts,
+    usage: {
+      input: nonNegative(usage.input), output: nonNegative(usage.output),
+      cacheRead: nonNegative(usage.cacheRead), cacheWrite: nonNegative(usage.cacheWrite),
+      costCny: nonNegative(usage.costCny), estimatedCostUsd: nonNegative(usage.estimatedCostUsd),
+      reportedCostUsd: nonNegative(usage.reportedCostUsd),
+      costUsd: nonNegative(usage.costUsd, nonNegative(usage.reportedCostUsd) || nonNegative(usage.estimatedCostUsd))
+    },
+    error: typeof value.error === "string" ? value.error : null
+  } as RequestRecord;
+}
+
+function normalizeSample(input: unknown): MetricSample | null {
+  const value = object(input);
+  if (!value || typeof value.timestamp !== "string" || !Number.isFinite(Date.parse(value.timestamp)) || typeof value.requestId !== "string" ||
+    (value.protocol !== "openai" && value.protocol !== "anthropic") || (value.model !== null && typeof value.model !== "string") ||
+    (value.provider !== null && typeof value.provider !== "string") || typeof value.success !== "boolean") return null;
+  return {
+    timestamp: value.timestamp, requestId: value.requestId, protocol: value.protocol, model: value.model, provider: value.provider,
+    status: nonNegative(value.status), success: value.success, attempts: nonNegative(value.attempts), durationMs: nonNegative(value.durationMs),
+    ttftMs: nullableNonNegative(value.ttftMs), outputTokensPerSecond: nullableNonNegative(value.outputTokensPerSecond),
+    inputTokens: nonNegative(value.inputTokens), outputTokens: nonNegative(value.outputTokens),
+    cacheReadTokens: nonNegative(value.cacheReadTokens), cacheWriteTokens: nonNegative(value.cacheWriteTokens),
+    estimatedCostUsd: nonNegative(value.estimatedCostUsd), reportedCostUsd: nonNegative(value.reportedCostUsd), costUsd: nonNegative(value.costUsd)
+  };
+}
+
+function normalizeMetrics(input: unknown): PersistedMetrics {
+  const value = object(input);
+  const models = object(value?.byModel);
+  if (!value || !models || !Array.isArray(value.recent)) throw new Error("metrics file schema is invalid");
+  const normalizedModels = Object.fromEntries(Object.entries(models).slice(0, 10_000).flatMap(([key, model]) => {
+    const normalized = normalizeModel(model);
+    return normalized && key.length <= 1_000 ? [[key, normalized]] : [];
+  }));
+  const totals = normalizeTotals(value.totals);
+  const rawTotals = object(value.totals);
+  if (rawTotals?.upstreamAttempts === undefined) {
+    totals.upstreamAttempts = Object.values(normalizedModels).reduce((sum, model) => sum + model.attempts, 0);
+  }
+  const recent = value.recent.slice(0, 100).map(normalizeRecord).filter((record): record is RequestRecord => record !== null);
+  const series = Array.isArray(value.series)
+    ? value.series.slice(-5_000).map(normalizeSample).filter((sample): sample is MetricSample => sample !== null)
+    : recent.slice().reverse().map(metricSample);
+  return {
+    totals,
+    experimentTotals: value.experimentTotals === undefined ? emptyMetrics().experimentTotals : normalizeTotals(value.experimentTotals),
+    byModel: normalizedModels,
+    recent,
+    series
+  };
+}
+
 function metricLabel(value: string): string {
   return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n");
 }
@@ -168,48 +282,7 @@ export class MetricsStore {
 
   async load(): Promise<void> {
     try {
-      const parsed = JSON.parse(await readFile(this.filePath, "utf8")) as PersistedMetrics;
-      if (parsed?.totals && parsed?.byModel && Array.isArray(parsed.recent)) {
-        parsed.totals.costCny ??= 0;
-        parsed.experimentTotals ??= emptyMetrics().experimentTotals;
-        parsed.totals.estimatedCostUsd ??= 0;
-        parsed.totals.reportedCostUsd ??= 0;
-        parsed.totals.costUsd ??= parsed.totals.reportedCostUsd + parsed.totals.estimatedCostUsd;
-        parsed.totals.cacheReadTokens ??= 0;
-        parsed.totals.cacheWriteTokens ??= 0;
-        parsed.totals.upstreamAttempts ??= Object.values(parsed.byModel)
-          .reduce((total, model) => total + model.attempts, 0);
-        parsed.totals.clientCancellations ??= 0;
-        parsed.totals.ttftSamples ??= 0;
-        parsed.totals.totalTtftMs ??= 0;
-        parsed.totals.generationSamples ??= 0;
-        parsed.totals.totalGenerationDurationMs ??= 0;
-        parsed.totals.generationOutputTokens ??= 0;
-        for (const model of Object.values(parsed.byModel)) {
-          model.costCny ??= 0;
-          model.estimatedCostUsd ??= 0;
-          model.reportedCostUsd ??= 0;
-          model.costUsd ??= model.reportedCostUsd + model.estimatedCostUsd;
-          model.cacheReadTokens ??= 0;
-          model.cacheWriteTokens ??= 0;
-          model.cancellations ??= 0;
-        }
-        for (const record of parsed.recent) {
-          record.usage.costCny ??= 0;
-          record.usage.estimatedCostUsd ??= 0;
-          record.usage.reportedCostUsd ??= 0;
-          record.usage.costUsd ??= record.usage.reportedCostUsd || record.usage.estimatedCostUsd;
-          record.usage.cacheRead ??= 0;
-          record.usage.cacheWrite ??= 0;
-          record.ttftMs ??= null;
-          record.generationDurationMs ??= null;
-          record.outputTokensPerSecond ??= null;
-          for (const attempt of record.attempts) attempt.firstOutputMs ??= null;
-        }
-        parsed.series ??= parsed.recent.slice().reverse().map(metricSample);
-        parsed.series = parsed.series.slice(-5_000);
-        this.state = parsed;
-      }
+      this.state = normalizeMetrics(JSON.parse(await readFile(this.filePath, "utf8")));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
         console.warn("Ignoring invalid persisted metrics:", (error as Error).message);

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { flattenAgentRouterDeepSeekToolHistory } from "../../src/proxy.js";
+import { isolatedTestEnv, stopChild, waitFor } from "../support/process.js";
 
 test("AgentRouter DeepSeek compatibility flattens only historical Anthropic tool blocks", () => {
   const input = {
@@ -92,12 +93,28 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
             supported_endpoint_types: ["openai"],
             model_ratio: 4,
             completion_ratio: 5
+          },
+          {
+            model_name: "zz-entitlement-model",
+            supported_endpoint_types: ["openai"],
+            model_ratio: 1,
+            completion_ratio: 1
+          },
+          {
+            model_name: "zz-account-forbidden-model",
+            supported_endpoint_types: ["openai"],
+            model_ratio: 1,
+            completion_ratio: 1
           }
         ]
       }));
       return;
     }
-    if (request.url !== "/v1/chat/completions") {
+    if (request.url === "/opencode/models") {
+      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{ id: "big-pickle" }] }));
+      return;
+    }
+    if (request.url !== "/v1/chat/completions" && request.url !== "/v1/responses") {
       response.writeHead(404).end();
       return;
     }
@@ -112,6 +129,21 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
       ,maxTokens: payload.max_tokens
     });
     const messages = Array.isArray(payload.messages) ? payload.messages : [];
+    if (request.url === "/v1/responses") {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ id: "resp-test", object: "response", output: [], usage: { input_tokens: 11, output_tokens: 2, input_tokens_details: { cached_tokens: 7 } } }));
+      return;
+    }
+    if (payload.model === "zz-entitlement-model") {
+      response.writeHead(403, { "content-type": "application/json", "x-private": "hidden" });
+      response.end(JSON.stringify({ error: { code: "model_access_denied", message: "Model is not accessible to this credential" }, preserved: "entitlement-body" }));
+      return;
+    }
+    if (payload.model === "zz-account-forbidden-model") {
+      response.writeHead(403, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: { code: "account_policy", message: "Account policy denied this request" }, preserved: "account-body" }));
+      return;
+    }
     if (messages.some((message) => JSON.stringify(message).includes("trigger-sensitive-filter"))) {
       response.writeHead(500, { "content-type": "application/json" });
       response.end(JSON.stringify({
@@ -202,8 +234,7 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
   const dataDir = await mkdtemp(path.join(tmpdir(), "routetok-test-"));
   const child = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], {
     cwd: path.resolve("."),
-    env: {
-      ...process.env,
+    env: isolatedTestEnv({
       HOST: "127.0.0.1",
       PORT: String(proxyPort),
       DATA_DIR: dataDir,
@@ -211,8 +242,9 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
       AGENTROUTER_BASE_URL: `http://127.0.0.1:${upstreamAddress.port}`,
       GROQ_API_KEY: "test-groq-key",
       GROQ_BASE_URL: `http://127.0.0.1:${upstreamAddress.port}`,
+      OPENCODE_ZEN_BASE_URL: `http://127.0.0.1:${upstreamAddress.port}/opencode`,
       PROXY_API_KEY: "local-client-key"
-    },
+    }),
     stdio: ["ignore", "pipe", "pipe"]
   });
 
@@ -305,6 +337,7 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
     assert.match(dashboardHtml, /id="open-api-access"/);
     assert.match(dashboardHtml, /id="health-model-sort"/);
     assert.match(dashboardHtml, /id="health-model-options"/);
+    assert.match(dashboardHtml, /id="paid-openrouter-order-list"/);
     assert.match(dashboardHtml, /id="reset-circuits"/);
     assert.doesNotMatch(dashboardHtml, /class="panel system-panel"/);
     assert.doesNotMatch(dashboardHtml, /data-sandbox-mode="(?:chat|design)"/);
@@ -375,6 +408,23 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
     const anthropicCatalog = await anthropicModels.json() as { has_more?: boolean };
     assert.equal(anthropicCatalog.has_more, false);
 
+    const responses = await fetch(`http://127.0.0.1:${proxyPort}/v1/responses`, {
+      method: "POST",
+      headers: { authorization: "Bearer local-client-key", "content-type": "application/json" },
+      body: JSON.stringify({ model: "good-model", input: "cache accounting" })
+    });
+    assert.equal(responses.status, 200);
+    const responsesRequestId = responses.headers.get("x-request-id");
+    await responses.text();
+    const responsesMetrics = await waitFor(async () => fetch(`http://127.0.0.1:${proxyPort}/admin/api/status`).then((result) => result.json()) as Promise<{
+      metrics: { recent: Array<{ id: string; usage: { input: number; output: number; cacheRead: number; cacheWrite: number } }> };
+    }>, (result) => result.metrics.recent.some((record) => record.id === responsesRequestId));
+    const responsesRecord = responsesMetrics.metrics.recent.find((record) => record.id === responsesRequestId);
+    assert.equal(responsesRecord?.usage.input, 11);
+    assert.equal(responsesRecord?.usage.output, 2);
+    assert.equal(responsesRecord?.usage.cacheRead, 7);
+    assert.equal(responsesRecord?.usage.cacheWrite, 0);
+
     const customCascadeConfig = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/config`, {
       method: "PATCH", headers: { "content-type": "application/json" },
       body: JSON.stringify({ customCascades: [{ name: "test-cascade", members: ["bad-model", "good-model"] }] })
@@ -420,14 +470,12 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
     });
     setTimeout(() => abortController.abort(), 100);
     await assert.rejects(cancelledRequest);
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    const cancelledStatus = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/status`);
-    const cancellationMetrics = await cancelledStatus.json() as {
+    const cancellationMetrics = await waitFor(async () => fetch(`http://127.0.0.1:${proxyPort}/admin/api/status`).then((result) => result.json()) as Promise<{
       metrics: {
         totals: { clientCancellations: number; upstreamAttempts: number };
         recent: Array<{ status: number; attempts: Array<{ outcome: string }> }>;
       };
-    };
+    }>, (result) => result.metrics.recent[0]?.status === 499);
     assert.equal(cancellationMetrics.metrics.recent[0]?.status, 499);
     assert.equal(cancellationMetrics.metrics.recent[0]?.attempts[0]?.outcome, "cancelled");
     assert.equal(cancellationMetrics.metrics.totals.clientCancellations, 1);
@@ -477,11 +525,12 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
     assert.doesNotMatch(streamText, /billing\.summary|data: null/);
     assert(Date.now() - streamStarted < 4_000, "heartbeat-only model should not extend its deadline");
 
-    const finalStatus = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/status`);
-    const finalDashboard = await finalStatus.json() as {
+    const streamRequestId = streamResponse.headers.get("x-request-id");
+    const finalDashboard = await waitFor(async () => fetch(`http://127.0.0.1:${proxyPort}/admin/api/status`).then((result) => result.json()) as Promise<{
       metrics: {
         inFlight: unknown[];
         recent: Array<{
+          id: string;
           ttftMs: number | null;
           generationDurationMs: number | null;
           outputTokensPerSecond: number | null;
@@ -489,7 +538,7 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
           usage: { costCny: number; estimatedCostUsd: number };
         }>;
       };
-    };
+    }>, (result) => result.metrics.inFlight.length === 0 && result.metrics.recent[0]?.id === streamRequestId);
     assert.equal(finalDashboard.metrics.recent[0]?.usage.costCny, 0.1278);
     assert.equal(finalDashboard.metrics.inFlight.length, 0);
     assert.equal(finalDashboard.metrics.recent[0]?.usage.estimatedCostUsd, 0.074734);
@@ -689,9 +738,33 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
     assert.equal(applied.status, 200);
     const appliedPayload = await applied.json() as { config: { maxAttempts: number } };
     assert.equal(appliedPayload.config.maxAttempts, 2);
+
+    const strictExplicit = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/config`, {
+      method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ fallbackExplicitModels: false })
+    });
+    assert.equal(strictExplicit.status, 200);
+    const entitlement = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+      method: "POST", headers: { authorization: "Bearer local-client-key", "content-type": "application/json" },
+      body: JSON.stringify({ model: "zz-entitlement-model", messages: [{ role: "user", content: "entitlement classification" }] })
+    });
+    assert.equal(entitlement.status, 403);
+    assert.deepEqual(await entitlement.json(), { error: { code: "model_access_denied", message: "Model is not accessible to this credential" }, preserved: "entitlement-body" });
+    const accountForbidden = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+      method: "POST", headers: { authorization: "Bearer local-client-key", "content-type": "application/json" },
+      body: JSON.stringify({ model: "zz-account-forbidden-model", messages: [{ role: "user", content: "account policy classification" }] })
+    });
+    assert.equal(accountForbidden.status, 403);
+    assert.deepEqual(await accountForbidden.json(), { error: { code: "account_policy", message: "Account policy denied this request" }, preserved: "account-body" });
+    const classifiedHealth = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/status`).then((result) => result.json()) as {
+      metrics: { health: Array<{ model: string; entitlementBlocked: boolean }> };
+    };
+    assert.equal(classifiedHealth.metrics.health.find((entry) => entry.model === "zz-entitlement-model")?.entitlementBlocked, true);
+    assert.equal(classifiedHealth.metrics.health.find((entry) => entry.model === "zz-account-forbidden-model")?.entitlementBlocked, false);
+
+    const imageCapabilities = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/images/capabilities`).then((result) => result.json()) as { status: string; models: unknown[] };
+    assert.deepEqual({ status: imageCapabilities.status, models: imageCapabilities.models }, { status: "unconfigured", models: [] });
   } finally {
-    child.kill("SIGTERM");
-    await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    await stopChild(child);
     await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
     await rm(dataDir, { recursive: true, force: true });
   }

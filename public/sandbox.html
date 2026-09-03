@@ -14,7 +14,7 @@
         <button class="icon mobile-only" id="toggle-library" type="button" aria-label="Open conversations" aria-controls="library" aria-expanded="false">☰</button>
         <a class="brand" href="/sandbox"><span>RouteTok</span><strong>Model Fieldbook</strong></a>
         <nav class="modes" aria-label="Sandbox mode">
-          <button data-mode="chat" class="active" type="button">Chat</button>
+          <button data-mode="chat" class="active" type="button" aria-current="page">Chat</button>
           <button data-mode="compare" type="button">Compare</button>
           <button data-mode="room" type="button">Room</button>
           <button data-mode="evaluate" type="button">Evaluate</button>
@@ -46,7 +46,7 @@
             <div><button id="rename-conversation" class="quiet" type="button">Rename</button><button id="duplicate-conversation" class="quiet" type="button">Duplicate</button><button id="delete-conversation" class="quiet danger" type="button">Delete</button></div>
           </header>
           <details class="roster-architect" data-roster-kind="chat"><summary>Roster Architect · configure this chatter</summary><div><label>Describe the behavior you want<textarea class="roster-request" rows="3" maxlength="5000" placeholder="Create a careful coding assistant that asks before making assumptions…"></textarea></label><div class="roster-actions"><span class="roster-status muted">Uses a confirmed free advisor and never starts a chat.</span><button class="roster-generate" type="button">Draft configuration</button><button class="roster-apply primary" type="button" hidden>Apply to fields</button></div><pre class="roster-proposal" hidden></pre></div></details>
-          <div id="lane-tabs" class="lane-tabs" role="tablist" aria-label="Result lanes"></div>
+          <div id="lane-tabs" class="lane-tabs" role="group" aria-label="Visible result lane"></div>
           <div id="transcript" class="transcript" aria-live="polite"></div>
           <form id="composer" class="composer">
             <label for="prompt" class="sr-only">Message</label>
@@ -138,7 +138,7 @@
             <section id="studio-workbench" class="studio-workbench" aria-label="Project editor and preview">
               <div id="studio-editor-pane" class="studio-editor-pane managed-panel" data-panel="code">
                 <div class="managed-panel-head"><strong>Code editor</strong><span class="managed-panel-actions"><button data-panel-action="minimize" type="button">Minimize</button><button data-panel-action="drawer" type="button">Drawer</button><button data-panel-action="column" type="button">Pin column</button></span></div>
-                <div id="studio-file-tabs" class="studio-file-tabs" role="tablist" aria-label="Project files"></div>
+                <div id="studio-file-tabs" class="studio-file-tabs" role="group" aria-label="Active project file"></div>
                 <label class="sr-only" for="studio-editor">Active project file</label>
                 <textarea id="studio-editor" spellcheck="false" aria-label="Active project file source"></textarea>
                 <p id="studio-project-status" class="studio-project-status muted" role="status"></p>

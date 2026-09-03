@@ -100,6 +100,24 @@ test("external catalogs are normalized with canonical route IDs and USD pricing"
   assert.equal(requesty[0]?.id, "requesty:provider/chat");
   assert.deepEqual(requesty[0]?.protocols, ["openai", "anthropic"]);
   assert.equal(requesty[0]?.pricing?.input, 2);
+
+  const requestyVision = parseRequestyCatalog([{ id: "provider/vision", type: "chat", supports_vision: true }]);
+  assert.deepEqual(requestyVision[0]?.inputModalities, ["text", "image"]);
+
+  const unknownOpenRouter = parseOpenRouterCatalog({ data: [{ id: "vendor/unknown", pricing: {} }] })[0];
+  assert.deepEqual(unknownOpenRouter?.inputModalities, []);
+  assert.deepEqual(unknownOpenRouter?.outputModalities, []);
+  assert.equal(unknownOpenRouter?.capabilities?.tools, null);
+  assert.equal(unknownOpenRouter?.capabilities?.vision, null);
+  assert.equal(unknownOpenRouter?.capabilities?.audio, null);
+  assert.equal(unknownOpenRouter?.supportedParameters, undefined);
+
+  const unknownRequesty = parseRequestyCatalog([{ id: "vendor/unknown" }])[0];
+  assert.deepEqual(unknownRequesty?.inputModalities, []);
+  assert.deepEqual(unknownRequesty?.outputModalities, []);
+  assert.equal(unknownRequesty?.capabilities?.tools, null);
+  assert.equal(unknownRequesty?.capabilities?.vision, null);
+  assert.equal(unknownRequesty?.capabilities?.audio, null);
 });
 
 test("OpenAI-compatible provider catalogs remain namespaced and conservative", () => {
@@ -169,6 +187,48 @@ test("external paid models require explicit enablement while free models do not"
     ...externalConfig,
     enabledExternalModels: ["requesty:openai/paid"]
   }), ["requesty:openai/paid"]);
+});
+
+test("paid OpenRouter requests use OpenRouter alternatives before AgentRouter", () => {
+  const router = new HealthRouter();
+  const paidCatalog: CatalogModel[] = [
+    { id: "openrouter:qwen/primary", providerId: "openrouter", upstreamId: "qwen/primary", protocols: ["openai"], source: "live", modelRatio: 1, completionRatio: 1, pricing: { input: 0.03, output: 0.13, cacheRead: null, cacheWrite: null } },
+    { id: "openrouter:nex/backup", providerId: "openrouter", upstreamId: "nex/backup", protocols: ["openai"], source: "live", modelRatio: 1, completionRatio: 1, pricing: { input: 0.025, output: 0.1, cacheRead: null, cacheWrite: null } },
+    { id: "openrouter:free:free", providerId: "openrouter", upstreamId: "free:free", protocols: ["openai"], source: "live", modelRatio: 1, completionRatio: 1, pricing: { input: 0, output: 0, cacheRead: null, cacheWrite: null } },
+    { id: "requesty:other", providerId: "requesty", upstreamId: "other", protocols: ["openai"], source: "live", modelRatio: 1, completionRatio: 1, pricing: { input: 0.02, output: 0.1, cacheRead: null, cacheWrite: null } },
+    { id: "deepseek-v4-flash", providerId: "agentrouter", protocols: ["openai"], source: "live", modelRatio: 1, completionRatio: 1 },
+    { id: "glm-5.3", providerId: "agentrouter", protocols: ["openai"], source: "live", modelRatio: 1, completionRatio: 1 }
+  ];
+  const paidConfig = {
+    ...config,
+    maxAttempts: 4,
+    openaiOrder: ["deepseek-v4-flash", "requesty:other", "glm-5.3"],
+    paidOpenRouterFallbackOrder: ["openrouter:free:free", "requesty:other", "openrouter:nex/backup"],
+    enabledExternalModels: ["openrouter:qwen/primary", "openrouter:nex/backup", "requesty:other"]
+  };
+  assert.deepEqual(router.candidates("openai", "openrouter:qwen/primary", paidCatalog, paidConfig), [
+    "openrouter:qwen/primary", "openrouter:nex/backup", "deepseek-v4-flash", "glm-5.3"
+  ]);
+  assert.deepEqual(router.candidates("openai", "openrouter:qwen/primary", paidCatalog, { ...paidConfig, fallbackExplicitModels: false }), [
+    "openrouter:qwen/primary", "openrouter:nex/backup", "deepseek-v4-flash", "glm-5.3"
+  ]);
+  assert.deepEqual(router.candidates("openai", "openrouter:qwen/primary", paidCatalog, { ...paidConfig, fallbackExplicitModels: false, paidOpenRouterFallbackOrder: [] }), ["openrouter:qwen/primary"]);
+  assert.deepEqual(router.candidates("openai", "requesty:other", paidCatalog, { ...paidConfig, fallbackExplicitModels: false }), ["requesty:other"]);
+  assert.equal(router.candidates("openai", "requesty:other", paidCatalog, paidConfig).includes("openrouter:nex/backup"), false);
+});
+
+test("fallback capability filtering rejects explicit conflicts but retains unknown metadata", () => {
+  const router = new HealthRouter();
+  const capabilityCatalog: CatalogModel[] = [
+    { id: "primary", providerId: "agentrouter", protocols: ["openai"], source: "live", modelRatio: 1, completionRatio: 1 },
+    { id: "no-tools", providerId: "agentrouter", protocols: ["openai"], source: "live", modelRatio: 1, completionRatio: 1, capabilities: { tools: false, vision: null, audio: null, reasoning: null, caching: null, webSearch: null } },
+    { id: "text-only", providerId: "agentrouter", protocols: ["openai"], source: "live", modelRatio: 1, completionRatio: 1, inputModalities: ["text"], outputModalities: ["text"], capabilities: { tools: true, vision: false, audio: false, reasoning: null, caching: null, webSearch: null } },
+    { id: "metadata-unknown", providerId: "agentrouter", protocols: ["openai"], source: "live", modelRatio: 1, completionRatio: 1, inputModalities: [], outputModalities: [], capabilities: { tools: null, vision: null, audio: null, reasoning: null, caching: null, webSearch: null } }
+  ];
+  const capabilityConfig = { ...config, maxAttempts: 4, openaiOrder: capabilityCatalog.map((model) => model.id) };
+  assert.deepEqual(router.candidates("openai", "primary", capabilityCatalog, capabilityConfig, {
+    tools: true, inputModalities: ["image"], outputModalities: []
+  }), ["primary", "metadata-unknown"]);
 });
 
 test("free virtual route only cascades through zero-cost external models", () => {
@@ -297,7 +357,7 @@ test("Responses stream inspector tracks text estimates and nested final usage", 
     'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"hello"}\n\n'
   ));
   inspector.push(encoder.encode(
-    'event: response.completed\ndata: {"type":"response.completed","response":{"usage":{"input_tokens":8,"output_tokens":3}}}\n\n'
+    'event: response.completed\ndata: {"type":"response.completed","response":{"usage":{"input_tokens":8,"output_tokens":3,"input_tokens_details":{"cached_tokens":5}}}}\n\n'
   ));
   inspector.finish();
   assert.equal(inspector.meaningful, true);
@@ -305,6 +365,7 @@ test("Responses stream inspector tracks text estimates and nested final usage", 
   assert.equal(inspector.outputUtf8Bytes, 5);
   assert.equal(inspector.usage.input, 8);
   assert.equal(inspector.usage.output, 3);
+  assert.equal(inspector.usage.cacheRead, 5);
 });
 
 test("signed Anthropic thinking pins the physical Claude model", () => {

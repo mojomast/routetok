@@ -53,4 +53,10 @@ RouteTok does not launch Speaches. A loopback-only, digest-pinned CPU example wi
 
 Routing policy is edited through the dashboard and persisted in `config.json`. It includes protocol orders, free order, paid external enablement, disabled routes, timeout/circuit settings, fallback behavior, and custom cascades. Configuration writes use optimistic revisions.
 
+Successful provider catalogs use the configured `catalogRefreshHours` freshness interval. Failed discovery attempts preserve the last usable models and become retryable after 30 seconds, so a transient startup or credential-refresh failure does not suppress discovery for the full normal interval.
+
+`paidOpenRouterFallbackOrder` is a separate ordered list used only after an explicitly requested paid or unknown-price OpenRouter model becomes unavailable before output. A non-empty list activates this path independently of `fallbackExplicitModels`. Its configured, enabled paid OpenRouter alternatives are tried in exact order, followed by compatible AgentRouter entries from the protocol quality order as last resorts. Free OpenRouter, virtual, custom-cascade, and other explicit provider requests do not use this chain. Membership never enables a paid model, and the complete sequence remains bounded by `maxAttempts`.
+
+For Qwen workloads, the current intended chain is requested Qwen -> Nex N2 Mini -> OpenRouter DeepSeek V4 Flash -> Solar Pro 4 -> AgentRouter. This is an operator policy, not a built-in mapping. Configure the exact current `openrouter:` catalog IDs, enable each paid/unknown-price alternative separately, and place desired AgentRouter last resorts in the applicable protocol order. `maxAttempts` counts the requested model and every fallback, so it can truncate this conceptual chain.
+
 Explicit image-model enablement is also the spending boundary for direct Fieldbook image generation. Studio-requested images add a second per-request approval boundary in the browser.

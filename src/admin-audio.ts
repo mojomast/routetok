@@ -260,7 +260,7 @@ export class AdminAudioService {
         throw new AudioHttpError(502, "Speech provider returned an invalid content type");
       }
       const bytes = await readFetchBody(upstream, MAX_SPEECH_BYTES, lifecycle.controller);
-      const responseFormat = body.response_format ?? "pcm";
+      const responseFormat = body.response_format;
       if (!bytes.length) throw new AudioHttpError(502, "Speech provider returned an empty response");
       if (responseFormat === "mp3") {
         if (contentType !== "audio/mpeg" && contentType !== "audio/mp3" && contentType !== "application/octet-stream") {
@@ -376,7 +376,7 @@ export class AdminAudioService {
       model: input.model.slice(11),
       input: input.input,
       ...(input.voice !== undefined ? { voice: input.voice } : {}),
-      ...(input.responseFormat !== undefined ? { response_format: input.responseFormat } : {}),
+      response_format: input.responseFormat ?? "pcm",
       ...(input.speed !== undefined ? { speed: input.speed } : {})
     };
   }

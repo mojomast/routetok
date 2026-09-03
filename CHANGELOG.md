@@ -9,10 +9,16 @@
 - Added the static image-model benchmark gallery and expanded browser/integration coverage.
 - Added scoped AgentRouter DeepSeek compatibility for historical Anthropic tool blocks.
 - Unified Code, Canvas, and Scratchpad under concurrent modeless drawers and redesigned Studio so agent activity and steering use the remaining workspace.
-- Focused the dashboard arena on RouteTok Support and added a visible API setup and write-only provider-key management section.
+- Focused the dashboard Support workspace on RouteTok operations and added a visible API setup and write-only provider-key management section.
 - Moved runtime telemetry to the dashboard header area, removed the System card, hid unconfigured provider status cards, and added persisted Route Health model visibility and sorting controls.
 - Converted API Setup into a dismissible drawer and added generated, hashed, individually revocable proxy client API keys alongside the existing environment key.
 - Added a hardened multi-stage Docker image and loopback-only Compose deployment with persistent runtime state.
+- Added a dedicated paid OpenRouter fallback order that preserves OpenRouter alternatives before AgentRouter last-resort routes.
+- Documented and verified exact paid OpenRouter routing, pre-output retry boundaries, request preservation, terminal routing metadata, and focused Qwen diagnostics.
+- Made failed catalog discovery retry after a short backoff instead of waiting for the normal freshness interval, while preserving the last usable catalog.
+- Filtered `/v1/models` to configured, enabled, text-capable routes and made fallback capability checks reject only explicit incompatibilities while retaining candidates with unknown metadata.
+- Corrected model-entitlement `403` classification, Responses cache-token accounting, blank credit handling, managed-key internal authentication, concurrent key mutation safety, persisted metrics normalization, image request limits/status, and the default speech format.
+- Hardened local and CI operations with isolated mock-only integration environments, bounded child-process teardown, recursive test discovery, Compose validation, Dockerfile checks, and retrying local STT model initialization.
 
 ## 0.1.0 - 2026-09-02
 

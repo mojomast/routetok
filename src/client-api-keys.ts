@@ -60,30 +60,35 @@ export class ClientApiKeyStore {
     if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some((key) => key !== "label")) throw new Error("Client key body may contain only label");
     const label = (input as { label?: unknown }).label;
     if (typeof label !== "string" || !label.trim() || label.trim().length > 80 || /[\0-\x1f\x7f]/.test(label)) throw new Error("Client key label must be 1 to 80 printable characters");
-    if (this.state.keys.length >= 64) throw new Error("Client API key limit reached");
     const secret = `rtk_${randomBytes(32).toString("base64url")}`;
     const record: ClientKeyRecord = { id: randomUUID(), label: label.trim(), hash: hash(secret), createdAt: new Date().toISOString() };
-    await this.mutate((next) => next.keys.push(record));
+    await this.mutate((next) => {
+      if (next.keys.length >= 64) throw new Error("Client API key limit reached");
+      next.keys.push(record);
+    });
     return { key: { id: record.id, label: record.label, createdAt: record.createdAt }, secret };
   }
 
   async revoke(id: string): Promise<ClientKeyStatus> {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) throw new Error("Client key id is invalid");
-    const existing = this.state.keys.find((entry) => entry.id === id);
-    if (!existing) throw new Error("Client API key not found");
-    await this.mutate((next) => { next.keys = next.keys.filter((entry) => entry.id !== id); });
-    return { id: existing.id, label: existing.label, createdAt: existing.createdAt };
+    return this.mutate((next) => {
+      const existing = next.keys.find((entry) => entry.id === id);
+      if (!existing) throw new Error("Client API key not found");
+      next.keys = next.keys.filter((entry) => entry.id !== id);
+      return { id: existing.id, label: existing.label, createdAt: existing.createdAt };
+    });
   }
 
-  private async mutate(change: (next: PersistedClientKeys) => void): Promise<void> {
+  private async mutate<T>(change: (next: PersistedClientKeys) => T): Promise<T> {
     const operation = this.queue.then(async () => {
       const next = structuredClone(this.state);
-      change(next);
+      const result = change(next);
       await this.persist(next);
       this.state = next;
+      return result;
     });
     this.queue = operation.then(() => undefined, () => undefined);
-    await operation;
+    return operation;
   }
 
   private validate(input: unknown): PersistedClientKeys {

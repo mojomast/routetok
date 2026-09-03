@@ -32,12 +32,12 @@ services:
 
   model-init:
     image: ghcr.io/speaches-ai/speaches@sha256:21e3df06d842fb7802ab470dd77c25f0e8c0d22950e8d8c6ae886e851af53ef8
-    restart: "no"
+    restart: "on-failure:3"
     depends_on:
       speaches:
         condition: service_healthy
     entrypoint: ["sh", "-c"]
-    command: ["curl --fail --silent --show-error --request POST http://speaches:8000/v1/models/Systran/faster-whisper-small"]
+    command: ["curl --fail --silent --show-error --retry 12 --retry-all-errors --retry-delay 5 --connect-timeout 10 --max-time 600 --request POST http://speaches:8000/v1/models/Systran/faster-whisper-small"]
     security_opt:
       - no-new-privileges:true
 

@@ -1,5 +1,7 @@
 import type { CatalogModel, ModelCapabilities, ModelPricing, Protocol, ProviderId, ProviderRuntime } from "./types.js";
 
+const CATALOG_FAILURE_RETRY_MS = 30_000;
+
 const FALLBACK_MODELS: CatalogModel[] = [
   { id: "gpt-5.6-sol", protocols: ["openai"], source: "fallback", modelRatio: 1.5, completionRatio: 5 },
   { id: "claude-opus-5", protocols: ["anthropic", "openai"], source: "fallback", modelRatio: 4, completionRatio: 5 },
@@ -134,11 +136,13 @@ export function parseOpenRouterCatalog(payload: unknown): CatalogModel[] {
       contextTokens: finite(entry.context_length),
       maxOutputTokens: finite(topProvider.max_completion_tokens),
       inputModalities, outputModalities,
-      supportedParameters: parameters,
+      ...(Array.isArray(entry.supported_parameters) ? { supportedParameters: parameters } : {}),
       capabilities: {
-        tools: parameters.some((p) => p === "tools" || p === "tool_choice"),
-        vision: inputModalities.includes("image"),
-        audio: inputModalities.includes("audio") || outputModalities.includes("audio"),
+        tools: parameters.length ? parameters.some((p) => p === "tools" || p === "tool_choice") : null,
+        vision: inputModalities.length ? inputModalities.includes("image") : null,
+        audio: inputModalities.includes("audio") || outputModalities.includes("audio")
+          ? true
+          : inputModalities.length && outputModalities.length ? false : null,
         reasoning: parameters.some((p) => p.includes("reasoning")),
         caching: pricing.input_cache_read !== undefined || pricing.input_cache_write !== undefined,
         webSearch: parameters.some((p) => p.includes("web"))
@@ -152,8 +156,9 @@ export function parseOpenRouterCatalog(payload: unknown): CatalogModel[] {
   });
 }
 
-export function isTextGenerationModel(model: CatalogModel): boolean {
-  if (!model.protocols.includes("openai") || (model.endpoints && !model.endpoints.includes("chat"))) return false;
+export function isTextGenerationModel(model: CatalogModel, protocol: Protocol = "openai"): boolean {
+  const textEndpoints = protocol === "anthropic" ? ["messages"] : ["chat", "responses"];
+  if (!model.protocols.includes(protocol) || (model.endpoints && !model.endpoints.some((endpoint) => textEndpoints.includes(endpoint)))) return false;
   if (model.inputModalities?.length && !model.inputModalities.includes("text")) return false;
   if (model.outputModalities?.length && (model.outputModalities.length !== 1 || model.outputModalities[0] !== "text")) return false;
   if (model.providerId === "openrouter" && model.supportedParameters?.length) {
@@ -184,8 +189,7 @@ export function parseRequestyCatalog(payload: unknown): CatalogModel[] {
       ? strings(entry.input_modalities) : strings(modalities.input);
     let outputModalities = strings(entry.output_modalities).length
       ? strings(entry.output_modalities) : strings(modalities.output);
-    if (inputModalities.length === 0) inputModalities = ["text", ...(entry.supports_vision === true ? ["image"] : [])];
-    if (outputModalities.length === 0) outputModalities = ["text"];
+    if (inputModalities.length === 0 && entry.supports_vision === true) inputModalities = ["text", "image"];
     const features = strings(entry.supported_parameters).concat(strings(entry.capabilities));
     const pricingBands = Array.isArray(entry.pricing)
       ? entry.pricing.map(object).sort((left, right) => (finite(left.prompt_tokens_threshold) ?? 0) - (finite(right.prompt_tokens_threshold) ?? 0))
@@ -193,9 +197,12 @@ export function parseRequestyCatalog(payload: unknown): CatalogModel[] {
     const prices = pricingBands[0] ?? object(entry.pricing);
     const capabilities = nullableCapabilities();
     capabilities.tools = typeof entry.supports_tool_calling === "boolean"
-      ? entry.supports_tool_calling : features.some((p) => /tool|function/.test(p));
-    capabilities.vision = typeof entry.supports_vision === "boolean" ? entry.supports_vision : inputModalities.includes("image");
-    capabilities.audio = inputModalities.includes("audio") || outputModalities.includes("audio");
+      ? entry.supports_tool_calling : features.length ? features.some((p) => /tool|function/.test(p)) : null;
+    capabilities.vision = typeof entry.supports_vision === "boolean"
+      ? entry.supports_vision : inputModalities.length ? inputModalities.includes("image") : null;
+    capabilities.audio = inputModalities.includes("audio") || outputModalities.includes("audio")
+      ? true
+      : inputModalities.length && outputModalities.length ? false : null;
     capabilities.reasoning = typeof entry.supports_reasoning === "boolean" ? entry.supports_reasoning : features.some((p) => /reason/.test(p));
     capabilities.caching = typeof entry.supports_caching === "boolean" ? entry.supports_caching
       : prices.cache_read !== undefined || prices.cache_write !== undefined || entry.cached_price !== undefined;
@@ -248,7 +255,7 @@ export function parseOpenAiCompatibleCatalog(payload: unknown, provider: Provide
       protocols: ["openai"], endpoints: provider.endpoints ?? ["chat"], source: "live", modelRatio: 1, completionRatio: 1,
       contextTokens: finite(entry.context_window ?? entry.context_length ?? entry.max_context_length),
       maxOutputTokens: finite(entry.max_completion_tokens ?? entry.max_output_tokens ?? entry.max_tokens),
-      inputModalities: inputModalities.length ? inputModalities : ["text"], outputModalities: outputModalities.length ? outputModalities : ["text"],
+      inputModalities, outputModalities,
       supportedParameters: strings(entry.supported_parameters),
       capabilities: {
         tools: typeof capabilities.function_calling === "boolean" ? capabilities.function_calling : null,
@@ -267,6 +274,7 @@ export class CatalogService {
   private readonly providers: ProviderRuntime[];
   private readonly states = new Map<ProviderId, ProviderCatalogState>();
   private refreshPromise: Promise<CatalogModel[]> | null = null;
+  private refreshingProviders = new Set<ProviderId>();
 
   constructor(input: string | ProviderRuntime[], private readonly fetchImpl: typeof fetch = fetch) {
     this.providers = typeof input === "string" ? [{ id: "agentrouter", configured: true, baseUrl: input, apiKey: "" }] : input;
@@ -326,10 +334,11 @@ export class CatalogService {
 
   async refreshIfStale(hours: number): Promise<CatalogModel[]> {
     const configured = [...this.states.values()].filter((state) => state.configured);
-    if (configured.length && configured.every((state) => state.lastAttempt && Date.now() - state.lastAttempt < hours * 3_600_000)) {
-      return this.getModels();
-    }
-    return this.refresh();
+    const now = Date.now();
+    const stale = configured.filter((state) => state.lastError
+      ? state.lastAttempt === null || now - state.lastAttempt >= CATALOG_FAILURE_RETRY_MS
+      : state.lastRefresh === null || now - state.lastRefresh >= hours * 3_600_000);
+    return stale.length ? this.refreshProviders(stale.map((state) => state.providerId)) : this.getModels();
   }
 
   async refresh(providerId?: ProviderId): Promise<CatalogModel[]> {
@@ -339,10 +348,20 @@ export class CatalogService {
       await this.fetchProvider(provider);
       return this.getModels();
     }
-    if (this.refreshPromise) return this.refreshPromise;
-    this.refreshPromise = Promise.all(this.providers.filter((provider) => provider.configured).map((provider) => this.fetchProvider(provider)))
+    return this.refreshProviders(this.providers.filter((provider) => provider.configured).map((provider) => provider.id));
+  }
+
+  private refreshProviders(providerIds: ProviderId[]): Promise<CatalogModel[]> {
+    if (this.refreshPromise) {
+      const missing = providerIds.filter((providerId) => !this.refreshingProviders.has(providerId));
+      return missing.length ? this.refreshPromise.then(() => this.refreshProviders(missing)) : this.refreshPromise;
+    }
+    const providers = this.providers.filter((provider) => provider.configured && providerIds.includes(provider.id));
+    this.refreshingProviders = new Set(providers.map((provider) => provider.id));
+    this.refreshPromise = Promise.all(providers.map((provider) => this.fetchProvider(provider)))
       .then(() => this.getModels()).finally(() => {
       this.refreshPromise = null;
+      this.refreshingProviders.clear();
     });
     return this.refreshPromise;
   }

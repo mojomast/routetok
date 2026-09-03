@@ -38,6 +38,7 @@ export function createPanelManager({ document, storage, panels, onPopout, onChan
         else if (action === "minimize") setPreference(id, "minimized", button);
         else if (action === "popout") onPopout?.(id);
       });
+      if (action !== "popout") button.setAttribute("aria-pressed", "false");
     });
   }
 
@@ -149,6 +150,10 @@ export function createPanelManager({ document, storage, panels, onPopout, onChan
     }
     rail.replaceChildren();
     records.forEach((record, id) => {
+      record.element.querySelectorAll("[data-panel-action]").forEach((button) => {
+        const action = button.dataset.panelAction;
+        if (action !== "popout") button.setAttribute("aria-pressed", String(action === (openDrawers.has(id) ? "drawer" : record.preference)));
+      });
       if (openDrawers.has(id)) return;
       returnToAnchor(record);
       record.element.dataset.presentation = record.preference;

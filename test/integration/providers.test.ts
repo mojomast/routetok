@@ -5,6 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { isolatedTestEnv, stopChild } from "../support/process.js";
 
 async function requestBody(request: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
@@ -43,9 +44,15 @@ test("multi-provider inference and credits keep credentials and model IDs separa
         model_name: "agent-model", supported_endpoint_types: ["openai"], model_ratio: 1, completion_ratio: 1
       }] })); return;
     }
+    if (request.url === "/opencode/models") {
+      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{ id: "big-pickle" }] })); return;
+    }
     if (request.url === "/openrouter/v1/models?output_modalities=all") {
       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{
         id: "vendor/or-model", name: "OR Model", architecture: { input_modalities: ["text"], output_modalities: ["text"] },
+        supported_parameters: ["tools"], pricing: { prompt: "0.000001", completion: "0.000002" }
+      }, {
+        id: "vendor/or-backup", name: "OR Backup", architecture: { input_modalities: ["text"], output_modalities: ["text"] },
         supported_parameters: ["tools"], pricing: { prompt: "0.000001", completion: "0.000002" }
       }] })); return;
     }
@@ -73,6 +80,10 @@ test("multi-provider inference and credits keep credentials and model IDs separa
     }
     if (request.url === "/openrouter/v1/chat/completions" || request.url === "/requesty/v1/messages" || request.url === "/generic/v1/chat/completions") {
       const payload = await requestBody(request);
+      if (request.url === "/openrouter/v1/chat/completions" && payload.model === "vendor/or-model" && JSON.stringify(payload).includes("trigger paid fallback")) {
+        response.writeHead(429, { "content-type": "application/json", "retry-after": "1" }).end(JSON.stringify({ error: { message: "rate limited" } }));
+        return;
+      }
       if (request.url === "/openrouter/v1/chat/completions" && payload.stream === true) {
         openRouterArenaUserAgents.push(String(request.headers["user-agent"] || ""));
         response.writeHead(200, { "content-type": "text/event-stream" });
@@ -96,27 +107,34 @@ test("multi-provider inference and credits keep credentials and model IDs separa
   const proxyPort = await freePort();
   const dataDir = await mkdtemp(path.join(tmpdir(), "router-providers-"));
   const child = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], {
-    cwd: path.resolve("."), stdio: ["ignore", "pipe", "pipe"], env: { ...process.env,
+    cwd: path.resolve("."), stdio: ["ignore", "pipe", "pipe"], env: isolatedTestEnv({
       HOST: "127.0.0.1", PORT: String(proxyPort), DATA_DIR: dataDir, PROXY_API_KEY: "local",
       AGENTROUTER_API_KEY: "agent-secret", AGENTROUTER_BASE_URL: `${root}/agent`,
       OPENROUTER_API_KEY: "openrouter-secret", OPENROUTER_MANAGEMENT_KEY: "management-secret", OPENROUTER_BASE_URL: `${root}/openrouter/v1`,
       REQUESTY_API_KEY: "requesty-secret", REQUESTY_BASE_URL: `${root}/requesty/v1`, REQUESTY_MANAGEMENT_BASE_URL: `${root}/management`
       ,GENERIC_OPENAI_BASE_URL: `${root}/generic/v1`, GENERIC_OPENAI_AUTH: "none", GENERIC_OPENAI_ALLOW_PRIVATE: "true"
-    }
+      ,OPENCODE_ZEN_BASE_URL: `${root}/opencode`
+    })
   });
   try {
     await ready(child);
     const models = await fetch(`http://127.0.0.1:${proxyPort}/v1/models`, { headers: { authorization: "Bearer local" } }).then((r) => r.json()) as { data: Array<{ id: string; owned_by: string }> };
-    assert(models.data.some((model) => model.id === "openrouter:vendor/or-model" && model.owned_by === "openrouter"));
-    assert(models.data.some((model) => model.id === "requesty:vendor/rq-model" && model.owned_by === "requesty"));
-    assert(models.data.some((model) => model.id === "generic:local-model" && model.owned_by === "generic"));
+    assert(models.data.some((model) => model.id === "agent-model" && model.owned_by === "agentrouter"));
+    assert(models.data.some((model) => model.id === "opencode:big-pickle" && model.owned_by === "opencode"));
+    assert(!models.data.some((model) => ["openrouter:vendor/or-model", "requesty:vendor/rq-model", "generic:local-model"].includes(model.id)), "paid or unknown external models must not be listed before enablement");
+    const anthropicModels = await fetch(`http://127.0.0.1:${proxyPort}/v1/models`, { headers: { authorization: "Bearer local", "anthropic-version": "2023-06-01" } }).then((r) => r.json()) as { data: Array<{ id: string }> };
+    assert(!anthropicModels.data.some((model) => model.id === "agent-model"), "OpenAI-only models must not appear in the Anthropic catalog");
 
     const enabled = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/config`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ enabledExternalModels: ["openrouter:vendor/or-model", "requesty:vendor/rq-model", "generic:local-model"] })
+      body: JSON.stringify({ enabledExternalModels: ["openrouter:vendor/or-model", "openrouter:vendor/or-backup", "requesty:vendor/rq-model", "generic:local-model"], paidOpenRouterFallbackOrder: ["openrouter:vendor/or-backup"], fallbackExplicitModels: false, openaiOrder: ["agent-model"] })
     });
     assert.equal(enabled.status, 200);
+    const enabledModels = await fetch(`http://127.0.0.1:${proxyPort}/v1/models`, { headers: { authorization: "Bearer local" } }).then((r) => r.json()) as { data: Array<{ id: string; owned_by: string }> };
+    assert(enabledModels.data.some((model) => model.id === "openrouter:vendor/or-model" && model.owned_by === "openrouter"));
+    assert(enabledModels.data.some((model) => model.id === "requesty:vendor/rq-model" && model.owned_by === "requesty"));
+    assert(enabledModels.data.some((model) => model.id === "generic:local-model" && model.owned_by === "generic"));
 
     const openRouter = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, { method: "POST",
       headers: { authorization: "Bearer local", "content-type": "application/json", "x-api-key": "client-secret" },
@@ -136,6 +154,15 @@ test("multi-provider inference and credits keep credentials and model IDs separa
     assert.equal(openRouterArenaPayload.results[0]?.error, null);
     assert.deepEqual(openRouterArenaUserAgents, ["opencode/1.15.13"]);
 
+    const paidFallback = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, { method: "POST",
+      headers: { authorization: "Bearer local", "content-type": "application/json" },
+      body: JSON.stringify({ model: "openrouter:vendor/or-model", messages: [{ role: "user", content: "trigger paid fallback" }] }) });
+    assert.equal(paidFallback.status, 200);
+    assert.equal(paidFallback.headers.get("x-router-provider"), "openrouter");
+    assert.equal(paidFallback.headers.get("x-router-route"), "openrouter:vendor/or-backup");
+    assert.equal(paidFallback.headers.get("x-router-attempts"), "2");
+    await paidFallback.text();
+
     const requesty = await fetch(`http://127.0.0.1:${proxyPort}/v1/messages`, { method: "POST",
       headers: { "x-api-key": "local", "content-type": "application/json", "anthropic-version": "2023-06-01" },
       body: JSON.stringify({ model: "requesty:vendor/rq-model", messages: [{ role: "user", content: "hi" }] }) });
@@ -148,6 +175,7 @@ test("multi-provider inference and credits keep credentials and model IDs separa
     await generic.text();
     assert.deepEqual(inference, [
       { url: "/openrouter/v1/chat/completions", authorization: "Bearer openrouter-secret", apiKey: undefined, anthropicVersion: undefined, model: "vendor/or-model" },
+      { url: "/openrouter/v1/chat/completions", authorization: "Bearer openrouter-secret", apiKey: undefined, anthropicVersion: undefined, model: "vendor/or-backup" },
       { url: "/requesty/v1/messages", authorization: undefined, apiKey: "requesty-secret", anthropicVersion: "2023-06-01", model: "vendor/rq-model" },
       { url: "/generic/v1/chat/completions", authorization: undefined, apiKey: undefined, anthropicVersion: undefined, model: "local-model" }
     ]);
@@ -166,8 +194,7 @@ test("multi-provider inference and credits keep credentials and model IDs separa
     assert(status.metrics.recent.some((record) => record.provider === "generic" && record.usage.costUsd === 0.003));
     assert.doesNotMatch(JSON.stringify(status.providers), /secret/);
   } finally {
-    child.kill("SIGTERM");
-    await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    await stopChild(child);
     await new Promise<void>((resolve) => upstream.close(() => resolve()));
     await rm(dataDir, { recursive: true, force: true });
   }

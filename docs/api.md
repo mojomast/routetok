@@ -10,7 +10,29 @@
 
 Inference accepts `Authorization: Bearer <PROXY_API_KEY>` or `x-api-key` when configured.
 
-Response metadata includes `x-request-id`, `x-router-model`, `x-router-route`, `x-router-provider`, and `x-router-attempts`.
+`GET /v1/models` returns virtual and custom routes plus physical text-generation routes whose provider is configured and whose spending policy allows use. Disabled routes, image-only routes, unconfigured providers, and paid or unknown-price external models that have not been explicitly enabled are omitted. Unknown capability metadata is not treated as an incompatibility.
+
+Routed response metadata includes `x-request-id`, selected physical route aliases `x-router-model` and `x-router-route`, `x-router-provider`, and `x-router-attempts`. `x-router-terminal` states why routing ended: `complete`, `rate_limited`, `fallback_exhausted`, `non_retryable`, `request_timeout`, `client_cancelled`, `no_candidate`, `invalid_request`, or `stream_committed`.
+
+`x-router-attempt-summary` is base64url-encoded UTF-8 JSON with this versioned compact shape:
+
+```json
+{"v":1,"a":[{"p":"openrouter","m":"openrouter:vendor/model","s":503,"o":"transient_error"}],"t":2}
+```
+
+In each attempt, `p`, `m`, `s`, and `o` mean provider, model, HTTP status (or `null` for a transport failure), and outcome. The optional `t` is the total attempt count when entries were omitted. The summary contains no prompt, response, credential, request body, or upstream error text. It is capped at 16 entries, provider/model/outcome strings are capped at 32/96/32 characters, and the encoded header is capped at 4,096 characters; if that limit is exceeded, the payload contains an empty `a` and total `t`. Decode with a base64url-aware decoder, cap decoded data before logging, parse as UTF-8 JSON, check `v`, and tolerate an omitted/truncated attempt list. `x-router-attempts` remains the total count.
+
+A local `400` before selected-route headers (`x-router-model`, `x-router-route`, and `x-router-provider`) means RouteTok rejected malformed JSON, a non-object top level, an absent/blank/non-string `model`, or a non-boolean `stream`. Diagnostic terminal/count headers may still be present. RouteTok does not locally schema-validate tool definitions, JSON Schema keywords such as `oneOf` or `enum`, or `tool_choice`; those fields are preserved for the selected provider.
+
+When `paidOpenRouterFallbackOrder` is non-empty, an explicit paid OpenRouter request uses it before the AgentRouter-only tail of the relevant protocol order. This is independent of `fallbackExplicitModels`, allowing other explicit routes to remain strict. The sequence is filtered for enablement, compatibility, and health and remains bounded by `maxAttempts`. This special chain does not apply to free OpenRouter, virtual, custom-cascade, or other explicit provider routes.
+
+A `429` from a paid OpenRouter attempt advances immediately through this dedicated chain and records the provider cooldown. Other request classes retain RouteTok's terminal `429` behavior and do not fan out.
+
+Fallback remains pre-output only. Retriable conditions include `429` while the paid OpenRouter cascade is active, transport failure, first-output timeout, and transient HTTP `502`, `503`, or `504`. The broader transient status set is `408`, `425`, `500`, `502`, `503`, `504`, and `529`; invalid, empty, or challenge responses and streams that fail, end, or exceed the metadata bound before semantic output may also advance. Retryable HTTP-200 error payloads and AgentRouter budget-pool exhaustion retain their existing special handling. Candidates and `maxAttempts` bound every chain.
+
+A complete successful non-stream response never falls back. A stream commits as soon as semantic text, reasoning, refusal, or tool/function output appears and never falls back afterward, even if it later stalls, disconnects, or lacks a terminal event. Request body fields are preserved across attempts except for substitution of the selected physical `model`. Existing Anthropic thinking pin/strip behavior and AgentRouter DeepSeek historical-tool compatibility transformations may apply to Anthropic Messages; they do not alter OpenAI Chat Completions requests.
+
+Fallback candidates are removed when catalog metadata explicitly conflicts with request requirements such as tools, image/audio input, or non-text output. Missing metadata remains unknown and does not by itself remove a candidate. A model-specific entitlement `403` blocks that route until health reset; unrelated account/policy `403` responses do not. In either case the bounded upstream error body is preserved for the client.
 
 ## Operations
 
@@ -34,15 +56,15 @@ Only SHA-256 digests are persisted. Managed keys and the environment `PROXY_API_
 Arena speech endpoints are also protected by dashboard authentication:
 
 - `GET /admin/api/audio/capabilities` returns bounded OpenRouter speech plus local Speaches and Requesty transcription model inventories. Local models use the `local:` namespace and appear before `requesty:` models; only models confirmed by current discovery are advertised. The initial release advertises only catalog-confirmed free TTS models.
-- `POST /admin/api/audio/speech` accepts strict JSON containing a namespaced free OpenRouter speech model, up to 4,096 input characters, an optional advertised voice, MP3 or PCM output, and optional speed. It returns bounded audio bytes and does not retry.
+- `POST /admin/api/audio/speech` accepts strict JSON containing a namespaced free OpenRouter speech model, up to 4,096 input characters, an optional advertised voice, MP3 or PCM output, and optional speed. The explicit default is PCM when `responseFormat` is omitted. It returns bounded audio bytes and does not retry.
 - `POST /admin/api/audio/transcriptions` accepts bounded multipart form data containing one audio file, one approved `local:` or `requesty:` model, and an optional two-letter language. It returns sanitized transcript text and usage. Local requests go only to the startup-configured Speaches API root; Requesty requests use the effective Requesty credential.
 
-Audio content is never passed through the text proxy or added to request retention, metrics, history, or arena persistence. The two audio operations share a separate concurrency limit of two.
+Audio content is never passed through the text proxy or added to request retention, metrics, history, or Fieldbook persistence. The two audio operations share a separate concurrency limit of two.
 
 Fieldbook image endpoints are protected by dashboard authentication:
 
-- `GET /admin/api/images/capabilities` returns explicitly enabled OpenRouter image-output models and bounded generation options.
-- `POST /admin/api/images/generations` accepts one enabled `openrouter:` model, a prompt, and optional aspect ratio, quality, and PNG/JPEG/WebP/SVG format values. It requests one image through OpenRouter's dedicated Image API, allows only one active generation, validates MIME, base64, decoded size, raster signatures, and passive SVG structure, and returns ephemeral data URLs plus sanitized reported usage.
+- `GET /admin/api/images/capabilities` returns `unconfigured` with no models when OpenRouter credentials are absent; otherwise it returns explicitly enabled OpenRouter image-output models and bounded generation options.
+- `POST /admin/api/images/generations` accepts at most 1 MiB of valid JSON containing one enabled `openrouter:` model, a prompt, and optional aspect ratio, quality, and PNG/JPEG/WebP/SVG format values. Malformed JSON returns `400` and an oversized request returns `413`. It requests one image through OpenRouter's dedicated Image API, allows only one active generation, validates MIME, base64, decoded size, raster signatures, and passive SVG structure, and returns ephemeral data URLs plus sanitized reported usage.
 
 Image bytes do not enter RouteTok metrics, request retention, Fieldbook IndexedDB, notes, forks, or exports.
 

@@ -6,6 +6,7 @@ import type { ProviderRuntime } from "./types.js";
 
 const MAX_RESPONSE_BYTES = 24 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 16 * 1024 * 1024;
+const MAX_REQUEST_BYTES = 1024 * 1024;
 const IMAGE_TIMEOUT_MS = 240_000;
 const MIMES = new Set(["image/png", "image/jpeg", "image/webp", "image/svg+xml"]);
 const ASPECT_RATIOS = new Set(["auto", "1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "4:5", "5:4", "2:1", "1:2"]);
@@ -25,6 +26,24 @@ function sendJson(response: ServerResponse, status: number, value: object): void
   const bytes = Buffer.from(JSON.stringify(value));
   response.writeHead(status, { "content-type": "application/json; charset=utf-8", "content-length": String(bytes.length), "cache-control": "no-store", "x-content-type-options": "nosniff" });
   response.end(bytes);
+}
+
+async function readJsonBody(request: IncomingMessage, maximum = MAX_REQUEST_BYTES): Promise<unknown> {
+  const declared = Number(request.headers["content-length"]);
+  if (Number.isFinite(declared) && declared > maximum) throw new ImageHttpError(413, "Image request body is too large");
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += bytes.length;
+    if (size > maximum) throw new ImageHttpError(413, "Image request body is too large");
+    chunks.push(bytes);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks, size).toString("utf8"));
+  } catch {
+    throw new ImageHttpError(400, "Image request body must be valid JSON");
+  }
 }
 
 function validImage(bytes: Buffer, mime: string): boolean {
@@ -65,6 +84,11 @@ export class AdminImageService {
   constructor(private readonly providers: ProviderRuntime[], private readonly catalog: CatalogService, private readonly config: ConfigStore) {}
 
   capabilities(response: ServerResponse): void {
+    const provider = this.providers.find((entry) => entry.id === "openrouter");
+    if (!provider?.configured || !provider.apiKey) {
+      sendJson(response, 200, { status: "unconfigured", models: [], formats: [...FORMATS], aspectRatios: [...ASPECT_RATIOS], qualities: [...QUALITIES], ephemeral: true });
+      return;
+    }
     const models = this.imageModels().map((model) => ({
       id: model.id,
       displayName: model.displayName ?? model.id,
@@ -73,15 +97,15 @@ export class AdminImageService {
       pricing: model.pricing ?? null,
       inputModalities: model.inputModalities ?? [],
       outputModalities: model.outputModalities ?? [],
-      supportedParameters: model.supportedParameters ?? []
+      ...(model.supportedParameters === undefined ? {} : { supportedParameters: model.supportedParameters })
     }));
     sendJson(response, 200, { status: models.length ? "available" : "unavailable", models, formats: [...FORMATS], aspectRatios: [...ASPECT_RATIOS], qualities: [...QUALITIES], ephemeral: true });
   }
 
-  async generate(request: IncomingMessage, response: ServerResponse, input: unknown): Promise<void> {
+  async generate(request: IncomingMessage, response: ServerResponse): Promise<void> {
     if (this.active) return sendJson(response, 429, { error: "An image generation is already active" });
-    const body = object(input);
     try {
+      const body = object(await readJsonBody(request));
       if (!body || Object.keys(body).some((key) => !["model", "prompt", "aspectRatio", "quality", "outputFormat"].includes(key))) throw new ImageHttpError(400, "Image request is invalid");
       if (typeof body.model !== "string" || !this.imageModels().some((model) => model.id === body.model)) throw new ImageHttpError(400, "Image model is unavailable or not enabled");
       if (typeof body.prompt !== "string" || !body.prompt.trim() || body.prompt.length > 16_000) throw new ImageHttpError(400, "Image prompt must contain 1 to 16000 characters");

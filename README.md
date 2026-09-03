@@ -41,6 +41,8 @@ Use Iteration Studio to coordinate one to four scoped agents over a browser-loca
 - Virtual routes: `auto`, `best`, `free`, plus ordered custom cascades
 - Provider-isolated credentials and canonical routes such as `openrouter:model-id`
 - Explicit enablement for paid or unknown-price external models
+- A dedicated paid OpenRouter fallback chain that keeps OpenRouter alternatives ahead of AgentRouter last-resort routes
+- A client model list limited to configured, enabled, text-capable routes
 - Live request telemetry, historical metrics, TTFT, throughput, tokens, cache activity, and cost
 - Human-reviewed, revision-bound routing configuration proposals
 - Parallel text and image comparisons with authoritative per-result metrics
@@ -90,7 +92,7 @@ Open:
 
 ## Use It As A Proxy
 
-RouteTok works with clients that support a custom OpenAI base URL:
+RouteTok works with clients that support a custom OpenAI base URL. `GET /v1/models` advertises only currently configured text routes that the client may request; paid or unknown-price external models appear only after explicit enablement.
 
 ```bash
 curl http://127.0.0.1:8787/v1/chat/completions \
@@ -103,7 +105,7 @@ curl http://127.0.0.1:8787/v1/chat/completions \
   }'
 ```
 
-Anthropic-compatible clients can use `POST /v1/messages` with `x-api-key`. Physical external routes are namespaced; virtual and custom routes resolve to ordered compatible candidates. RouteTok retries only before semantic output begins and reports the selected route through `x-router-*` response headers.
+Anthropic-compatible clients can use `POST /v1/messages` with `x-api-key`. Physical external routes are namespaced; virtual and custom routes resolve to ordered compatible candidates. RouteTok retries only before semantic or tool output begins. Exact paid OpenRouter requests can use `paidOpenRouterFallbackOrder` even when ordinary explicit-model fallback is disabled: configured OpenRouter alternatives run first, AgentRouter remains the last resort, and `maxAttempts` bounds the chain. Routing results and a bounded attempt summary are reported through `x-router-*` response headers.
 
 Ready-to-adapt client examples are in [`examples/`](examples/).
 

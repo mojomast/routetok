@@ -63,11 +63,18 @@ export interface RouterConfig {
   circuitOpenMs: number;
   openaiOrder: string[];
   anthropicOrder: string[];
+  paidOpenRouterFallbackOrder: string[];
   disabledModels: string[];
   enabledExternalModels: string[];
   freeModelOrder: string[];
   dashboardModel: string;
   customCascades: Array<{ name: string; members: string[] }>;
+}
+
+export interface RoutingRequirements {
+  tools: boolean;
+  inputModalities: string[];
+  outputModalities: string[];
 }
 
 export interface ModelHealth {

@@ -1,4 +1,4 @@
-import type { CatalogModel, ModelHealth, Protocol, RouterConfig } from "./types.js";
+import type { CatalogModel, ModelHealth, Protocol, RouterConfig, RoutingRequirements } from "./types.js";
 import { isFreeExternalCatalogModel, isTextGenerationModel } from "./catalog.js";
 
 const VIRTUAL_MODELS = new Set(["auto", "best", "agentrouter-auto", "agentrouter-best", "free", "free-auto"]);
@@ -31,6 +31,20 @@ function freshHealth(protocol: Protocol, model: string): ModelHealth {
   };
 }
 
+function isExplicitlyIncompatible(model: CatalogModel, requirements: RoutingRequirements): boolean {
+  if (requirements.tools && model.capabilities?.tools === false) return true;
+  for (const modality of requirements.inputModalities) {
+    if (model.inputModalities?.length && !model.inputModalities.includes(modality)) return true;
+    if (modality === "image" && model.capabilities?.vision === false) return true;
+    if (modality === "audio" && model.capabilities?.audio === false) return true;
+  }
+  for (const modality of requirements.outputModalities) {
+    if (model.outputModalities?.length && !model.outputModalities.includes(modality)) return true;
+    if (modality === "audio" && model.capabilities?.audio === false) return true;
+  }
+  return false;
+}
+
 export class HealthRouter {
   private readonly health = new Map<string, ModelHealth>();
 
@@ -38,7 +52,8 @@ export class HealthRouter {
     protocol: Protocol,
     requestedModel: string,
     catalog: CatalogModel[],
-    config: RouterConfig
+    config: RouterConfig,
+    requirements?: RoutingRequirements
   ): string[] {
     const now = Date.now();
     const available = new Set(
@@ -55,10 +70,12 @@ export class HealthRouter {
     const configuredOrder = protocol === "openai" ? config.openaiOrder : config.anthropicOrder;
     const customCascade = config.customCascades.find((cascade) => cascade.name === requestedModel);
     const freeVirtual = requestedModel === "free" || requestedModel === "free-auto";
+    const requestedCatalogModel = catalog.find((model) => model.id === requestedModel);
+    const paidOpenRouterRequest = !customCascade && !VIRTUAL_MODELS.has(requestedModel) && requestedCatalogModel?.providerId === "openrouter" && !isFreeExternalCatalogModel(requestedCatalogModel);
     const freeModels = catalog
       .filter((model) => model.protocols.includes(protocol))
       .filter((model) => model.providerId && model.providerId !== "agentrouter")
-      .filter((model) => isFreeExternalCatalogModel(model) && isTextGenerationModel(model))
+      .filter((model) => isFreeExternalCatalogModel(model) && isTextGenerationModel(model, protocol))
       .filter((model) => available.has(model.id));
     const freeIds = new Set(freeModels.map((model) => model.id));
     const freeOrder = [
@@ -76,13 +93,25 @@ export class HealthRouter {
       ...unorderedAgentRouter.filter((model) => available.has(model) && !configuredOrder.includes(model)).sort()
     ];
     const ordered = customCascade ? customCascade.members.filter((model) => available.has(model)) : freeVirtual ? freeOrder : standardOrder;
+    const paidOpenRouterFallbacks = [
+      ...config.paidOpenRouterFallbackOrder.filter((id) => {
+        const model = catalog.find((entry) => entry.id === id);
+        return model?.providerId === "openrouter" && !isFreeExternalCatalogModel(model) && available.has(id) && id !== requestedModel;
+      }),
+      ...standardOrder.filter((id) => {
+        const model = catalog.find((entry) => entry.id === id);
+        return available.has(id) && (model?.providerId ?? "agentrouter") === "agentrouter";
+      })
+    ].filter((id, index, values) => values.indexOf(id) === index);
+    const explicitFallbackOrder = paidOpenRouterRequest ? paidOpenRouterFallbacks : ordered;
+    const explicitFallbackEnabled = paidOpenRouterRequest ? config.paidOpenRouterFallbackOrder.length > 0 : config.fallbackExplicitModels;
 
     const virtual = Boolean(customCascade) || VIRTUAL_MODELS.has(requestedModel);
     let candidates = virtual
       ? ordered
       : [
           requestedModel,
-          ...(config.fallbackExplicitModels ? ordered.filter((model) => model !== requestedModel) : [])
+          ...(explicitFallbackEnabled ? explicitFallbackOrder.filter((model) => model !== requestedModel) : [])
         ];
 
     candidates = candidates.filter((model, index) => candidates.indexOf(model) === index);
@@ -92,6 +121,8 @@ export class HealthRouter {
       .filter((model) => {
         if (config.disabledModels.includes(model)) return false;
         if (!available.has(model)) return false;
+        const catalogModel = catalog.find((entry) => entry.id === model);
+        if (requirements && model !== exact && catalogModel && isExplicitlyIncompatible(catalogModel, requirements)) return false;
         const state = this.peek(protocol, model);
         if (state.entitlementBlocked) return false;
         if (state.rateLimitedUntil && state.rateLimitedUntil > now) return false;
@@ -104,7 +135,7 @@ export class HealthRouter {
         }
         return true;
       });
-    return (customCascade ? filtered : filtered.sort((left, right) => {
+    return (customCascade || paidOpenRouterRequest ? filtered : filtered.sort((left, right) => {
         if (exact && left === exact) return -1;
         if (exact && right === exact) return 1;
         return this.score(protocol, right, ordered) - this.score(protocol, left, ordered);

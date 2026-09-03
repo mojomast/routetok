@@ -44,6 +44,7 @@ const state = {
   token: localStorage.getItem("routetok-dashboard-token") || localStorage.getItem("agentrouter-dashboard-token") || "",
   timer: null,
   sandboxLibraryOpen: false,
+  sandboxLibraryStarredOnly: false,
   arenaWorkspaces: Object.fromEntries(ARENA_MODES.map((mode) => [mode, createArenaWorkspace(mode, storedArena?.workspaces?.[mode])])),
   sandboxMode: storedArenaMode,
   confirmingProposal: null,
@@ -654,6 +655,7 @@ function renderHealth(catalog, metrics, config) {
   const activeModels = new Set([
     ...(config.openaiOrder || []),
     ...(config.anthropicOrder || []),
+    ...(config.paidOpenRouterFallbackOrder || []),
     ...(config.freeModelOrder || []),
     ...(config.enabledExternalModels || []),
     config.dashboardModel,
@@ -1266,6 +1268,7 @@ function fillConfig(config) {
   state.configDraft = {
     openaiOrder: [...(config.openaiOrder || [])],
     anthropicOrder: [...(config.anthropicOrder || [])],
+    paidOpenRouterFallbackOrder: [...(config.paidOpenRouterFallbackOrder || [])],
     freeModelOrder: [...(config.freeModelOrder || [])],
     disabledModels: [...(config.disabledModels || [])],
     enabledExternalModels: [...(config.enabledExternalModels || [])],
@@ -1332,6 +1335,7 @@ function syncDraftInputs() {
   if (!state.configDraft) return;
   byId("openaiOrder").value = state.configDraft.openaiOrder.join("\n");
   byId("anthropicOrder").value = state.configDraft.anthropicOrder.join("\n");
+  byId("paidOpenRouterFallbackOrder").value = state.configDraft.paidOpenRouterFallbackOrder.join("\n");
   byId("freeModelOrder").value = state.configDraft.freeModelOrder.join("\n");
   byId("disabledModels").value = state.configDraft.disabledModels.join("\n");
   byId("enabledExternalModels").value = state.configDraft.enabledExternalModels.join("\n");
@@ -1554,6 +1558,7 @@ function filteredModels() {
   const maximumPrice = maxText === "" ? null : Number(maxText);
   const openai = new Set(state.configDraft?.openaiOrder || []);
   const anthropic = new Set(state.configDraft?.anthropicOrder || []);
+  const paidOpenRouter = new Set(state.configDraft?.paidOpenRouterFallbackOrder || []);
   const free = new Set(state.configDraft?.freeModelOrder || []);
   const models = catalogModels().filter((model) => {
     const capabilityTags = modelCapabilityTags(model).map((item) => String(item).toLowerCase());
@@ -1567,8 +1572,9 @@ function filteredModels() {
     if (enabledState === "disabled" && isModelEnabled(model)) return false;
     if (order === "openai" && !openai.has(model.id)) return false;
     if (order === "anthropic" && !anthropic.has(model.id)) return false;
+    if (order === "paid-openrouter" && !paidOpenRouter.has(model.id)) return false;
     if (order === "free" && !free.has(model.id)) return false;
-    if (order === "unordered" && (openai.has(model.id) || anthropic.has(model.id) || free.has(model.id))) return false;
+    if (order === "unordered" && (openai.has(model.id) || anthropic.has(model.id) || paidOpenRouter.has(model.id) || free.has(model.id))) return false;
     if (freeOnly && !isFreeExternalModel(model)) return false;
     if (minimumPrice !== null || maximumPrice !== null) {
       const price = modelPrice(model, priceBasis);
@@ -1639,6 +1645,7 @@ function renderModelRows() {
   }
   const openai = new Set(state.configDraft.openaiOrder);
   const anthropic = new Set(state.configDraft.anthropicOrder);
+  const paidOpenRouter = new Set(state.configDraft.paidOpenRouterFallbackOrder);
   const free = new Set(state.configDraft.freeModelOrder);
   for (const model of models) {
     const row = document.createElement("tr");
@@ -1683,7 +1690,7 @@ function renderModelRows() {
     wire.textContent = (model.protocols || []).join(" / ") || "--";
     const health = document.createElement("small"); health.textContent = `Health: ${modelHealthLabel(model)}`; wire.append(health);
     const membership = document.createElement("td");
-    membership.textContent = [openai.has(model.id) && `OAI #${state.configDraft.openaiOrder.indexOf(model.id) + 1}`, anthropic.has(model.id) && `ANT #${state.configDraft.anthropicOrder.indexOf(model.id) + 1}`, free.has(model.id) && `FREE #${state.configDraft.freeModelOrder.indexOf(model.id) + 1}`].filter(Boolean).join(" / ") || "--";
+    membership.textContent = [openai.has(model.id) && `OAI #${state.configDraft.openaiOrder.indexOf(model.id) + 1}`, anthropic.has(model.id) && `ANT #${state.configDraft.anthropicOrder.indexOf(model.id) + 1}`, paidOpenRouter.has(model.id) && `OR PAID #${state.configDraft.paidOpenRouterFallbackOrder.indexOf(model.id) + 1}`, free.has(model.id) && `FREE #${state.configDraft.freeModelOrder.indexOf(model.id) + 1}`].filter(Boolean).join(" / ") || "--";
     const enabled = document.createElement("td");
     const label = document.createElement("label"); label.className = "model-toggle";
     const toggle = document.createElement("input"); toggle.type = "checkbox"; toggle.checked = isModelEnabled(model); toggle.dataset.toggleModel = model.id;
@@ -1702,8 +1709,12 @@ function renderModelRows() {
   renderModelDetail(catalogModels().find((model) => model.id === state.selectedModelId));
 }
 
+function orderConfigKey(protocol) {
+  return { openai: "openaiOrder", anthropic: "anthropicOrder", "paid-openrouter": "paidOpenRouterFallbackOrder", free: "freeModelOrder" }[protocol];
+}
+
 function moveOrder(protocol, id, destination) {
-  const key = protocol === "free" ? "freeModelOrder" : protocol === "anthropic" ? "anthropicOrder" : "openaiOrder";
+  const key = orderConfigKey(protocol);
   const order = state.configDraft[key];
   const index = order.indexOf(id);
   if (index < 0) return;
@@ -1720,9 +1731,9 @@ function moveOrder(protocol, id, destination) {
 
 function renderQualityOrders() {
   if (!state.configDraft) return;
-  for (const protocol of ["openai", "anthropic", "free"]) {
+  for (const protocol of ["openai", "anthropic", "paid-openrouter", "free"]) {
     const list = byId(`${protocol}-order-list`);
-    const order = state.configDraft[protocol === "free" ? "freeModelOrder" : `${protocol}Order`];
+    const order = state.configDraft[orderConfigKey(protocol)];
     list.replaceChildren();
     order.forEach((id, index) => {
       const item = document.createElement("li"); item.className = "quality-order-item"; item.tabIndex = 0; item.dataset.orderModel = id; item.dataset.orderProtocol = protocol;
@@ -1781,7 +1792,7 @@ function currentTotals() {
   const totals = state.status?.metrics?.totals;
   if (!totals) return null;
   return {
-    success: totals.requests ? totals.successes / totals.requests * 100 : 100,
+    success: totals.requests ? totals.successes / totals.requests * 100 : 0,
     requests: totals.requests,
     tokens: totals.inputTokens + totals.outputTokens,
     cost: totals.estimatedCostUsd,
@@ -1885,9 +1896,18 @@ function render(payload) {
   state.liveUpdatesAvailable = payload.runtime.liveUpdatesAvailable === true;
   const totals = payload.metrics.totals;
   const inFlight = payload.metrics.inFlight || [];
-  const successRate = totals.requests ? totals.successes / totals.requests * 100 : 100;
-  animateNumber(byId("success-rate"), successRate, (value) => `${value.toFixed(totals.requests ? 1 : 0)}%`);
-  byId("success-meter").style.width = `${successRate}%`;
+  const successRate = totals.requests ? totals.successes / totals.requests * 100 : null;
+  if (successRate == null) {
+    const successElement = byId("success-rate");
+    const animation = state.metricAnimations.get(successElement);
+    if (animation) cancelAnimationFrame(animation);
+    state.metricAnimations.delete(successElement);
+    successElement.textContent = "NO DATA";
+    delete successElement.dataset.numericValue;
+  } else {
+    animateNumber(byId("success-rate"), successRate, (value) => `${value.toFixed(1)}%`);
+  }
+  byId("success-meter").style.width = `${successRate ?? 0}%`;
   animateNumber(byId("request-count"), totals.requests, (value) => compactNumber(Math.round(value)));
   const reportedTokens = totals.inputTokens + totals.outputTokens;
   animateNumber(byId("token-count"), reportedTokens, (value) => compactNumber(Math.round(value)));
@@ -1998,6 +2018,17 @@ function notify(message, successful = false) {
   notice.className = `notice${successful ? " success" : ""}`;
   window.clearTimeout(notice._timer);
   notice._timer = window.setTimeout(() => notice.classList.add("hidden"), 5000);
+}
+
+async function copyToClipboard(text, successMessage, fallbackMessage = "Clipboard access was unavailable. Select the text manually.") {
+  try {
+    await navigator.clipboard.writeText(text);
+    notify(successMessage, true);
+    return true;
+  } catch {
+    notify(fallbackMessage);
+    return false;
+  }
 }
 
 function setAudioStatus(message, failed = false) {
@@ -2457,8 +2488,7 @@ function designArtifact(result) {
         if (!popup) return notify("The browser blocked the design popout.");
         popup.opener = null; popup.document.open(); popup.document.write(designPopoutDocument(source, scripts, result.requestedModel)); popup.document.close();
       } else if (action === "copy") {
-        await navigator.clipboard.writeText(source);
-        notify("Design source copied.", true);
+        await copyToClipboard(source, "Design source copied.", "Clipboard access was unavailable. Select the design source manually.");
       } else if (action === "expand") {
         shell.closest(".sandbox-result")?.classList.toggle("focused-result");
         button.textContent = shell.closest(".sandbox-result")?.classList.contains("focused-result") ? "COLLAPSE" : "EXPAND";
@@ -2494,7 +2524,7 @@ function sandboxResultCard(result, mode, context = {}) {
   header.append(title, status);
   const quickActions = document.createElement("span");
   quickActions.className = "result-quick-actions";
-  const quickActionList = [["COPY", "copy-result"], ["FOCUS", "focus-result"], [mode === "design" ? "TO CHAT" : "TO DESIGN", mode === "design" ? "chat" : "design"]];
+  const quickActionList = [["COPY", "copy-result"], ["FOCUS", "focus-result"]];
   if (!result.error && Number.isInteger(context.turnIndex)) quickActionList.unshift(["LISTEN", "listen"]);
   for (const [label, action] of quickActionList) {
     const button = document.createElement("button");
@@ -2583,7 +2613,7 @@ function sandboxResultCard(result, mode, context = {}) {
   }
   metricsDetails.append(metricsSummary, footer);
   card.append(metricsDetails);
-  if (result.error && Number.isInteger(context.turnIndex)) {
+  if (result.error && mode === "diagnose" && Number.isInteger(context.turnIndex)) {
     const retry = document.createElement("button"); retry.type = "button"; retry.className = "button secondary sandbox-retry"; retry.dataset.retryLane = result.laneId || result.requestedModel; retry.dataset.retryTurn = String(context.turnIndex); retry.textContent = "RETRY FAILED GENERATION"; card.append(retry);
   }
   return card;
@@ -2593,7 +2623,7 @@ function renderSandboxTurn(prompt, results, mode, turnIndex = null) {
   const bubble = chatBubble("user", prompt);
   const actions = document.createElement("div");
   actions.className = "prompt-actions";
-  for (const [label, action] of [["COPY", "copy-prompt"], ["REUSE", "reuse-prompt"], ["TO CHAT", "chat"], ["TO DESIGN", "design"]]) {
+  for (const [label, action] of [["COPY", "copy-prompt"], ["REUSE", "reuse-prompt"]]) {
     const button = document.createElement("button");
     button.type = "button";
     button.dataset.promptAction = action;
@@ -2811,13 +2841,22 @@ async function retrySandboxGeneration(laneId, turnIndex) {
 
 async function renderSandboxLibrary() {
   const list = byId("sandbox-library-list");
-  const filter = byId("sandbox-library-filter").value;
   list.replaceChildren();
-  const runs = (await listSandboxRuns()).filter((run) => filter === "all" || filter === "starred" ? filter !== "starred" || (run.turns || []).some((turn) => Object.values(turn.results || {}).some((result) => result.starred)) : run.mode === filter);
+  let runs;
+  try {
+    runs = await listSandboxRuns();
+  } catch (error) {
+    const failure = document.createElement("p");
+    failure.className = "sandbox-library-error";
+    failure.textContent = `Saved runs could not be loaded from this browser: ${error.message}`;
+    list.append(failure);
+    return;
+  }
+  if (state.sandboxLibraryStarredOnly) runs = runs.filter((run) => (run.turns || []).some((turn) => Object.values(turn.results || {}).some((result) => result.starred)));
   if (!runs.length) {
     const empty = document.createElement("p");
     empty.className = "chat-empty";
-    empty.textContent = "No saved results in this category.";
+    empty.textContent = state.sandboxLibraryStarredOnly ? "No starred saved runs." : "No saved Support runs or legacy archives.";
     list.append(empty);
     return;
   }
@@ -2829,7 +2868,8 @@ async function renderSandboxLibrary() {
     button.className = "sandbox-library-open";
     button.dataset.runId = run.id;
     const title = document.createElement("strong");
-    title.textContent = `${run.mode === "diagnose" ? "ASSISTANT" : run.mode.toUpperCase()} / ${run.models.length} MODEL${run.models.length === 1 ? "" : "S"}`;
+    const runLabel = run.mode === "diagnose" ? "SUPPORT" : `LEGACY ${String(run.mode || "UNKNOWN").toUpperCase()} ARCHIVE`;
+    title.textContent = `${runLabel} / ${(run.models || []).length} MODEL${(run.models || []).length === 1 ? "" : "S"}`;
     const meta = document.createElement("span");
     const turns = run.turns || [];
     const stars = turns.reduce((total, turn) => total + Object.values(turn.results || {}).filter((result) => result.starred).length, 0);
@@ -2860,12 +2900,11 @@ async function setSandboxLibraryOpen(open) {
 async function openSavedRun(id) {
   const run = await sandboxStore("readonly", (store) => store.get(id));
   if (!run) return notify("Saved run is unavailable.");
-  const mode = ARENA_MODES.includes(run.mode) ? run.mode : "chat";
-  const workspace = state.arenaWorkspaces[mode];
-  if (workspace.busy) return notify(`${mode.toUpperCase()} is still running. Stop it before opening another saved run.`);
+  const workspace = state.arenaWorkspaces.diagnose;
+  if (workspace.busy) return notify("Support is still running. Stop it before opening another saved run.");
   stopTts();
-  setSandboxMode(mode, true);
-  workspace.runId = run.id;
+  setSandboxMode("diagnose", true);
+  workspace.runId = run.mode === "diagnose" ? run.id : crypto.randomUUID();
   workspace.turns = structuredClone(run.turns || []);
   workspace.selectedModels = new Set((run.models || []).slice(0, 4));
   workspace.modelLineup = (run.modelLineup || run.models || []).filter((model) => typeof model === "string").slice(0, 4);
@@ -2883,7 +2922,7 @@ async function openSavedRun(id) {
   };
   renderActiveWorkspace();
   await setSandboxLibraryOpen(false);
-  byId("chat-route").textContent = `SAVED / ${workspace.turns.length} TURN${workspace.turns.length === 1 ? "" : "S"}`;
+  byId("chat-route").textContent = `${run.mode === "diagnose" ? "SAVED SUPPORT" : "LEGACY ARCHIVE"} / ${workspace.turns.length} TURN${workspace.turns.length === 1 ? "" : "S"}`;
   persistArenaWorkspaces();
 }
 
@@ -2907,7 +2946,7 @@ async function restoreArenaWorkspaces() {
 
 const PROPOSAL_FIELDS = {
   maxAttempts: ["Max attempts", "number", 1, 5], requestTimeoutMs: ["Request deadline / ms", "number", 5000, 600000], firstEventTimeoutMs: ["First output / ms", "number", 1000, 120000], slowModelFirstEventTimeoutMs: ["Slow-model first output / ms", "number", 5000, 180000], streamIdleTimeoutMs: ["Stream idle / ms", "number", 5000, 300000], catalogRefreshHours: ["Catalog refresh / hours", "number", 1, 168], circuitFailureThreshold: ["Circuit failures", "number", 1, 20], circuitMinimumSamples: ["Circuit minimum samples", "number", 1, 100], circuitWindowSize: ["Circuit window", "number", 2, 200], circuitOpenMs: ["Circuit open / ms", "number", 1000, 3600000],
-  fallbackExplicitModels: ["Fall back explicit models", "boolean"], thinkingFallbackMode: ["Thinking fallback", "enum"], openaiOrder: ["OpenAI order", "array"], anthropicOrder: ["Anthropic order", "array"], freeModelOrder: ["Free order", "array"], disabledModels: ["Disabled models", "array"], enabledExternalModels: ["Enabled external models", "array"], dashboardModel: ["Dashboard model", "text"], customCascades: ["Custom cascades", "json"]
+  fallbackExplicitModels: ["Fall back explicit models", "boolean"], thinkingFallbackMode: ["Thinking fallback", "enum"], openaiOrder: ["OpenAI order", "array"], anthropicOrder: ["Anthropic order", "array"], paidOpenRouterFallbackOrder: ["Paid OpenRouter fallback order", "array"], freeModelOrder: ["Free order", "array"], disabledModels: ["Disabled models", "array"], enabledExternalModels: ["Enabled external models", "array"], dashboardModel: ["Dashboard model", "text"], customCascades: ["Custom cascades", "json"]
 };
 
 function proposalControl(field, value) {
@@ -3039,7 +3078,7 @@ function renderAssistantPlan(plan) {
   const card = document.createElement("article");
   card.className = "assistant-plan";
   const title = document.createElement("strong");
-  title.textContent = `COMPARE PLAN / ${String(plan.mode || "chat").toUpperCase()} / NOT RUN`;
+  title.textContent = `LEGACY COMPARISON PLAN / ${String(plan.mode || "chat").toUpperCase()} / NOT RUN`;
   const rationale = document.createElement("p");
   rationale.textContent = plan.rationale;
   const lineup = document.createElement("p");
@@ -3056,56 +3095,12 @@ function renderAssistantPlan(plan) {
     item.textContent = warning;
     warnings.append(item);
   }
-  const actions = document.createElement("div");
-  actions.className = "assistant-plan-actions";
-  for (const mode of ["chat", "design"]) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = `button ${mode === plan.mode ? "primary-button" : "secondary"}`;
-    button.dataset.planHandoff = mode;
-    button.textContent = `OPEN IN ${mode.toUpperCase()}`;
-    actions.append(button);
-  }
+  const archiveNote = document.createElement("p");
+  archiveNote.textContent = "This dashboard no longer opens Chat or Design workspaces. Use Model Fieldbook for model comparisons.";
   card.append(title, rationale, lineup, summary);
   if (warnings.childElementCount) card.append(warnings);
-  card.append(prompt, actions);
+  card.append(prompt, archiveNote);
   byId("chat-messages").append(card);
-}
-
-function handoffToMode(mode, draft) {
-  if (!ARENA_MODES.includes(mode) || mode === "diagnose") return;
-  const target = state.arenaWorkspaces[mode];
-  if (target.busy) return notify(`${mode.toUpperCase()} is running; its draft was not changed.`);
-  target.draft = String(draft || "");
-  target.status = target.draft ? "draft" : target.status;
-  persistArenaWorkspaces();
-  setSandboxMode(mode, true);
-  byId("chat-input").focus();
-}
-
-async function handoffAssistantPlan(mode, plan) {
-  let target = state.arenaWorkspaces[mode];
-  if (!target || target.busy) return notify(`${mode.toUpperCase()} is running; the plan cannot replace its draft yet.`);
-  if (target.draft || target.turns.length || target.assistantPlan || target.configProposal) {
-    try { await saveSandboxRun(target, true); }
-    catch (error) { return notify(`The existing ${mode} workstream could not be saved: ${error.message}`); }
-    target = createArenaWorkspace(mode);
-    state.arenaWorkspaces[mode] = target;
-  }
-  target.draft = plan.prompt || "";
-  target.selectedModels = new Set((plan.models || []).slice(0, 4));
-  target.modelLineup = (plan.models || []).filter((model) => typeof model === "string").slice(0, 4);
-  target.parameters = {
-    providerDefaultMax: plan.parameters?.maxTokens == null,
-    maxTokens: plan.parameters?.maxTokens ?? 4096,
-    temperature: plan.parameters?.temperature ?? "",
-    topP: plan.parameters?.topP ?? ""
-  };
-  target.status = "draft";
-  target._defaultsLoaded = true;
-  persistArenaWorkspaces();
-  setSandboxMode(mode, true);
-  notify(`Plan opened as a ${mode} draft. Review it and send when ready.`, true);
 }
 
 async function runAssistantComparison(modeHint, message, workspace = activeWorkspace()) {
@@ -3161,36 +3156,65 @@ async function load(silent = false) {
   }
 }
 
+async function refreshDashboard() {
+  const button = byId("refresh-status");
+  if (button?.disabled) return;
+  const label = button?.textContent || "REFRESH";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "REFRESHING...";
+    button.setAttribute("aria-busy", "true");
+  }
+  try {
+    while (state.statusLoadBusy) await new Promise((resolve) => setTimeout(resolve, 25));
+    await load(false);
+    await loadHistory(true);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = label;
+      button.removeAttribute("aria-busy");
+    }
+  }
+}
+
 function lines(id) {
   return byId(id).value.split("\n").map((line) => line.trim()).filter(Boolean);
 }
 
-byId("config-form").addEventListener("submit", (event) => event.preventDefault());
+const CONFIG_NUMBER_FIELDS = ["maxAttempts", "requestTimeoutMs", "firstEventTimeoutMs", "slowModelFirstEventTimeoutMs", "streamIdleTimeoutMs", "circuitFailureThreshold", "circuitOpenMs", "circuitWindowSize", "circuitMinimumSamples", "catalogRefreshHours"];
+
+const CONFIG_DIRTY_FIELDS = new Set([...CONFIG_NUMBER_FIELDS, "fallbackExplicitModels", "thinkingFallbackMode", "openaiOrder", "anthropicOrder", "paidOpenRouterFallbackOrder", "freeModelOrder", "disabledModels", "enabledExternalModels"]);
+
 byId("config-form").addEventListener("input", (event) => {
-  if (!event.target.closest(".model-toolbar")) state.configDirty = true;
+  if (CONFIG_DIRTY_FIELDS.has(event.target.id)) state.configDirty = true;
 });
-byId("save-config").addEventListener("click", async () => {
+byId("config-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const invalid = CONFIG_NUMBER_FIELDS.map((id) => byId(id)).find((input) => !input.checkValidity());
+  if (invalid) {
+    invalid.reportValidity();
+    return;
+  }
   const button = byId("save-config");
   button.disabled = true;
   try {
+    const numberValues = Object.fromEntries(CONFIG_NUMBER_FIELDS.map((id) => [id, byId(id).valueAsNumber]));
+    if (Object.values(numberValues).some((value) => !Number.isFinite(value))) {
+      form.reportValidity();
+      return;
+    }
     await api("/admin/api/config", {
       method: "PATCH",
       headers: state.status?.configRevision ? { "x-config-revision": state.status.configRevision } : {},
       body: JSON.stringify({
-        maxAttempts: Number(byId("maxAttempts").value),
-        requestTimeoutMs: Number(byId("requestTimeoutMs").value),
-        firstEventTimeoutMs: Number(byId("firstEventTimeoutMs").value),
-        slowModelFirstEventTimeoutMs: Number(byId("slowModelFirstEventTimeoutMs").value),
-        streamIdleTimeoutMs: Number(byId("streamIdleTimeoutMs").value),
-        circuitFailureThreshold: Number(byId("circuitFailureThreshold").value),
-        circuitOpenMs: Number(byId("circuitOpenMs").value),
-        circuitWindowSize: Number(byId("circuitWindowSize").value),
-        circuitMinimumSamples: Number(byId("circuitMinimumSamples").value),
-        catalogRefreshHours: Number(byId("catalogRefreshHours").value),
+        ...numberValues,
         fallbackExplicitModels: byId("fallbackExplicitModels").checked,
         thinkingFallbackMode: byId("thinkingFallbackMode").value,
         openaiOrder: lines("openaiOrder"),
         anthropicOrder: lines("anthropicOrder"),
+        paidOpenRouterFallbackOrder: lines("paidOpenRouterFallbackOrder"),
         freeModelOrder: lines("freeModelOrder"),
         disabledModels: lines("disabledModels"),
         enabledExternalModels: lines("enabledExternalModels"),
@@ -3201,6 +3225,7 @@ byId("save-config").addEventListener("click", async () => {
     state.configDirty = false;
     notify("Routing policy applied.", true);
     await load(true);
+    setConfigOpen(false, { discardDirty: true });
   } catch (error) {
     notify(error.message);
   } finally {
@@ -3299,11 +3324,11 @@ function bulkSetEnabled(enabled) {
 }
 byId("models-enable")?.addEventListener("click", () => bulkSetEnabled(true));
 byId("models-disable")?.addEventListener("click", () => bulkSetEnabled(false));
-for (const protocol of ["openai", "anthropic", "free"]) {
+for (const protocol of ["openai", "anthropic", "paid-openrouter", "free"]) {
   byId(`models-add-${protocol}`)?.addEventListener("click", () => {
-    const key = protocol === "free" ? "freeModelOrder" : `${protocol}Order`;
+    const key = orderConfigKey(protocol);
     for (const model of catalogModels()) {
-      const compatible = protocol === "free" ? isFreeExternalModel(model) : modelSupports(model, protocol);
+      const compatible = protocol === "free" ? isFreeExternalModel(model) : protocol === "paid-openrouter" ? modelProvider(model) === "openrouter" && !isFreeExternalModel(model) : modelSupports(model, protocol);
       if (state.selectedModels.has(model.id) && compatible && !state.configDraft[key].includes(model.id)) state.configDraft[key].push(model.id);
     }
     setDraftDirty();
@@ -3383,13 +3408,21 @@ byId("auth-form").addEventListener("submit", async (event) => {
 });
 
 function setPageInert(overlay, scrim, inert) {
-  if (!overlay || overlay.parentElement !== document.body) return;
+  if (!overlay) return;
   if (!inert) {
     for (const child of state.modalInerted) child.inert = false;
     state.modalInerted = [];
     return;
   }
   for (const child of document.body.children) {
+    if (child.contains(overlay)) {
+      for (const nested of child.children) {
+        if (nested === overlay || nested === scrim || nested.contains(overlay) || nested.contains(scrim) || nested.inert) continue;
+        nested.inert = true;
+        state.modalInerted.push(nested);
+      }
+      continue;
+    }
     if (child === overlay || child === scrim || child === byId("command-palette") || child.tagName === "SCRIPT" || child.tagName === "DIALOG" || child.inert) continue;
     child.inert = true;
     state.modalInerted.push(child);
@@ -3403,10 +3436,10 @@ function focusableElements(container) {
 }
 
 function setChatOpen(open) {
+  if (open && state.configOpen && !setConfigOpen(false)) return false;
   if (open) {
     setCustomizeOpen(false);
     setApiAccessOpen(false);
-    setConfigOpen(false);
   }
   state.chatOpen = open;
   if (open) state.chatReturnFocus = document.activeElement;
@@ -3434,6 +3467,7 @@ function setChatOpen(open) {
     (state.chatReturnFocus?.isConnected ? state.chatReturnFocus : byId("open-chat"))?.focus();
     state.chatReturnFocus = null;
   }
+  return true;
 }
 
 function setCustomizeOpen(open) {
@@ -3442,8 +3476,8 @@ function setCustomizeOpen(open) {
   if (!drawer) return;
   if (open === state.customizeOpen) return;
   if (open) {
+    if (state.configOpen && !setConfigOpen(false)) return;
     setApiAccessOpen(false);
-    setConfigOpen(false);
     setChatOpen(false);
     state.customizeReturnFocus = document.activeElement;
     state.customizePreviousOverflow = document.body.style.overflow;
@@ -3474,7 +3508,8 @@ function setApiAccessOpen(open) {
   const drawer = byId("api-access"); const scrim = byId("api-access-scrim");
   if (!drawer || open === state.apiAccessOpen) return;
   if (open) {
-    setCustomizeOpen(false); setConfigOpen(false); setChatOpen(false);
+    if (state.configOpen && !setConfigOpen(false)) return;
+    setCustomizeOpen(false); setChatOpen(false);
     state.apiAccessReturnFocus = document.activeElement;
     state.apiAccessPreviousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -3495,23 +3530,42 @@ function setApiAccessOpen(open) {
   }
 }
 
-function setConfigOpen(open) {
+function setConfigOpen(open, { discardDirty = false } = {}) {
+  const drawer = byId("config-drawer");
+  const scrim = byId("config-scrim");
+  if (open === state.configOpen) return true;
+  if (!open && state.configDirty && !discardDirty && !confirm("Discard unapplied Settings changes?")) return false;
   if (open) {
     setCustomizeOpen(false);
     setApiAccessOpen(false);
     setChatOpen(false);
+    state.configReturnFocus = document.activeElement;
+    state.configPreviousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
   }
   state.configOpen = open;
   if (open && state.status?.config) {
     state.configDirty = false;
     fillConfig(state.status.config);
   }
-  byId("config-drawer").classList.toggle("open", open);
-  byId("config-drawer").setAttribute("aria-hidden", String(!open));
+  drawer.inert = !open;
+  drawer.classList.toggle("open", open);
+  drawer.setAttribute("aria-hidden", String(!open));
   byId("open-config")?.setAttribute("aria-expanded", String(open));
-  byId("config-scrim").classList.toggle("open", open);
-  if (open) byId("maxAttempts").focus();
-  else if (document.activeElement?.closest("#config-drawer")) document.activeElement.blur();
+  scrim.classList.toggle("open", open);
+  scrim.setAttribute("aria-hidden", String(!open));
+  setPageInert(drawer, scrim, open);
+  if (open) byId("config-title").focus();
+  else {
+    state.configDirty = false;
+    state.configDraft = null;
+    state.selectedModels.clear();
+    document.body.style.overflow = state.configPreviousOverflow || "";
+    state.configPreviousOverflow = null;
+    if (state.configReturnFocus?.isConnected) state.configReturnFocus.focus();
+    state.configReturnFocus = null;
+  }
+  return true;
 }
 
 function setRailExpanded(expanded) {
@@ -3748,9 +3802,8 @@ byId("chat-messages").addEventListener("click", (event) => {
   const promptAction = event.target.closest("[data-prompt-action]");
   if (promptAction) {
     const prompt = promptAction.closest(".chat-message")?.querySelector(".content")?.textContent || "";
-    if (promptAction.dataset.promptAction === "copy-prompt") void navigator.clipboard.writeText(prompt).then(() => notify("Prompt copied.", true));
+    if (promptAction.dataset.promptAction === "copy-prompt") void copyToClipboard(prompt, "Prompt copied.", "Clipboard access was unavailable. Select the prompt manually.");
     else if (promptAction.dataset.promptAction === "reuse-prompt") { activeWorkspace().draft = prompt; byId("chat-input").value = prompt; byId("chat-input").focus(); persistArenaWorkspaces(); }
-    else handoffToMode(promptAction.dataset.promptAction, prompt);
   }
   const resultAction = event.target.closest("[data-result-action]");
   if (resultAction) {
@@ -3761,16 +3814,13 @@ byId("chat-messages").addEventListener("click", (event) => {
       if (!result || result.error || !Number.isInteger(Number(card?.dataset.sandboxTurn))) return setAudioStatus("SPEECH REFUSED / RESULT IS NO LONGER AVAILABLE", true);
       void playResultSpeech(resultAction, result, activeWorkspace().turns[Number(card.dataset.sandboxTurn)].mode || activeWorkspace().mode, resultAction.dataset.ttsKey);
     }
-    else if (resultAction.dataset.resultAction === "copy-result") void navigator.clipboard.writeText(content).then(() => notify("Result copied.", true));
+    else if (resultAction.dataset.resultAction === "copy-result") void copyToClipboard(content, "Result copied.", "Clipboard access was unavailable. Select the result manually.");
     else if (resultAction.dataset.resultAction === "focus-result") {
       const focused = card?.classList.toggle("focused-result") ?? false;
       resultAction.setAttribute("aria-pressed", String(focused));
       if (focused) { card.tabIndex = -1; card.focus(); }
     }
-    else handoffToMode(resultAction.dataset.resultAction, content);
   }
-  const planHandoff = event.target.closest("[data-plan-handoff]");
-  if (planHandoff && activeWorkspace().assistantPlan) void handoffAssistantPlan(planHandoff.dataset.planHandoff, activeWorkspace().assistantPlan);
 });
 byId("sandbox-provider-default-max").addEventListener("change", (event) => {
   byId("sandbox-max-tokens").disabled = event.target.checked;
@@ -3902,7 +3952,7 @@ function setSandboxMode(mode, force = false) {
   byId("chat-input").placeholder = mode === "design"
     ? "Describe a responsive page or component to generate..."
     : mode === "diagnose"
-      ? "Ask for diagnosis, configuration suggestions, or a planned chat/design comparison..."
+      ? "Ask for diagnosis, configuration suggestions, or help using RouteTok..."
       : "Send one prompt to every selected model...";
   byId("send-chat").textContent = mode === "design" ? "GENERATE" : "SEND";
   persistArenaWorkspaces();
@@ -3976,24 +4026,20 @@ byId("transcript-review-dialog").addEventListener("close", () => {
   audioState.transcriptTarget = null;
 });
 
-byId("open-sandbox-library").addEventListener("click", () => void setSandboxLibraryOpen(true));
-byId("open-starred-gallery").addEventListener("click", () => { byId("sandbox-library-filter").value = "starred"; void setSandboxLibraryOpen(true); });
+byId("open-sandbox-library").addEventListener("click", () => { state.sandboxLibraryStarredOnly = false; void setSandboxLibraryOpen(true); });
+byId("open-starred-gallery").addEventListener("click", () => { state.sandboxLibraryStarredOnly = true; void setSandboxLibraryOpen(true); });
 byId("close-sandbox-library").addEventListener("click", () => void setSandboxLibraryOpen(false));
-byId("sandbox-library-filter").addEventListener("change", () => void renderSandboxLibrary());
 byId("sandbox-library-list").addEventListener("click", async (event) => {
   const open = event.target.closest("[data-run-id]")?.dataset.runId;
   if (open) return openSavedRun(open);
   const remove = event.target.closest("[data-delete-run]")?.dataset.deleteRun;
-  if (!remove || !confirm("Delete this saved sandbox run and its design artifacts?")) return;
-  await sandboxStore("readwrite", (store) => store.delete(remove));
-  await renderSandboxLibrary();
-});
-byId("popout-sandbox").addEventListener("click", async () => {
-  const workspace = activeWorkspace();
-  try { await saveSandboxRun(workspace, true); }
-  catch (error) { notify(`Popout could not save this run: ${error.message}`); return; }
-  const url = `/sandbox?run=${encodeURIComponent(workspace.runId)}&mode=${encodeURIComponent(workspace.mode)}`;
-  window.open(url, "_blank", "noopener,noreferrer");
+  if (!remove || !confirm("Delete this saved run and its archived content?")) return;
+  try {
+    await sandboxStore("readwrite", (store) => store.delete(remove));
+    await renderSandboxLibrary();
+  } catch (error) {
+    notify(`Saved run could not be deleted: ${error.message}`);
+  }
 });
 byId("open-assistant").addEventListener("click", () => {
   setSandboxMode("diagnose", true);
@@ -4041,8 +4087,7 @@ byId("client-key-list").addEventListener("click", async (event) => {
   catch (error) { notify(error.message); button.disabled = false; }
 });
 byId("copy-client-key").addEventListener("click", async () => {
-  try { await navigator.clipboard.writeText(state.clientKeySecret || ""); notify("Client API key copied.", true); }
-  catch { notify("Clipboard access was unavailable. Select the key manually."); }
+  await copyToClipboard(state.clientKeySecret || "", "Client API key copied.", "Clipboard access was unavailable. Select the key manually.");
 });
 byId("dismiss-client-key").addEventListener("click", () => { state.clientKeySecret = ""; byId("client-key-secret-value").textContent = ""; byId("client-key-secret").hidden = true; });
 
@@ -4057,12 +4102,7 @@ byId("api-base-url").textContent = apiBaseUrl;
 const normalizedApiCurlExample = apiCurlExample.replaceAll("\n+  ", "\n  ");
 byId("api-curl-example").textContent = normalizedApiCurlExample;
 document.querySelectorAll("[data-copy-api]").forEach((button) => button.addEventListener("click", async () => {
-  try {
-    await navigator.clipboard.writeText(normalizedApiCurlExample);
-    notify("API example copied.", true);
-  } catch {
-    notify("Clipboard access was unavailable. Select the example manually.");
-  }
+  await copyToClipboard(normalizedApiCurlExample, "API example copied.", "Clipboard access was unavailable. Select the example manually.");
 }));
 byId("api-key-manager").addEventListener("click", async (event) => {
   const target = event.target.closest("[data-credential-update], [data-credential-delete]");
@@ -4084,7 +4124,7 @@ byId("api-key-manager").addEventListener("click", async (event) => {
     }
     await load(true);
     renderApiKeyManager();
-    notify(`${providerId} credential updated.`, true);
+    notify(target.dataset.credentialUpdate ? `${providerId} ${field} credential updated.` : `${providerId} ${field} stored credential deleted.`, true);
   } catch (error) {
     notify(error.message);
   } finally {
@@ -4182,11 +4222,11 @@ function cycleTheme() {
 }
 
 const COMMANDS = [
-  { label: "Open chat", keywords: "assistant deepseek", run: () => setChatOpen(true) },
+  { label: "Open Support", keywords: "assistant diagnose help", run: () => setChatOpen(true) },
   { label: "Open routing config", keywords: "policy settings", run: () => setConfigOpen(true) },
   { label: "Open model manager", keywords: "catalog providers quality order", run: () => { setConfigOpen(true); byId("model-manager")?.scrollIntoView({ block: "start" }); byId("model-search")?.focus(); } },
   { label: "Customize dashboard", keywords: "preferences appearance", run: () => setCustomizeOpen(true) },
-  { label: "Refresh dashboard", keywords: "reload telemetry", run: () => { void load(false); void loadHistory(true); } },
+  { label: "Refresh dashboard", keywords: "reload telemetry history", run: () => void refreshDashboard() },
   { label: "Toggle focus mode", keywords: "zen", run: toggleFocusMode },
   { label: "Mark baseline", keywords: "compare surprise", run: markBaseline },
   { label: "Clear baseline", keywords: "reset comparison", run: () => clearBaseline() },
@@ -4220,6 +4260,7 @@ function renderCommands() {
     empty.textContent = "NO MATCHING COMMANDS";
     empty.className = "command-empty";
     list.append(empty);
+    byId("command-input")?.removeAttribute("aria-activedescendant");
     return;
   }
   commands.forEach((command, index) => {
@@ -4231,7 +4272,7 @@ function renderCommands() {
     item.dataset.commandIndex = String(index);
     item.setAttribute("role", "option");
     item.setAttribute("aria-selected", String(index === state.commandIndex));
-    item.tabIndex = index === state.commandIndex ? 0 : -1;
+    item.tabIndex = -1;
     item.addEventListener("click", () => runCommand(index));
     list.append(item);
   });
@@ -4255,6 +4296,7 @@ function setCommandOpen(open) {
     }
     const input = byId("command-input");
     if (input) input.value = "";
+    input?.setAttribute("aria-expanded", "true");
     renderCommands();
     input?.focus();
   } else {
@@ -4266,6 +4308,8 @@ function setCommandOpen(open) {
     }
     if (state.commandReturnFocus?.isConnected) state.commandReturnFocus.focus();
     state.commandReturnFocus = null;
+    byId("command-input")?.setAttribute("aria-expanded", "false");
+    byId("command-input")?.removeAttribute("aria-activedescendant");
   }
   byId("open-command")?.setAttribute("aria-expanded", String(open));
 }
@@ -4278,6 +4322,7 @@ function runCommand(index) {
 }
 
 byId("open-command")?.addEventListener("click", () => setCommandOpen(true));
+byId("refresh-status")?.addEventListener("click", () => void refreshDashboard());
 byId("close-command")?.addEventListener("click", () => setCommandOpen(false));
 byId("command-palette")?.addEventListener("cancel", (event) => {
   event.preventDefault();
@@ -4318,12 +4363,16 @@ document.addEventListener("keydown", (event) => {
     setCommandOpen(!state.commandOpen);
     return;
   }
-  if (event.key === "Tab" && (state.customizeOpen || state.apiAccessOpen)) {
-    const focusable = focusableElements(byId(state.apiAccessOpen ? "api-access" : "customize-drawer"));
+  if (event.key === "Tab" && (state.customizeOpen || state.apiAccessOpen || state.configOpen)) {
+    const container = byId(state.apiAccessOpen ? "api-access" : state.customizeOpen ? "customize-drawer" : "config-drawer");
+    const focusable = focusableElements(container);
     if (!focusable.length) return;
     const first = focusable[0];
     const last = focusable.at(-1);
-    if (event.shiftKey && document.activeElement === first) {
+    if (!focusable.includes(document.activeElement)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    } else if (event.shiftKey && document.activeElement === first) {
       event.preventDefault();
       last.focus();
     } else if (!event.shiftKey && document.activeElement === last) {
@@ -4351,7 +4400,7 @@ document.addEventListener("keydown", (event) => {
     else markBaseline();
   } else if (event.key.toLowerCase() === "u") {
     event.preventDefault();
-    void load(false);
+    void refreshDashboard();
   }
 });
 
@@ -4419,11 +4468,6 @@ if (queryRun) {
   setSandboxMode(queryMode, true);
 } else {
   setSandboxMode(state.sandboxMode, true);
-}
-if (location.pathname === "/sandbox") {
-  document.body.classList.add("sandbox-popout");
-  setChatOpen(true);
-  document.title = "RouteTok Model Sandbox";
 }
 function scheduleRefresh() {
   window.clearTimeout(state.timer);

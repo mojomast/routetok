@@ -15,6 +15,8 @@ test("configuration previews are strict and side-effect free", async () => {
     assert.deepEqual(store.get(), original);
     assert.throws(() => store.preview({ maxAttempts: 2.5 }), /integer/);
     assert.throws(() => store.preview({ inventedSetting: true }), /Unknown configuration field/);
+    assert.deepEqual(store.preview({ paidOpenRouterFallbackOrder: [" openrouter:nex/model ", "openrouter:nex/model"] }).paidOpenRouterFallbackOrder, ["openrouter:nex/model"]);
+    assert.throws(() => store.preview({ paidOpenRouterFallbackOrder: ["deepseek-v4-flash"] }), /only namespaced OpenRouter/);
   } finally {
     await rm(dataDir, { recursive: true, force: true });
   }

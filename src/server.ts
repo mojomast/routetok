@@ -104,6 +104,7 @@ const proxy = new ProxyHandler({ providers, catalog, config, router, metrics, in
 const adminAudio = new AdminAudioService(providers, { baseUrl: localSttBaseUrl, model: localSttModel, apiKey: localSttApiKey });
 const adminImages = new AdminImageService(providers, catalog, config);
 await catalog.refresh();
+reportCascadeCollisions("startup catalog refresh");
 void credits.refresh();
 
 function isLoopback(address: string | undefined): boolean {
@@ -116,6 +117,8 @@ function bearerToken(request: IncomingMessage): string {
 }
 
 function inferenceAuthorized(request: IncomingMessage): boolean {
+  const internal = request.headers["x-routetok-internal"];
+  if (internal === internalSandboxToken && isLoopback(request.socket.remoteAddress)) return true;
   if (!proxyApiKey && !clientApiKeys.hasKeys()) return isLoopback(request.socket.remoteAddress);
   const anthropicKey = request.headers["x-api-key"];
   const bearer = bearerToken(request);
@@ -409,6 +412,7 @@ function readinessProjection(): object {
   const staleConfiguredOrderEntries = {
     openai: stale(current.openaiOrder),
     anthropic: stale(current.anthropicOrder),
+    paidOpenRouter: stale(current.paidOpenRouterFallbackOrder),
     free: stale(current.freeModelOrder)
   };
   const unhealthyModelCount = new Set(health.filter((entry) => entry.circuitState !== "closed" || entry.consecutiveFailures > 0).map((entry) => entry.model)).size;
@@ -423,7 +427,7 @@ function readinessProjection(): object {
   })).size;
   const staleEnabledExternalModelCount = current.enabledExternalModels.filter((id) => !catalogIds.has(id)).length;
   const catalogAgeSeconds = boundedAgeSeconds(catalogStatus.lastRefresh, now);
-  const staleOrderTotal = staleConfiguredOrderEntries.openai + staleConfiguredOrderEntries.anthropic + staleConfiguredOrderEntries.free;
+  const staleOrderTotal = staleConfiguredOrderEntries.openai + staleConfiguredOrderEntries.anthropic + staleConfiguredOrderEntries.paidOpenRouter + staleConfiguredOrderEntries.free;
   const recommendedNextActions: string[] = [];
   if (!configuredProviders.size) recommendedNextActions.push("configure_provider");
   if (catalogStatus.lastError || catalogAgeSeconds === null || catalogAgeSeconds > current.catalogRefreshHours * 3_600) recommendedNextActions.push("refresh_catalog");
@@ -516,7 +520,7 @@ function configurationAdvisorContext(configSnapshot: RouterConfig): string {
   const snapshot = metrics.snapshot(router.snapshot());
   const relevantModels = catalog.getModels().filter((model) =>
     configSnapshot.openaiOrder.includes(model.id) || configSnapshot.anthropicOrder.includes(model.id) ||
-    configSnapshot.freeModelOrder.includes(model.id) || configSnapshot.enabledExternalModels.includes(model.id) ||
+    configSnapshot.paidOpenRouterFallbackOrder.includes(model.id) || configSnapshot.freeModelOrder.includes(model.id) || configSnapshot.enabledExternalModels.includes(model.id) ||
     (model.providerId ?? "agentrouter") === "agentrouter"
   ).sort((left, right) => left.id.localeCompare(right.id)).slice(0, 200)
     .map((model) => ({ id: model.id, provider: model.providerId ?? "agentrouter", protocols: model.protocols, pricing: model.pricing ?? null, contextTokens: model.contextTokens ?? null, maxOutputTokens: model.maxOutputTokens ?? null }));
@@ -750,11 +754,21 @@ function proposalFromPatch(
   return proposal;
 }
 
-function assertCascadeCollisions(candidate: RouterConfig): void {
+function customCascadeCollisions(candidate: RouterConfig): string[] {
   const physical = new Set(catalog.getModels().map((model) => model.id.toLowerCase()));
-  for (const cascade of candidate.customCascades) {
-    if (physical.has(cascade.name.toLowerCase())) throw new Error(`Custom cascade name collides with a physical model: ${cascade.name}`);
-  }
+  return candidate.customCascades.filter((cascade) => physical.has(cascade.name.toLowerCase()))
+    .map((cascade) => cascade.name).sort((left, right) => left.localeCompare(right));
+}
+
+function assertCascadeCollisions(candidate: RouterConfig): void {
+  const collisions = customCascadeCollisions(candidate);
+  if (collisions.length) throw new Error(`Custom cascade names collide with physical models: ${collisions.join(", ")}`);
+}
+
+function reportCascadeCollisions(context: string): string[] {
+  const collisions = customCascadeCollisions(config.get());
+  if (collisions.length) console.error(`Custom cascade collision after ${context}: ${collisions.join(", ")}`);
+  return collisions;
 }
 
 function parseModelJsonObject(content: string, errorMessage: string): Record<string, unknown> {
@@ -943,8 +957,17 @@ function unauthorized(response: ServerResponse, protocol: Protocol): void {
   }
 }
 
-function modelIds(): string[] {
-  return ["auto", "best", "free", "free-auto", ...config.get().customCascades.map((cascade) => cascade.name), ...catalog.getModels().map((model) => model.id)]
+function modelIds(protocol: Protocol): string[] {
+  const current = config.get();
+  const visible = catalog.getModels().filter((model) => {
+    const providerId = model.providerId ?? "agentrouter";
+    if (!providers.find((provider) => provider.id === providerId)?.configured) return false;
+    if (current.disabledModels.includes(model.id) || !isTextGenerationModel(model, protocol)) return false;
+    return providerId === "agentrouter" || isFreeExternalCatalogModel(model) || current.enabledExternalModels.includes(model.id);
+  });
+  const visibleIds = new Set(visible.map((model) => model.id));
+  const cascades = current.customCascades.filter((cascade) => cascade.members.some((model) => visibleIds.has(model)));
+  return ["auto", "best", "free", "free-auto", ...cascades.map((cascade) => cascade.name), ...visible.map((model) => model.id)]
     .filter((id, index, values) => values.indexOf(id) === index);
 }
 
@@ -961,7 +984,7 @@ function providerStatus(): Array<{ providerId: ProviderId; configured: boolean; 
 }
 
 function openAiModelsResponse(): object {
-  const ids = modelIds();
+  const ids = modelIds("openai");
   return {
     object: "list",
     data: ids.map((id) => ({
@@ -976,7 +999,7 @@ function openAiModelsResponse(): object {
 }
 
 function anthropicModelsResponse(): object {
-  const ids = modelIds();
+  const ids = modelIds("anthropic");
   return {
     data: ids.map((id) => ({
       id,
@@ -1106,9 +1129,14 @@ const server = createServer(async (request, response) => {
 
       if (["POST", "PUT", "PATCH"].includes(request.method ?? "")) {
         const isTranscription = request.method === "POST" && pathname === "/admin/api/audio/transcriptions";
-        const validContentType = isTranscription
+        const bodylessPost = request.method === "POST" && [
+          "/admin/api/providers/credits/refresh",
+          "/admin/api/catalog/refresh",
+          "/admin/api/circuits/reset"
+        ].includes(pathname);
+        const validContentType = bodylessPost || (isTranscription
           ? (request.headers["content-type"] ?? "").toLowerCase().startsWith("multipart/form-data;")
-          : hasJsonContentType(request);
+          : hasJsonContentType(request));
         if (!validContentType) return json(response, 415, { error: isTranscription ? "Content-Type must be multipart/form-data" : "Content-Type must be application/json" });
       }
 
@@ -1123,7 +1151,7 @@ const server = createServer(async (request, response) => {
       }
 
       if (request.method === "POST" && pathname === "/admin/api/images/generations") {
-        await adminImages.generate(request, response, await readJson(request));
+        await adminImages.generate(request, response);
         return;
       }
 
@@ -1239,8 +1267,18 @@ const server = createServer(async (request, response) => {
             : await credentialStore.remove(providerId, field);
           router.reset();
           adminAudio.invalidate(providerId);
-          await Promise.all([catalog.providerChanged(providerId), credits.providerChanged(providerId)]);
-          json(response, 200, { provider });
+          const refreshed = await Promise.allSettled([catalog.providerChanged(providerId), credits.providerChanged(providerId)]);
+          const refreshErrors = refreshed.flatMap((result) => result.status === "rejected" ? [(result.reason as Error).message] : []);
+          const catalogError = catalog.status().providers.find((entry) => entry.providerId === providerId)?.lastError;
+          const creditError = credits.get(providerId)[0]?.error;
+          if (catalogError) refreshErrors.push(`catalog: ${catalogError}`);
+          if (creditError) refreshErrors.push(`credits: ${creditError}`);
+          const cascadeCollisions = reportCascadeCollisions(`${providerId} credential refresh`);
+          json(response, 200, {
+            provider,
+            committed: true,
+            refresh: { ok: refreshErrors.length === 0, errors: refreshErrors, cascadeCollisions }
+          });
         } catch (error) {
           json(response, (error as Error).message.includes("Unknown") ? 404 : 400, { error: (error as Error).message });
         }
@@ -1363,10 +1401,13 @@ const server = createServer(async (request, response) => {
         const models = await catalog.refresh(requestedProvider ?? undefined);
         const status = catalog.status();
         const refreshError = requestedProvider ? status.providers.find((provider) => provider.providerId === requestedProvider)?.lastError ?? null : status.lastError;
-        json(response, refreshError ? 502 : 200, {
+        const cascadeCollisions = reportCascadeCollisions("catalog refresh");
+        json(response, refreshError ? 502 : cascadeCollisions.length ? 409 : 200, {
           ...(refreshError ? { error: `Catalog refresh failed: ${refreshError}` } : {}),
+          ...(!refreshError && cascadeCollisions.length ? { error: `Custom cascade names collide with physical models: ${cascadeCollisions.join(", ")}` } : {}),
           catalog: status,
-          models
+          models,
+          cascadeCollisions
         });
         return;
       }

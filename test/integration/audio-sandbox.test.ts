@@ -5,6 +5,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { isolatedTestEnv, stopChild } from "../support/process.js";
 
 async function freePort(): Promise<number> {
   const server = createServer();
@@ -36,7 +37,7 @@ async function incomingBytes(request: IncomingMessage): Promise<Buffer> {
 
 test("bounded dashboard audio APIs discover and proxy without retaining content", async () => {
   const speechBytes = Buffer.concat([Buffer.from([0xff, 0xfb, 0x90, 0x64]), Buffer.alloc(252, 0x55)]);
-  let speechRequest: { authorization: string | undefined; dashboard: string | undefined; body: unknown } | null = null;
+  const speechRequests: Array<{ authorization: string | undefined; dashboard: string | undefined; body: Record<string, unknown> }> = [];
   let transcriptionRequest: { authorization: string | undefined; model: string; language: string; name: string; bytes: Buffer } | null = null;
   let localTranscriptionRequest: { authorization: string | undefined; model: string; language: string; prompt: string; name: string; bytes: Buffer } | null = null;
   let imageRequest: { authorization: string | undefined; body: Record<string, unknown> } | null = null;
@@ -46,6 +47,15 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{
         id: "vendor/image-model", name: "Image Model", architecture: { input_modalities: ["text"], output_modalities: ["image"] }, pricing: { prompt: "0", completion: "0" }, supported_parameters: ["max_tokens"]
       }] }));
+      return;
+    }
+    if (request.url === "/opencode/models") {
+      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{ id: "big-pickle" }] }));
+      return;
+    }
+    if (request.url === "/opencode/v1/chat/completions") {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.end(`data: ${JSON.stringify({ choices: [{ delta: { content: "managed-key-internal-ok" }, finish_reason: null }] })}\n\ndata: [DONE]\n\n`);
       return;
     }
     if (request.url === "/requesty/v1/models") {
@@ -78,12 +88,14 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
       return;
     }
     if (request.url === "/openrouter/v1/audio/speech") {
-      speechRequest = {
+      const payload = JSON.parse((await incomingBytes(request)).toString("utf8")) as Record<string, unknown>;
+      speechRequests.push({
         authorization: request.headers.authorization,
         dashboard: request.headers["x-dashboard-token"] as string | undefined,
-        body: JSON.parse((await incomingBytes(request)).toString("utf8"))
-      };
-      response.writeHead(200, { "content-type": "audio/mpeg; charset=binary", "x-generation-id": "gen-safe", "x-secret": "hidden" }).end(speechBytes);
+        body: payload
+      });
+      const pcm = Buffer.from([1, 0, 2, 0]);
+      response.writeHead(200, { "content-type": payload.response_format === "mp3" ? "audio/mpeg; charset=binary" : "audio/pcm", "x-generation-id": "gen-safe", "x-secret": "hidden" }).end(payload.response_format === "mp3" ? speechBytes : pcm);
       return;
     }
     if (request.url === "/openrouter/v1/images") {
@@ -140,19 +152,19 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
   const child = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], {
     cwd: path.resolve("."),
     stdio: ["ignore", "pipe", "pipe"],
-    env: {
-      ...process.env,
+    env: isolatedTestEnv({
       HOST: "127.0.0.1",
       PORT: String(port),
       DATA_DIR: dataDir,
       DASHBOARD_TOKEN: "dashboard-secret",
       OPENROUTER_API_KEY: "effective-openrouter",
       OPENROUTER_BASE_URL: `${root}/openrouter/v1`,
+      OPENCODE_ZEN_BASE_URL: `${root}/opencode`,
       REQUESTY_API_KEY: "effective-requesty",
       REQUESTY_BASE_URL: `${root}/requesty/v1`,
       LOCAL_STT_BASE_URL: `${root}/local/v1///`,
       LOCAL_STT_API_KEY: "local-stt-secret"
-    }
+    })
   });
   const base = `http://127.0.0.1:${port}`;
   const dashboardHeaders = { "x-dashboard-token": "dashboard-secret" };
@@ -175,6 +187,12 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
     assert.doesNotMatch(JSON.stringify(listedClientKeys), new RegExp(createdClientKey.secret));
     assert.equal((await fetch(`${base}/v1/models`)).status, 401);
     assert.equal((await fetch(`${base}/v1/models`, { headers: { authorization: `Bearer ${createdClientKey.secret}` } })).status, 200);
+    const managedKeySandbox = await fetch(`${base}/admin/api/sandbox`, {
+      method: "POST", headers: { ...dashboardHeaders, "content-type": "application/json" },
+      body: JSON.stringify({ requests: [{ id: "managed-key", model: "opencode:big-pickle", messages: [{ role: "user", content: "exercise internal self-auth" }] }] })
+    });
+    assert.equal(managedKeySandbox.status, 200);
+    assert.equal((await managedKeySandbox.json() as { results: Array<{ content: string }> }).results[0]?.content, "managed-key-internal-ok");
     const revokeClientKey = await fetch(`${base}/admin/api/client-keys/${createdClientKey.key.id}`, { method: "DELETE", headers: dashboardHeaders });
     assert.equal(revokeClientKey.status, 200);
     assert.equal((await fetch(`${base}/v1/models`)).status, 200);
@@ -243,10 +261,28 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
     assert.equal(speech.headers.get("cache-control"), "no-store");
     assert.equal(speech.headers.get("x-content-type-options"), "nosniff");
     assert.deepEqual(Buffer.from(await speech.arrayBuffer()), speechBytes);
-    assert.deepEqual(speechRequest, {
+    assert.deepEqual(speechRequests[0], {
       authorization: "Bearer effective-openrouter", dashboard: undefined,
       body: { model: "black-forest-labs/flux-speech:free", input: "hello", voice: "nova", response_format: "mp3", speed: 1.5 }
     });
+
+    const defaultSpeech = await fetch(`${base}/admin/api/audio/speech`, {
+      method: "POST", headers: { ...dashboardHeaders, "content-type": "application/json" },
+      body: JSON.stringify({ model: "openrouter:black-forest-labs/flux-speech:free", input: "default format" })
+    });
+    assert.equal(defaultSpeech.status, 200);
+    assert.equal(defaultSpeech.headers.get("content-type"), "audio/pcm");
+    assert.deepEqual(Buffer.from(await defaultSpeech.arrayBuffer()), Buffer.from([1, 0, 2, 0]));
+    assert.deepEqual(speechRequests[1]?.body, { model: "black-forest-labs/flux-speech:free", input: "default format", response_format: "pcm" });
+
+    const malformedImage = await fetch(`${base}/admin/api/images/generations`, {
+      method: "POST", headers: { ...dashboardHeaders, "content-type": "application/json" }, body: "{not-json"
+    });
+    assert.equal(malformedImage.status, 400);
+    const oversizedImage = await fetch(`${base}/admin/api/images/generations`, {
+      method: "POST", headers: { ...dashboardHeaders, "content-type": "application/json" }, body: JSON.stringify({ padding: "x".repeat(1024 * 1024) })
+    });
+    assert.equal(oversizedImage.status, 413);
 
     const audioFile = Buffer.from([9, 8, 0, 7, 6]);
     const localTranscriptionForm = new FormData();
@@ -318,8 +354,7 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
       assert.doesNotMatch(typeof output === "string" ? output : JSON.stringify(output), /local-stt-secret|upstream-local-secret|private-local|\/local\/v1/i);
     }
   } finally {
-    child.kill("SIGTERM");
-    await new Promise<void>((resolve) => child.once("exit", () => resolve()));
+    await stopChild(child);
     await new Promise<void>((resolve) => upstream.close(() => resolve()));
     await rm(dataDir, { recursive: true, force: true });
   }

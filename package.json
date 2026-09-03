@@ -18,7 +18,7 @@
     "dev:isolated": "node --env-file-if-exists=.env.development --import tsx --watch src/server.ts",
     "build": "tsc",
     "start": "node --env-file-if-exists=.env dist/src/server.js",
-    "test": "tsx --test test/**/*.test.ts",
+    "test": "tsx --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

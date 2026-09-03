@@ -19,10 +19,17 @@ The dashboard exposes:
 - Theme, layout, chart, and workspace controls stored in the browser
 - Top-level runtime, provider, authentication, and catalog status without a separate System card
 - Browser-local Route Health sorting and per-model visibility controls
+- A separate paid OpenRouter fallback editor that appends AgentRouter only as the last-resort tier
 
 Configuration provider cards omit providers that are explicitly unconfigured, keeping the Model Manager focused on active integrations. Model catalog filtering and API-key setup still expose every supported provider so a hidden status card never blocks onboarding.
 
+The client-facing `/v1/models` response is narrower than the operational catalog: it includes configured, enabled text routes only. The dashboard retains unavailable and unenabled catalog entries where needed for onboarding and spending approval.
+
 Provider credentials entered through the dashboard are write-only. RouteTok stores them under `DATA_DIR/secrets/provider-credentials.json` with an owner-only directory and file permissions and never returns key material to the browser.
+
+The Model Manager's Paid OpenRouter Fallback order accepts only paid or unknown-price `openrouter:` routes. Add and order alternatives there, then enable each model separately to approve spending. AgentRouter models are not placed in this editor; eligible AgentRouter entries from the normal protocol order are appended automatically after all healthy OpenRouter alternatives. This applies to exact paid OpenRouter requests even when `fallbackExplicitModels` is off and remains bounded by `maxAttempts`.
+
+For Qwen, the intended conceptual order is requested Qwen, Nex N2 Mini, OpenRouter DeepSeek V4 Flash, Solar Pro 4, then AgentRouter. The dashboard does not hard-code display names to IDs: choose the exact currently deployed catalog IDs and account for enablement, health, protocol compatibility, and attempt limits.
 
 ![Customizable Route Health table](images/dashboard-models.png)
 

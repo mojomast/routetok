@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from "node:http";
-import type { CatalogService } from "./catalog.js";
+import { isFreeExternalCatalogModel, type CatalogService } from "./catalog.js";
 import type { ConfigStore } from "./config.js";
 import type { MetricsStore } from "./metrics.js";
 import type { HealthRouter } from "./router.js";
@@ -11,6 +11,7 @@ import type {
   ProviderId,
   ProviderRuntime,
   RequestRecord,
+  RoutingRequirements,
   TokenUsage
 } from "./types.js";
 
@@ -21,6 +22,8 @@ const MAX_ERROR_RESPONSE_BYTES = 8 * 1024 * 1024;
 const MAX_RETAINED_REQUEST_BYTES = 2 * 1024 * 1024;
 const MAX_RETAINED_CONTENT_BYTES = 16 * 1024 * 1024;
 const MAX_RETAINED_REQUESTS = 100;
+const MAX_ATTEMPT_HEADER_BYTES = 4_096;
+const MAX_DIAGNOSTIC_ATTEMPTS = 16;
 const TRANSIENT_STATUSES = new Set([408, 425, 500, 502, 503, 504, 529]);
 const IDENTITY_HEADERS = new Set([
   "user-agent",
@@ -50,6 +53,24 @@ interface PreparedStream {
   buffered: Uint8Array[];
   inspector: StreamInspector;
   firstOutputAt: number;
+}
+
+type RouterTerminal =
+  | "complete"
+  | "rate_limited"
+  | "fallback_exhausted"
+  | "non_retryable"
+  | "request_timeout"
+  | "client_cancelled"
+  | "no_candidate"
+  | "invalid_request"
+  | "stream_committed";
+
+interface DiagnosticAttempt {
+  model: string;
+  providerId?: ProviderId;
+  status: number | null;
+  outcome: string;
 }
 
 export interface RetainedRequestContent {
@@ -93,6 +114,13 @@ function isContentFilterError(error: { code: string; message: string }): boolean
 
 function isBudgetPoolExhausted(error: { code: string; message: string }): boolean {
   return /budget.pool.*(quota|exhaust)|quota.*budget.pool/i.test(`${error.code} ${error.message}`);
+}
+
+function isModelEntitlementError(error: { code: string; message: string }): boolean {
+  if (/model[_ -]?(?:access|permission|entitlement|not[_ -]?found|forbidden|unauthorized)/i.test(error.code)) return true;
+  return /(?:you|account|organization|credential|api[ _-]?key).{0,80}(?:do(?:es)? not|cannot|not authorized|no longer).{0,40}(?:access|use).{0,40}(?:this |the )?model/i.test(error.message) ||
+    /model.{0,100}(?:is not (?:available|accessible|allowed|enabled) (?:for|to)|requires .{0,40}(?:entitlement|subscription)|is only available on)/i.test(error.message) ||
+    /only available on (?:an? )?(?:approved )?(?:agentic )?harness/i.test(error.message);
 }
 
 function headerValue(headers: IncomingHttpHeaders, name: string): string | undefined {
@@ -145,7 +173,8 @@ function responseHeaders(
   upstream: Headers,
   requestId: string,
   model: string,
-  attempts: number,
+  attempts: DiagnosticAttempt[],
+  terminal: RouterTerminal,
   providerId: ProviderId = "agentrouter"
 ): Record<string, string> {
   const headers: Record<string, string> = {
@@ -153,7 +182,9 @@ function responseHeaders(
     "x-router-model": model,
     "x-router-route": model,
     "x-router-provider": providerId,
-    "x-router-attempts": String(attempts),
+    "x-router-attempts": String(attempts.length),
+    "x-router-terminal": terminal,
+    "x-router-attempt-summary": attemptSummary(attempts),
     "cache-control": "no-store"
   };
   for (const name of [
@@ -174,6 +205,41 @@ function responseHeaders(
   return headers;
 }
 
+// Base64url JSON avoids unsafe header characters. Fixed keys and caps keep this
+// diagnostic deterministic and bounded without exposing upstream error text.
+function attemptSummary(attempts: DiagnosticAttempt[]): string {
+  const limited = attempts.slice(0, MAX_DIAGNOSTIC_ATTEMPTS);
+  const payload = {
+    v: 1,
+    a: limited.map((item) => ({
+      p: (item.providerId ?? "agentrouter").slice(0, 32),
+      m: item.model.slice(0, 96),
+      s: item.status,
+      o: item.outcome.slice(0, 32)
+    })),
+    ...(limited.length < attempts.length ? { t: attempts.length } : {})
+  };
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  return encoded.length <= MAX_ATTEMPT_HEADER_BYTES
+    ? encoded
+    : Buffer.from(JSON.stringify({ v: 1, a: [], t: attempts.length })).toString("base64url");
+}
+
+function diagnosticHeaders(
+  terminal: RouterTerminal,
+  attempts: DiagnosticAttempt[],
+  model?: string,
+  providerId?: ProviderId
+): Record<string, string> {
+  return {
+    "x-router-terminal": terminal,
+    "x-router-attempts": String(attempts.length),
+    "x-router-attempt-summary": attemptSummary(attempts),
+    ...(model ? { "x-router-model": model, "x-router-route": model } : {}),
+    ...(providerId ? { "x-router-provider": providerId } : {})
+  };
+}
+
 function extractUsage(value: Record<string, unknown>): TokenUsage {
   const usage = value.usage && typeof value.usage === "object"
     ? (value.usage as Record<string, unknown>)
@@ -190,11 +256,14 @@ function extractUsage(value: Record<string, unknown>): TokenUsage {
   const promptDetails = usage.prompt_tokens_details && typeof usage.prompt_tokens_details === "object"
     ? usage.prompt_tokens_details as Record<string, unknown>
     : {};
+  const inputDetails = usage.input_tokens_details && typeof usage.input_tokens_details === "object"
+    ? usage.input_tokens_details as Record<string, unknown>
+    : {};
   const reportedCostUsd = usage.cost === undefined ? null : decimalValue(usage.cost);
   return {
     input: numberValue(usage.prompt_tokens) || numberValue(usage.input_tokens),
     output: numberValue(usage.completion_tokens) || numberValue(usage.output_tokens),
-    cacheRead: numberValue(usage.cache_read_input_tokens) || numberValue(promptDetails.cached_tokens),
+    cacheRead: numberValue(usage.cache_read_input_tokens) || numberValue(promptDetails.cached_tokens) || numberValue(inputDetails.cached_tokens),
     cacheWrite: numberValue(usage.cache_creation_input_tokens),
     costCny: decimalValue(cost.total),
     estimatedCostUsd: 0,
@@ -339,6 +408,42 @@ function parseBody(bytes: Buffer): ParsedBody {
     throw new Error("stream must be a boolean");
   }
   return { raw, model: raw.model, stream: raw.stream === true };
+}
+
+function routingRequirements(body: Record<string, unknown>): RoutingRequirements {
+  const inputModalities = new Set<string>();
+  const outputModalities = new Set<string>();
+  const pending: unknown[] = [body.messages, body.input];
+  let inspected = 0;
+  while (pending.length && inspected < 10_000) {
+    const value = pending.pop();
+    if (Array.isArray(value)) {
+      pending.push(...value);
+      continue;
+    }
+    if (!value || typeof value !== "object") continue;
+    inspected += 1;
+    const item = value as Record<string, unknown>;
+    const type = typeof item.type === "string" ? item.type.toLowerCase() : "";
+    if (type === "image" || type === "image_url" || type === "input_image") inputModalities.add("image");
+    if (type === "audio" || type === "input_audio") inputModalities.add("audio");
+    if (item.source && typeof item.source === "object") {
+      const mediaType = (item.source as Record<string, unknown>).media_type;
+      if (typeof mediaType === "string" && mediaType.startsWith("image/")) inputModalities.add("image");
+      if (typeof mediaType === "string" && mediaType.startsWith("audio/")) inputModalities.add("audio");
+    }
+    if (Array.isArray(item.content)) pending.push(item.content);
+  }
+  if (Array.isArray(body.modalities)) {
+    for (const modality of body.modalities) {
+      if (typeof modality === "string" && modality !== "text") outputModalities.add(modality);
+    }
+  }
+  return {
+    tools: Array.isArray(body.tools) && body.tools.length > 0,
+    inputModalities: [...inputModalities],
+    outputModalities: [...outputModalities]
+  };
 }
 
 export function thinkingPinnedModel(
@@ -909,8 +1014,8 @@ export class ProxyHandler {
       sendJson(
         response,
         status,
-        protocolError(protocol, requestId, (error as Error).message, "invalid_request_error"),
-        { "x-request-id": requestId }
+        protocolError(protocol, requestId, (error as Error).message, "invalid_request"),
+        { "x-request-id": requestId, ...diagnosticHeaders("invalid_request", []) }
       );
       this.options.metrics.record({
         id: requestId,
@@ -957,11 +1062,15 @@ export class ProxyHandler {
     const endpointKind = path.endsWith("/responses") ? "responses" : path.endsWith("/messages") ? "messages" : "chat";
     const endpointModels = this.options.catalog.getModels(protocol)
       .filter((model) => !model.endpoints || model.endpoints.includes(endpointKind));
+    const requestedCatalogModel = endpointModels.find((model) => model.id === parsed.model);
+    const paidOpenRouterFallbackActive = requestedCatalogModel?.providerId === "openrouter" &&
+      !isFreeExternalCatalogModel(requestedCatalogModel) && config.paidOpenRouterFallbackOrder.length > 0;
     let candidates = this.options.router.candidates(
       protocol,
       parsed.model,
       endpointModels,
-      config
+      config,
+      routingRequirements(parsed.raw)
     );
     const customVirtual = config.customCascades.some((cascade) => cascade.name === parsed.model);
     const stripThinkingOnFirstAttempt = config.thinkingFallbackMode === "strip" &&
@@ -978,8 +1087,8 @@ export class ProxyHandler {
       sendJson(
         response,
         503,
-        protocolError(protocol, requestId, "No healthy compatible RouteTok model is available", "overloaded_error"),
-        { "x-request-id": requestId, "retry-after": "30" }
+        protocolError(protocol, requestId, "No healthy compatible RouteTok model is available", "no_candidate"),
+        { "x-request-id": requestId, "retry-after": "30", ...diagnosticHeaders("no_candidate", []) }
       );
       this.options.metrics.record({
         id: requestId,
@@ -1103,23 +1212,31 @@ export class ProxyHandler {
           continue;
         }
 
-        if (!parsed.stream || !upstream.ok) clearTimeout(attemptTimeout);
+        // A non-stream response is not committed until its complete JSON body is
+        // buffered and validated, so keep the first-output deadline active.
         const duration = Date.now() - started;
         if (upstream.status === 429) {
           attempts.push(attempt(model, 429, duration, "rate_limited", "HTTP 429", null, providerId));
           if (!internalSandbox) this.options.router.recordRateLimit(protocol, model, retryAfterMs(upstream.headers));
-          await this.forwardResponse(response, upstream, requestId, model, attempts.length, protocol, undefined, undefined, providerId);
           finalStatus = 429;
           finalError = "rate limited";
-          selectedModel = model;
-          break;
-        }
-        if (upstream.status === 403) {
-          attempts.push(attempt(model, 403, duration, "permanent_error", "HTTP 403", null, providerId));
-          if (!internalSandbox) this.options.router.recordEntitlementFailure(protocol, model);
-          await this.forwardResponse(response, upstream, requestId, model, attempts.length, protocol, undefined, undefined, providerId);
-          finalStatus = 403;
-          finalError = "model is not entitled for this credential";
+          if (paidOpenRouterFallbackActive && attempts.length < candidates.length) {
+            await upstream.body?.cancel().catch(() => {});
+            continue;
+          }
+          const terminal = paidOpenRouterFallbackActive && candidates.length > 1 ? "fallback_exhausted" : "rate_limited";
+          await upstream.body?.cancel().catch(() => {});
+          const retryAfter = upstream.headers.get("retry-after");
+          sendJson(
+            response,
+            429,
+            protocolError(protocol, requestId, terminal === "fallback_exhausted" ? "All RouteTok fallback attempts were rate limited" : "The upstream model is rate limited", terminal),
+            {
+              "x-request-id": requestId,
+              ...diagnosticHeaders(terminal, attempts, model, providerId),
+              ...(retryAfter ? { "retry-after": retryAfter } : {})
+            }
+          );
           selectedModel = model;
           break;
         }
@@ -1127,6 +1244,19 @@ export class ProxyHandler {
           const errorBytes = await readResponseBuffer(upstream, MAX_ERROR_RESPONSE_BYTES)
             .catch(() => Buffer.alloc(0));
           const upstreamError = parsedError(errorBytes);
+          if (upstream.status === 403) {
+            const entitlementError = isModelEntitlementError(upstreamError);
+            attempts.push(attempt(model, 403, duration, "permanent_error", "HTTP 403", null, providerId));
+            if (!internalSandbox) {
+              if (entitlementError) this.options.router.recordEntitlementFailure(protocol, model);
+              else this.options.router.recordPermanentFailure(protocol, model);
+            }
+            await this.forwardResponse(response, upstream, requestId, model, attempts, protocol, "non_retryable", errorBytes, undefined, providerId);
+            finalStatus = 403;
+            finalError = entitlementError ? "model is not entitled for this credential" : "upstream returned HTTP 403";
+            selectedModel = model;
+            break;
+          }
           if (providerId === "agentrouter" && isContentFilterError(upstreamError)) {
             attempts.push(attempt(model, 400, duration, "permanent_error", "content_filter", null, providerId));
             await this.forwardResponse(
@@ -1134,8 +1264,9 @@ export class ProxyHandler {
               upstream,
               requestId,
               model,
-              attempts.length,
+              attempts,
               protocol,
+              "non_retryable",
               errorBytes,
               400,
               providerId
@@ -1151,13 +1282,15 @@ export class ProxyHandler {
             finalStatus = 402;
             finalError = "AgentRouter model budget pool exhausted";
             if (attempts.length < candidates.length) continue;
+            const terminal = attempts.length > 1 ? "fallback_exhausted" : "rate_limited";
             await this.forwardResponse(
               response,
               upstream,
               requestId,
               model,
-              attempts.length,
+              attempts,
               protocol,
+              terminal,
               errorBytes,
               undefined,
               providerId
@@ -1172,9 +1305,7 @@ export class ProxyHandler {
             if (!internalSandbox) this.options.router.recordTransientFailure(protocol, model, config);
             finalStatus = upstream.status;
             finalError = `upstream returned HTTP ${upstream.status}`;
-            if (attempts.length < candidates.length) {
-              continue;
-            }
+            continue;
           } else {
             attempts.push(
               attempt(model, upstream.status, duration, "permanent_error", `HTTP ${upstream.status}`, null, providerId)
@@ -1186,8 +1317,9 @@ export class ProxyHandler {
             upstream,
             requestId,
             model,
-            attempts.length,
+            attempts,
             protocol,
+            "non_retryable",
             errorBytes,
             undefined,
             providerId
@@ -1245,7 +1377,7 @@ export class ProxyHandler {
             prepared,
             requestId,
             model,
-            attempts.length + 1,
+            attempts,
             protocol,
               config.streamIdleTimeoutMs,
               path,
@@ -1300,20 +1432,28 @@ export class ProxyHandler {
             finalError = "client disconnected";
             return;
           }
-          const message = (error as Error).message;
-          const retryable = !(error instanceof UpstreamPayloadError) || error.retryable;
+          const overallTimedOut = controller.signal.aborted;
+          const attemptTimedOut = attemptController.signal.aborted;
+          const message = overallTimedOut
+            ? "request deadline exceeded"
+            : attemptTimedOut
+              ? "model produced no output before the attempt deadline"
+              : (error as Error).message;
+          const retryable = !overallTimedOut && (!(error instanceof UpstreamPayloadError) || error.retryable);
           attempts.push(attempt(
             model,
             upstream.status,
             Date.now() - started,
             retryable ? "transient_error" : "permanent_error",
-            message
+            message,
+            null,
+            providerId
           ));
           if (!internalSandbox) {
             if (retryable) this.options.router.recordTransientFailure(protocol, model, config);
             else this.options.router.recordPermanentFailure(protocol, model);
           }
-          finalStatus = 502;
+          finalStatus = overallTimedOut || attemptTimedOut ? 504 : 502;
           finalError = message;
           if (retryable) continue;
           break;
@@ -1331,7 +1471,7 @@ export class ProxyHandler {
         attempts.push(attempt(model, upstream.status, Date.now() - started, "success", undefined, null, providerId));
         if (!internalSandbox) this.options.router.recordSuccess(protocol, model, Date.now() - started, config);
         response.writeHead(upstream.status, {
-          ...responseHeaders(upstream.headers, requestId, model, attempts.length, providerId),
+          ...responseHeaders(upstream.headers, requestId, model, attempts, "complete", providerId),
           "content-type": "application/json; charset=utf-8",
           "content-length": String(payload.bytes.length)
         });
@@ -1346,11 +1486,29 @@ export class ProxyHandler {
       }
 
       if (!response.headersSent && !clientAborted) {
+        const lastAttempt = attempts.at(-1);
+        const terminal: RouterTerminal = attempts.length === 0
+          ? "no_candidate"
+          : controller.signal.aborted
+            ? "request_timeout"
+            : finalStatus === 504 && attempts.length === 1 && finalError?.includes("deadline")
+              ? "request_timeout"
+              : attempts.some((item) => item.outcome === "transient_error" || item.outcome === "rate_limited")
+                ? "fallback_exhausted"
+                : "non_retryable";
+        if (terminal === "no_candidate") {
+          finalStatus = 503;
+          finalError = "no configured provider is available for the routed candidates";
+        }
+        selectedModel ??= lastAttempt?.model ?? null;
         sendJson(
           response,
           finalStatus,
-          protocolError(protocol, requestId, finalError ?? "RouteTok request failed", "api_error"),
-          { "x-request-id": requestId, "x-router-attempts": String(attempts.length) }
+          protocolError(protocol, requestId, finalError ?? "RouteTok request failed", terminal),
+          {
+            "x-request-id": requestId,
+            ...diagnosticHeaders(terminal, attempts, lastAttempt?.model, lastAttempt?.providerId)
+          }
         );
       }
     } finally {
@@ -1387,8 +1545,9 @@ export class ProxyHandler {
     upstream: Response,
     requestId: string,
     model: string,
-    attempts: number,
+    attempts: AttemptRecord[],
     protocol: Protocol,
+    terminal: RouterTerminal,
     suppliedBytes?: Buffer,
     statusOverride?: number,
     providerId: ProviderId = "agentrouter"
@@ -1413,11 +1572,11 @@ export class ProxyHandler {
           protocol,
           requestId,
           `Upstream provider returned HTTP ${upstream.status} without a valid error envelope`,
-          upstream.status === 429 ? "rate_limit_error" : "api_error"
+          terminal
         );
     const bytes = Buffer.from(JSON.stringify(body));
     response.writeHead(statusOverride ?? upstream.status, {
-      ...responseHeaders(upstream.headers, requestId, model, attempts, providerId),
+      ...responseHeaders(upstream.headers, requestId, model, attempts, terminal, providerId),
       "content-type": "application/json; charset=utf-8",
       "content-length": String(bytes.length)
     });
@@ -1430,13 +1589,20 @@ export class ProxyHandler {
     prepared: PreparedStream,
     requestId: string,
     model: string,
-    attempts: number,
+    priorAttempts: AttemptRecord[],
     protocol: Protocol,
     idleTimeoutMs: number,
     path: string,
     providerId: ProviderId
   ): Promise<{ usage: TokenUsage; error: string | null }> {
-    response.writeHead(upstream.status, responseHeaders(upstream.headers, requestId, model, attempts, providerId));
+    const headerAttempts: DiagnosticAttempt[] = [
+      ...priorAttempts,
+      { model, providerId, status: upstream.status, outcome: "stream_committed" }
+    ];
+    response.writeHead(
+      upstream.status,
+      responseHeaders(upstream.headers, requestId, model, headerAttempts, "stream_committed", providerId)
+    );
     const sanitizer = new StreamSanitizer(protocol, path, model);
     try {
       for (const chunk of prepared.buffered) {
@@ -1455,7 +1621,10 @@ export class ProxyHandler {
           firstTextAt: prepared.inspector.firstTextAt
         });
         for (const sanitized of sanitizer.push(result.value)) await writeChunk(response, sanitized);
-        if (prepared.inspector.upstreamError) break;
+        if (prepared.inspector.upstreamError) {
+          await prepared.reader.cancel("upstream stream reported an error").catch(() => {});
+          break;
+        }
       }
       prepared.inspector.finish();
       for (const sanitized of sanitizer.finish()) await writeChunk(response, sanitized);
@@ -1464,6 +1633,7 @@ export class ProxyHandler {
         (prepared.inspector.terminal ? null : "stream ended without a terminal event");
       return { usage: prepared.inspector.usage, error };
     } catch (error) {
+      await prepared.reader.cancel("downstream stream ended").catch(() => {});
       try {
         await writeStreamError(response, protocol);
         response.end();
