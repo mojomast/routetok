@@ -4,9 +4,9 @@
 
 RouteTok is a local-first inference router with OpenAI- and Anthropic-compatible APIs. It combines a resilient multi-provider proxy, an operations dashboard, and a standalone model Fieldbook in one dependency-light Node.js service.
 
-![RouteTok operations dashboard with synthetic routing telemetry](docs/images/dashboard-overview.png)
+![RouteTok operations dashboard with Support and API setup](docs/images/dashboard-overview.png)
 
-> Screenshots contain synthetic data. RouteTok is independent and is not affiliated with or endorsed by any model or inference provider.
+> Screenshots show a local development instance and contain no credential values. RouteTok is independent and is not affiliated with or endorsed by any model or inference provider.
 
 ## Three Surfaces, One Router
 
@@ -98,7 +98,7 @@ Ready-to-adapt client examples are in [`examples/`](examples/).
 
 ## Dashboard
 
-The dashboard is the control plane for provider readiness, write-only credentials, enabled models, route order, custom cascades, circuit state, live requests, usage history, costs, and comparison workflows. Its assistant retrieves only bounded, allowlisted operational resources and cannot access secrets, files, shell commands, or raw retained request bodies.
+The dashboard is the control plane for provider readiness, write-only credentials, enabled models, route order, custom cascades, circuit state, live requests, usage history, and costs. Its sole conversational workspace is RouteTok Support, which retrieves only bounded, allowlisted operational resources and cannot access secrets, files, shell commands, or raw retained request bodies. The Connect Applications section documents client endpoints, proxy authentication, and provider-key management; general Chat, Compare, Room, Images, Evaluate, and Studio work remain in the standalone Fieldbook.
 
 [Read the Dashboard guide](docs/dashboard.md) for configuration and operational workflow details.
 

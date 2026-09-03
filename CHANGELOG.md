@@ -8,6 +8,8 @@
 - Added bounded image generation, OpenRouter speech, Requesty/local Speaches transcription, and ephemeral media handling.
 - Added the static image-model benchmark gallery and expanded browser/integration coverage.
 - Added scoped AgentRouter DeepSeek compatibility for historical Anthropic tool blocks.
+- Unified Code, Canvas, and Scratchpad under concurrent modeless drawers and redesigned Studio so agent activity and steering use the remaining workspace.
+- Focused the dashboard arena on RouteTok Support and added a visible API setup and write-only provider-key management section.
 
 ## 0.1.0 - 2026-09-02
 

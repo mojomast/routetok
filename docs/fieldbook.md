@@ -46,7 +46,7 @@ Attachments are frozen at dispatch, labelled with provenance and revision, displ
 
 Room supports two to four collaborators with independent names, models, personalities, and private system prompts. Automatic replies alternate under a visible 0-30 turn budget and 10-300 second per-turn deadline. User interjections consume no automatic turns. Escape, leaving Room, changing notes, or reloading pauses active work.
 
-The shared scratchpad is a separate revisioned browser-local document. It can be pinned as a column, opened as a modal drawer, or minimized to the restore rail. Valid fenced unified diffs can be reviewed and applied manually; Room may auto-apply them when explicitly enabled. No scratchpad operation writes to the filesystem.
+The shared scratchpad is a separate revisioned browser-local document. Scratchpad, Code, and Canvas use the same presentation model: pin as a column, open as a modeless drawer, or minimize to the utility rail. Clicking a minimized utility opens its drawer, where it can be pinned or minimized again. Multiple drawers may remain open together. Valid fenced unified diffs can be reviewed and applied manually; Room may auto-apply them when explicitly enabled. No scratchpad operation writes to the filesystem.
 
 ## Evaluate
 
@@ -66,7 +66,7 @@ Enabling an image model in the dashboard is the spending boundary for direct Ima
 
 Each note owns a virtual project containing `index.html`, `styles.css`, and `app.js`. Studio never accesses repository or filesystem files. Manual edits update an opaque preview with network access blocked; JavaScript is opt-in and still runs without same-origin access.
 
-One to four agents rotate under a visible 0-20 iteration budget and 10-300 second deadline. Each agent has a role, personality, private system prompt, and host-enforced file scope. Code and Canvas can be columns, accessible modal drawers, or minimized utilities. Canvas snapshots preserve the selected device aspect ratio when popped out.
+One to four agents rotate under a visible 0-20 iteration budget and 10-300 second deadline. Each agent has a role, personality, private system prompt, and host-enforced file scope. The setup controls use the full Studio width, while the workbench and Agent Activity share the remaining row. Iteration events and steering messages scroll independently above an always-available steering composer. If Code and Canvas are both minimized or moved into drawers, Agent Activity expands into the freed workspace. Canvas snapshots preserve the selected device aspect ratio when popped out.
 
 Agents communicate through browser-enforced Iteration Tool envelopes:
 

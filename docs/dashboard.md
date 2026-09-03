@@ -2,9 +2,9 @@
 
 The RouteTok dashboard at `/dashboard` is the operations and configuration surface for the proxy. It uses the same server-side catalog, routing policy, health state, and usage records as the inference endpoints.
 
-![RouteTok dashboard with synthetic telemetry](images/dashboard-overview.png)
+![RouteTok dashboard with Support and API setup](images/dashboard-overview.png)
 
-> Screenshots contain synthetic data.
+> The screenshot shows a local development instance and contains no credential values.
 
 ## Operations
 
@@ -20,24 +20,23 @@ The dashboard exposes:
 
 Provider credentials entered through the dashboard are write-only. RouteTok stores them under `DATA_DIR/secrets/provider-credentials.json` with an owner-only directory and file permissions and never returns key material to the browser.
 
-## Assistant
+## Support Agent
 
-The dashboard assistant can explain setup and routing, diagnose observed failures, plan comparisons, and prepare routing configuration proposals. It retrieves only the bounded operational resources required for the current question.
+RouteTok Support is the dashboard's only conversational workspace. It can explain setup and routing, diagnose observed failures, help with onboarding, and prepare routing configuration proposals. General model chat and comparison workflows live in the standalone Fieldbook.
 
-The assistant cannot access provider secrets, environment files, the filesystem, shell commands, or raw retained request bodies. Configuration proposals are typed, editable, revision-bound, revalidated after edits, and require a separate exact-diff confirmation before application.
+Support retrieves only the bounded operational resources required for the current question. It cannot access provider secrets, environment files, the filesystem, shell commands, or raw retained request bodies. Configuration proposals are typed, editable, revision-bound, revalidated after edits, and require a separate exact-diff confirmation before application.
 
-## Arena
+## API Setup
 
-The dashboard arena provides independent Chat, Design, and Agent workstreams. Each workstream retains its own draft, lineup, settings, results, and scroll position.
+The Connect Applications panel keeps client setup visible beside operational telemetry. It provides:
 
-- Run up to four independent lanes, including repeated models for variance checks.
-- Preserve lane-specific multi-turn branches and retry failed cards independently.
-- Use provider-default output limits or explicit generation settings.
-- Inspect route, provider, endpoint, attempt, timing, token, cache, throughput, and cost evidence.
-- Save completed runs in browser IndexedDB.
-- Render static generated designs inside opaque, network-blocked iframes.
+- The origin-derived OpenAI-compatible `/v1` base URL
+- Chat Completions, Responses, Anthropic Messages, and model-list endpoint references
+- A copyable curl example that reads `ROUTETOK_PROXY_KEY` from the caller's environment
+- Current client-authentication status without exposing `PROXY_API_KEY`
+- Direct access to write-only upstream provider credential management
 
-The arena also supports catalog-confirmed free OpenRouter text-to-speech and transcription through local Speaches or an approved Requesty model. Audio, filenames, and unreviewed transcripts remain ephemeral; transcripts require review before insertion and are never sent automatically.
+Client authentication and provider credentials are separate. `PROXY_API_KEY` protects inference calls and remains startup-managed through the server environment. Provider credentials authorize RouteTok to call upstream services and can be replaced or disabled through the dashboard without ever being returned to the browser.
 
 ## Dashboard And Fieldbook
 

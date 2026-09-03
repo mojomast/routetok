@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
     <title>Model Fieldbook · RouteTok</title>
-    <link rel="stylesheet" href="/sandbox.css?v=20260903-fieldbook23">
+    <link rel="stylesheet" href="/sandbox.css?v=20260903-fieldbook25">
   </head>
   <body>
     <a class="skip" href="#workspace">Skip to workspace</a>
@@ -137,7 +137,7 @@
             </section>
             <section id="studio-workbench" class="studio-workbench" aria-label="Project editor and preview">
               <div id="studio-editor-pane" class="studio-editor-pane managed-panel" data-panel="code">
-                <div class="managed-panel-head"><strong>Code editor</strong><span><button data-panel-action="minimize" type="button">Minimize</button><button data-panel-action="drawer" type="button">Drawer</button><button data-panel-action="column" type="button">Pin column</button></span></div>
+                <div class="managed-panel-head"><strong>Code editor</strong><span class="managed-panel-actions"><button data-panel-action="minimize" type="button">Minimize</button><button data-panel-action="drawer" type="button">Drawer</button><button data-panel-action="column" type="button">Pin column</button></span></div>
                 <div id="studio-file-tabs" class="studio-file-tabs" role="tablist" aria-label="Project files"></div>
                 <label class="sr-only" for="studio-editor">Active project file</label>
                 <textarea id="studio-editor" spellcheck="false" aria-label="Active project file source"></textarea>
@@ -149,14 +149,14 @@
                 <div id="studio-canvas-stage" class="studio-canvas-stage"><iframe id="studio-preview" title="Browser-local project preview" sandbox="" referrerpolicy="no-referrer"></iframe></div>
               </div>
             </section>
-            <section class="studio-history" aria-label="Iteration and steering timeline"><div class="studio-history-head"><h2>Iteration timeline</h2><span id="studio-snapshot-count" class="muted"></span></div><div id="studio-log" class="studio-log" aria-live="polite"></div><div id="studio-chat-timeline" class="studio-chat-timeline" aria-live="polite"></div><form id="studio-chat-composer" class="studio-chat-composer"><label>Steer agent<select id="studio-chat-agent"></select></label><textarea id="studio-chat-draft" rows="3" maxlength="50000" placeholder="Send advisory steering; files change only after accepting a valid proposal."></textarea><div class="context-chips" data-context-chips="studio" aria-label="Selected context"></div><div><button data-context-scope="studio" type="button">Context</button><button id="stop-studio-chat" type="button" hidden>Stop</button><button id="send-studio-chat" class="primary" type="submit">Send steering</button></div></form></section>
+            <section class="studio-history" aria-label="Agent activity and steering"><div class="studio-history-head"><div><p class="section-label">COLLABORATION</p><h2>Agent activity</h2></div><span id="studio-snapshot-count" class="muted"></span></div><div class="studio-activity-scroll"><div id="studio-log" class="studio-log"></div><div id="studio-chat-timeline" class="studio-chat-timeline"></div></div><form id="studio-chat-composer" class="studio-chat-composer"><label>Steer agent<select id="studio-chat-agent"></select></label><label class="sr-only" for="studio-chat-draft">Steering message</label><textarea id="studio-chat-draft" rows="4" maxlength="50000" placeholder="Ask an agent to review direction or propose a revision-bound patch…"></textarea><div class="context-chips" data-context-chips="studio" aria-label="Selected context"></div><div><button data-context-scope="studio" type="button">Context</button><button id="stop-studio-chat" type="button" hidden>Stop</button><button id="send-studio-chat" class="primary" type="submit">Send steering</button></div></form></section>
           </div>
         </section>
       </main>
 
       <aside id="scratchpad-workspace" class="scratchpad-workspace managed-panel" data-panel="scratchpad" aria-label="Shared scratchpad">
         <div id="scratchpad-resizer" class="scratchpad-resizer" role="separator" aria-label="Resize shared scratchpad" aria-orientation="vertical" aria-valuemin="240" aria-valuemax="520" aria-valuenow="256" tabindex="0"></div>
-        <div class="panel-head"><div><p class="section-label">COLLABORATION</p><h2>Shared scratchpad</h2></div><span class="managed-panel-actions"><button data-panel-action="minimize" type="button">Minimize</button><button data-panel-action="drawer" type="button">Drawer</button><button data-panel-action="column" type="button">Pin column</button><button id="close-scratchpad" class="quiet" type="button" aria-label="Close scratchpad">Close</button></span></div>
+        <div class="panel-head"><div><p class="section-label">COLLABORATION</p><h2>Shared scratchpad</h2></div><span class="managed-panel-actions"><button data-panel-action="minimize" type="button">Minimize</button><button data-panel-action="drawer" type="button">Drawer</button><button data-panel-action="column" type="button">Pin column</button></span></div>
         <label for="scratchpad">Workspace document</label><textarea id="scratchpad" rows="18" maxlength="100000" placeholder="Paste a draft, specification, code fragment, or document for the models to edit together…"></textarea>
         <p id="scratchpad-status" class="muted">Empty · revision 0</p>
         <label class="inline"><input id="scratchpad-auto-apply" type="checkbox"> Auto-apply valid Room diffs</label>
@@ -188,6 +188,6 @@
     <dialog id="token-dialog"><form method="dialog"><h2>Dashboard authentication</h2><p>Enter the dashboard token for this RouteTok origin.</p><label>Token<input id="token-input" type="password" autocomplete="current-password"></label><div><button value="cancel">Cancel</button><button id="save-token" value="default" class="primary">Save token</button></div></form></dialog>
     <dialog id="help-dialog"><form method="dialog"><h2>Fieldbook shortcuts</h2><dl><dt>Ctrl/Cmd + Enter</dt><dd>Send</dd><dt>Escape</dt><dd>Stop or close</dd><dt>Ctrl/Cmd + N</dt><dd>New conversation</dd><dt>Ctrl/Cmd + K</dt><dd>Search conversations</dd></dl><button value="default">Close</button></form></dialog>
     <div id="toast" role="status" aria-live="polite"></div>
-    <script type="module" src="/sandbox.js?v=20260903-fieldbook23"></script>
+    <script type="module" src="/sandbox.js?v=20260903-fieldbook25"></script>
   </body>
 </html>

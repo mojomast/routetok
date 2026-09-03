@@ -298,7 +298,11 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
 
     const dashboardPage = await fetch(`http://127.0.0.1:${proxyPort}/dashboard`);
     assert.equal(dashboardPage.status, 200);
-    assert.match(await dashboardPage.text(), /ROUTETOK<span>\/01<\/span>/);
+    const dashboardHtml = await dashboardPage.text();
+    assert.match(dashboardHtml, /ROUTETOK<span>\/01<\/span>/);
+    assert.match(dashboardHtml, /SUPPORT AGENT/);
+    assert.match(dashboardHtml, /Connect Applications/);
+    assert.doesNotMatch(dashboardHtml, /data-sandbox-mode="(?:chat|design)"/);
 
     for (const sandboxPath of ["/sandbox", "/sandbox/"]) {
       const sandboxPage = await fetch(`http://127.0.0.1:${proxyPort}${sandboxPath}`);

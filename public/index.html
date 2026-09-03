@@ -44,7 +44,7 @@
         } catch (_) {}
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20260902-localstt1">
+    <link rel="stylesheet" href="/styles.css?v=20260903-support1">
   </head>
   <body>
     <a class="skip-link" href="#dashboard-main">SKIP TO MAIN CONTENT</a>
@@ -63,8 +63,8 @@
           </div>
         </div>
         <div class="masthead-actions" aria-label="Dashboard actions">
-          <button id="open-sandbox" class="button primary-button" type="button" aria-controls="chat-drawer" aria-expanded="false">MODEL SANDBOX</button>
-          <button id="open-assistant" class="button secondary" type="button" aria-controls="chat-drawer" aria-expanded="false">ASSISTANT AGENT</button>
+          <button id="open-assistant" class="button primary-button" type="button" aria-controls="chat-drawer" aria-expanded="false">SUPPORT AGENT</button>
+          <a class="button secondary" href="#api-access">API SETUP</a>
           <button id="open-help" class="button secondary" type="button">HELP</button>
           <button id="open-api-keys" class="button secondary" type="button">API KEYS</button>
           <button id="open-config" class="button secondary" type="button" aria-controls="config-drawer" aria-expanded="false">SETTINGS</button>
@@ -139,6 +139,18 @@
         <article><span>ATTEMPTS / REQUEST</span><strong id="attempts-per-request">--</strong></article>
         <article><span>FALLBACK RATE</span><strong id="fallback-rate">--</strong></article>
         <article><span>FAILURES</span><strong id="failure-count">0</strong></article>
+      </section>
+
+      <section id="api-access" class="panel api-access-panel" aria-labelledby="api-access-title">
+        <div class="panel-heading compact">
+          <div><p class="section-index">API / CLIENT ACCESS</p><h2 id="api-access-title">Connect Applications</h2></div>
+          <button id="manage-api-keys" class="button primary-button" type="button">MANAGE PROVIDER KEYS</button>
+        </div>
+        <div class="api-access-grid">
+          <article class="api-access-card api-access-summary"><span>OPENAI-COMPATIBLE BASE URL</span><strong id="api-base-url">/v1</strong><p>Use RouteTok as the base URL in OpenAI-compatible clients. Choose <code>best</code>, <code>auto</code>, <code>free</code>, a custom cascade, or a namespaced physical model.</p><div class="api-auth-state"><span>CLIENT AUTH</span><strong id="api-client-auth">CHECKING</strong></div></article>
+          <article class="api-access-card"><span>ENDPOINTS</span><ul><li><code>GET /v1/models</code></li><li><code>POST /v1/chat/completions</code></li><li><code>POST /v1/responses</code></li><li><code>POST /v1/messages</code></li></ul><p><code>PROXY_API_KEY</code> authenticates client inference. Provider keys are separate, write-only upstream credentials.</p></article>
+          <article class="api-access-card api-example-card"><div><span>QUICK START</span><button class="button secondary" type="button" data-copy-api="curl">COPY</button></div><pre id="api-curl-example"></pre></article>
+        </div>
       </section>
 
       <div id="inflight-main-slot" class="inflight-main-slot"></div>
@@ -486,14 +498,12 @@
       <div class="chat-drawer-header">
         <div class="chat-drawer-title">
           <div class="arena-identity">
-            <span class="section-index">MODEL ARENA</span>
-            <strong id="arena-title">CHAT WORKSTREAM</strong>
+            <span class="section-index">ROUTE SUPPORT</span>
+            <strong id="arena-title">SUPPORT AGENT</strong>
             <small id="arena-save-state" role="status" aria-live="polite">LOCAL / READY</small>
           </div>
           <div id="sandbox-mode" class="sandbox-mode" role="group" aria-label="Sandbox mode">
-            <button class="button secondary active" data-sandbox-mode="chat" type="button" aria-pressed="true"><span>CHAT</span><i data-mode-status="chat">READY</i></button>
-            <button class="button secondary" data-sandbox-mode="design" type="button" aria-pressed="false"><span>DESIGN</span><i data-mode-status="design">READY</i></button>
-            <button class="button secondary" data-sandbox-mode="diagnose" type="button" aria-pressed="false"><span>AGENT</span><i data-mode-status="diagnose">READY</i></button>
+            <button class="button secondary active" data-sandbox-mode="diagnose" type="button" aria-pressed="true"><span>SUPPORT</span><i data-mode-status="diagnose">READY</i></button>
           </div>
           <details id="chat-model-picker" class="chat-model-picker">
             <summary title="Model order is preserved for this workstream"><span id="chat-model-count">0 / 4 MODELS</span><small id="arena-model-summary">SELECT LINEUP</small></summary>
@@ -525,12 +535,11 @@
         <button class="intent-chip" data-agent-intent="onboard" type="button" aria-pressed="false">ONBOARD</button>
         <button class="intent-chip" data-agent-intent="optimize" type="button" aria-pressed="false">OPTIMIZE</button>
         <button class="intent-chip" data-agent-intent="configure" type="button" aria-pressed="false">CONFIGURE</button>
-        <button class="intent-chip" data-agent-intent="compare" type="button" aria-pressed="false">COMPARE</button>
         <small id="agent-intent-help">Detect the appropriate safe workflow from your request.</small>
       </div>
       <div id="arena-model-lock" class="arena-model-lock hidden" role="note">Lineup locked to keep this workstream consistent. <button id="new-lineup" type="button">NEW WITH DIFFERENT MODELS</button></div>
       <div id="chat-messages" class="chat-messages" aria-live="polite">
-        <p class="chat-empty">Choose up to four models. Prompts are sent to their providers. Assistant mode shares operational metadata, never request bodies or credentials. Results and designs are saved locally in this browser.</p>
+        <p class="chat-empty">Ask RouteTok Support to diagnose routing, explain behavior, help with setup, or prepare a reviewed configuration proposal. It receives bounded operational metadata, never credential values or raw request bodies.</p>
         <section id="config-proposal-host" class="config-proposal-host" aria-live="polite"></section>
       </div>
       <section id="sandbox-library" class="sandbox-library hidden" aria-label="Saved sandbox results">
@@ -574,7 +583,7 @@
       </form>
     </div>
 
-    <button id="open-chat" class="chat-fab" type="button" title="Open model sandbox" aria-label="Open model sandbox" aria-controls="chat-drawer" aria-expanded="false">
+    <button id="open-chat" class="chat-fab" type="button" title="Open RouteTok Support" aria-label="Open RouteTok Support" aria-controls="chat-drawer" aria-expanded="false">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
     </button>
 
@@ -619,9 +628,9 @@
       <form method="dialog">
         <p class="section-index">DASHBOARD GUIDE</p><h2 id="help-title">How Everything Works</h2>
         <div class="help-grid">
-          <section><h3>Chat</h3><p>Select up to four models and send one prompt. Requests run in parallel, with independent branches, progress estimates, and exact final metrics.</p></section>
-          <section><h3>Design</h3><p>Models generate self-contained HTML. Preview, inspect source, enable JavaScript in an opaque sandbox, pop out a card, copy, or download a safe static document.</p></section>
-          <section><h3>Agent</h3><p>Auto detects diagnosis, explanation, onboarding, configuration, optimization, and comparison requests. Explicit intents override detection. Proposals require review and confirmation; comparisons only prepare a handoff.</p></section>
+          <section><h3>Support Agent</h3><p>Diagnoses routing, explains behavior, helps with onboarding, and prepares configuration proposals. Explicit intents override automatic detection. Proposals always require review and confirmation.</p></section>
+          <section><h3>Model Fieldbook</h3><p>Chat, Compare, Room, Evaluate, Images, and Iteration Studio now live in the standalone <a href="/sandbox">Model Fieldbook</a>.</p></section>
+          <section><h3>API Setup</h3><p>The Connect Applications panel documents client endpoints and authentication. Provider credentials remain write-only and are managed separately from the client proxy key.</p></section>
           <section><h3>Speech</h3><p>Record or upload audio for transcript review, and use Listen on completed results. Audio remains ephemeral, transcripts never auto-send, and the initial TTS catalog is restricted to confirmed free models.</p></section>
           <section><h3>Saved</h3><p>Completed prompts, outputs, reasoning, metrics, and designs are stored in IndexedDB. Star any generation card and browse it through the Starred gallery.</p></section>
           <section><h3>Live Flow</h3><p>Shows model, route phase, attempts, elapsed time, TTFT, estimated tokens, and tokens per second. The hold slider controls how long finished rows remain.</p></section>
@@ -634,6 +643,6 @@
       <form method="dialog"><p class="section-index">SECURE CREDENTIAL INGRESS</p><h2 id="api-keys-title">Provider API Keys</h2><p>Values are write-only and never displayed again. Stored overrides use <code>DATA_DIR/secrets</code> with owner-only permissions.</p><div id="api-key-manager" class="api-key-manager"></div><button class="button secondary" value="close">CLOSE</button></form>
     </dialog>
 
-    <script type="module" src="/app.js?v=20260902-localstt1"></script>
+    <script type="module" src="/app.js?v=20260903-support1"></script>
   </body>
 </html>

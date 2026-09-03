@@ -37,7 +37,7 @@ function createArenaWorkspace(mode, saved = {}) {
 
 let storedArena = null;
 try { storedArena = JSON.parse(localStorage.getItem(ARENA_WORKSPACES_KEY) || "null"); } catch {}
-const storedArenaMode = ARENA_MODES.includes(storedArena?.activeMode) ? storedArena.activeMode : "chat";
+const storedArenaMode = "diagnose";
 
 const state = {
   status: null,
@@ -477,6 +477,7 @@ function workspaceStatus(workspace) {
 
 function renderArenaStatus() {
   const workspace = activeWorkspace();
+  if (workspace.intent === "compare") workspace.intent = "auto";
   for (const mode of ARENA_MODES) {
     const target = document.querySelector(`[data-mode-status="${mode}"]`);
     if (target) {
@@ -485,7 +486,7 @@ function renderArenaStatus() {
       target.dataset.status = status.toLowerCase();
     }
   }
-  const label = workspace.mode === "diagnose" ? "AGENT" : workspace.mode.toUpperCase();
+  const label = workspace.mode === "diagnose" ? "SUPPORT" : workspace.mode.toUpperCase();
   byId("arena-title").textContent = `${label} WORKSTREAM`;
   byId("arena-save-state").textContent = workspace.saveState === "saving" ? "LOCAL / SAVING" : workspace.saveState === "failed" ? "LOCAL SAVE FAILED" : workspace.draft ? "LOCAL / DRAFT SAVED" : workspace.turns.length || workspace.assistantPlan || workspace.configProposal ? "LOCAL / SAVED" : "LOCAL / READY";
   const lanes = workspaceModelLanes(workspace);
@@ -499,20 +500,18 @@ function renderArenaStatus() {
     explain: "Explain routing, fallback, health, models, or configuration without changing anything.",
     onboard: "Teach setup, APIs, providers, speech, and normal RouteTok workflows.",
     optimize: "Generate an editable optimization proposal; nothing is applied automatically.",
-    configure: "Generate an editable configuration proposal that requires validation and confirmation.",
-    compare: "Prepare a reviewed Chat or Design comparison plan without running it."
+    configure: "Generate an editable configuration proposal that requires validation and confirmation."
   };
   byId("agent-intent-help").textContent = intentDescriptions[workspace.intent] || intentDescriptions.auto;
   if (workspace.mode === "diagnose") {
-    const actionLabels = { auto: "ASK", diagnose: "ANALYZE", explain: "EXPLAIN", onboard: "GUIDE", optimize: "PROPOSE", configure: "PROPOSE", compare: "PLAN" };
+    const actionLabels = { auto: "ASK", diagnose: "ANALYZE", explain: "EXPLAIN", onboard: "GUIDE", optimize: "PROPOSE", configure: "PROPOSE" };
     const placeholders = {
-      auto: "Ask naturally; Agent will choose diagnosis, explanation, planning, or a proposal workflow...",
+      auto: "Ask naturally; Support will choose diagnosis, explanation, onboarding, or a proposal workflow...",
       diagnose: "Describe symptoms or unexpected router behavior...",
       explain: "Ask why a request took a route or how a RouteTok feature works...",
       onboard: "Ask how to set up, use, or understand RouteTok...",
       optimize: "Describe the reliability, latency, or cost objective...",
-      configure: "Describe the exact configuration change to propose...",
-      compare: "Describe a comparison to plan; it will not run automatically..."
+      configure: "Describe the exact configuration change to propose..."
     };
     byId("send-chat").textContent = actionLabels[workspace.intent] || "ASK";
     byId("chat-input").placeholder = placeholders[workspace.intent] || placeholders.auto;
@@ -528,14 +527,14 @@ function renderActiveWorkspace() {
   const workspace = activeWorkspace();
   for (const pending of workspace.pendingCards.values()) if (pending.card?._progressTimer) clearInterval(pending.card._progressTimer);
   workspace.pendingCards.clear();
-  resetChatMessages(workspace.mode === "diagnose" ? "Choose an explicit Agent intent, then ask about this router. Operational context excludes request bodies and credentials." : undefined);
+  resetChatMessages(workspace.mode === "diagnose" ? "Choose a Support intent, then ask about this router. Operational context excludes request bodies and credentials." : undefined);
   byId("chat-messages").querySelector(".chat-empty")?.remove();
   workspace.turns.forEach((turn, index) => renderSandboxTurn(turn.prompt, Object.values(turn.results || {}), turn.mode || workspace.mode, index));
   if (workspace.inflight) renderInflightWorkspace(workspace);
   if (workspace.assistantPlan) renderAssistantPlan(workspace.assistantPlan);
   if (workspace.configProposal) renderConfigProposal(workspace.configProposal, workspace);
   if (!workspace.turns.length && !workspace.inflight && !workspace.assistantPlan && !workspace.configProposal) {
-    resetChatMessages(workspace.mode === "diagnose" ? "Choose an explicit Agent intent, then ask about this router. Operational context excludes request bodies and credentials." : undefined);
+    resetChatMessages(workspace.mode === "diagnose" ? "Choose a Support intent, then ask about this router. Operational context excludes request bodies and credentials." : undefined);
   }
   applyGenerationControls(workspace);
   byId("chat-input").value = workspace.draft;
@@ -1892,6 +1891,7 @@ function render(payload) {
   byId("node-version").textContent = payload.runtime.node;
   byId("upstream").textContent = `${(payload.providers || []).filter((provider) => provider.configured).length} / ${(payload.providers || []).length} configured`;
   byId("client-auth").textContent = payload.runtime.proxyAuthenticationEnabled ? "ENFORCED" : "LOOPBACK ONLY";
+  byId("api-client-auth").textContent = payload.runtime.proxyAuthenticationEnabled ? "API KEY REQUIRED" : "NOT ENFORCED";
   byId("catalog-sync").textContent = payload.catalog.lastError
     ? `ERROR: ${payload.catalog.lastError}`
     : payload.catalog.lastRefresh
@@ -2996,10 +2996,6 @@ function assistantIntent(message) {
   const propose = /\b(suggest|propose|recommend|change|adjust|update|set|add|remove|enable|disable|create|delete|replace|reorder|increase|decrease|fix|configure|turn on|turn off)\b/.test(text);
   if (!explainOnly && configuration && optimize) return "optimize";
   if (!explainOnly && configuration && (propose || /\bconfiguration changes?\b/.test(text))) return "config";
-  const comparison = /\b(compare|comparison|arena|side[- ]by[- ]side|benchmark|evaluate|a\/b|consistency test|variance)\b/.test(text);
-  const run = /\b(run|start|launch|perform|create|make|do|plan|prepare|generate)\b/.test(text);
-  if (run && /\b(design|ui|ux|html|page|component|layout|website)\b/.test(text)) return "design";
-  if (comparison) return "chat";
   return "respond";
 }
 
@@ -3806,7 +3802,7 @@ byId("proposal-confirm-dialog").addEventListener("close", () => {
 });
 
 function setSandboxMode(mode, force = false) {
-  if (!ARENA_MODES.includes(mode)) return;
+  mode = "diagnose";
   const previous = activeWorkspace();
   if (previous.mode !== mode) stopTts();
   if (byId("chat-input")) previous.draft = byId("chat-input").value;
@@ -3925,6 +3921,20 @@ byId("open-api-keys").addEventListener("click", () => {
   renderApiKeyManager();
   byId("api-keys-dialog").showModal();
 });
+byId("manage-api-keys").addEventListener("click", () => byId("open-api-keys").click());
+const apiBaseUrl = `${location.origin}/v1`;
+const apiCurlExample = `curl ${apiBaseUrl}/chat/completions \\\n+  -H "Authorization: Bearer $ROUTETOK_PROXY_KEY" \\\n+  -H "Content-Type: application/json" \\\n+  -d '{"model":"best","messages":[{"role":"user","content":"Hello"}]}'`;
+byId("api-base-url").textContent = apiBaseUrl;
+const normalizedApiCurlExample = apiCurlExample.replaceAll("\n+  ", "\n  ");
+byId("api-curl-example").textContent = normalizedApiCurlExample;
+document.querySelectorAll("[data-copy-api]").forEach((button) => button.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(normalizedApiCurlExample);
+    notify("API example copied.", true);
+  } catch {
+    notify("Clipboard access was unavailable. Select the example manually.");
+  }
+}));
 byId("api-key-manager").addEventListener("click", async (event) => {
   const target = event.target.closest("[data-credential-update], [data-credential-delete]");
   if (!target) return;
@@ -3969,10 +3979,9 @@ byId("toggle-chat").addEventListener("click", () => {
 });
 
 byId("open-chat").addEventListener("click", () => {
-  setSandboxMode("chat", true);
+  setSandboxMode("diagnose", true);
   setChatOpen(true);
 });
-byId("open-sandbox")?.addEventListener("click", () => { setSandboxMode("chat", true); setChatOpen(true); });
 
 byId("chat-messages").addEventListener("scroll", () => {
   const container = byId("chat-messages");
@@ -4272,7 +4281,7 @@ const queryMode = arenaQuery.get("mode");
 const queryRun = arenaQuery.get("run");
 if (queryRun) {
   await openSavedRun(queryRun).catch((error) => notify(`Could not restore saved run: ${error.message}`));
-} else if (ARENA_MODES.includes(queryMode)) {
+} else if (queryMode === "diagnose") {
   setSandboxMode(queryMode, true);
 } else {
   setSandboxMode(state.sandboxMode, true);
