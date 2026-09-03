@@ -1,0 +1,949 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-03T05:06:06.120Z",
+  "prompt": "Design a distinctive logo for RouteTok, an intelligent multi-provider LLM router and model evaluation sandbox. Create a bold route-switching symbol combining branching paths with a compact token or spark motif. Editorial technical aesthetic, dark graphite, warm off-white, rust orange, and sage green. Clean geometric mark with the readable wordmark RouteTok. Centered composition, square canvas, no mockup, no gradients, no extra text.",
+  "requested": 19,
+  "succeeded": 19,
+  "failed": 0,
+  "reportedCostUsd": 0.5250277999999998,
+  "results": [
+    {
+      "model": "black-forest-labs/flux.2-klein-4b",
+      "name": "Black Forest Labs: FLUX.2 Klein 4B",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 3333,
+      "settings": {
+        "model": "black-forest-labs/flux.2-klein-4b",
+        "prompt": "Design a distinctive logo for RouteTok, an intelligent multi-provider LLM router and model evaluation sandbox. Create a bold route-switching symbol combining branching paths with a compact token or spark motif. Editorial technical aesthetic, dark graphite, warm off-white, rust orange, and sage green. Clean geometric mark with the readable wordmark RouteTok. Centered composition, square canvas, no mockup, no gradients, no extra text.",
+        "n": 1,
+        "aspect_ratio": "1:1",
+        "output_format": "png"
+      },
+      "pricing": [
+        {
+          "provider": "Black Forest Labs",
+          "unit": "megapixel",
+          "costUsd": 0.014,
+          "variant": null
+        }
+      ],
+      "file": "black-forest-labs-flux-2-klein-4b.png",
+      "mediaType": "image/png",
+      "bytes": 965754,
+      "sha256": "e44b1af9668c7c7761137e71a1858b52aaa1829b101a9860850d7d74eb9324aa",
+      "usage": {
+        "prompt_tokens": 109,
+        "completion_tokens": 4096,
+        "total_tokens": 4205,
+        "cost": 0.014,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.014,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0.014
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 4096
+        }
+      }
+    },
+    {
+      "model": "sourceful/riverflow-v2.5-fast",
+      "name": "Sourceful: Riverflow V2.5 Fast",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 21470,
+      "settings": {
+        "model": "sourceful/riverflow-v2.5-fast",
+        "prompt": "Design a distinctive logo for RouteTok, an intelligent multi-provider LLM router and model evaluation sandbox. Create a bold route-switching symbol combining branching paths with a compact token or spark motif. Editorial technical aesthetic, dark graphite, warm off-white, rust orange, and sage green. Clean geometric mark with the readable wordmark RouteTok. Centered composition, square canvas, no mockup, no gradients, no extra text.",
+        "aspect_ratio": "1:1",
+        "resolution": "1K",
+        "output_format": "jpeg",
+        "n": 1
+      },
+      "pricing": [
+        {
+          "provider": "Sourceful",
+          "unit": "image",
+          "costUsd": 0.019,
+          "variant": null
+        },
+        {
+          "provider": "Sourceful",
+          "unit": "image",
+          "costUsd": 0.021,
+          "variant": "2k"
+        }
+      ],
+      "error": null,
+      "file": "sourceful-riverflow-v2-5-fast.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 192051,
+      "sha256": "b221f9d8d0bad819c76e1172a94076ab2284b6dbd4b6b0d69b38daf59328414c",
+      "usage": {
+        "prompt_tokens": 109,
+        "completion_tokens": 4175,
+        "total_tokens": 4284,
+        "cost": 0.020976000000000005,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.020976000000000005,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0.020976000000000005
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 4175
+        }
+      },
+      "retryReason": "No provider for sourceful/riverflow-v2.5-fast supports the requested parameter(s): resolution \"1K\", aspect_ratio \"1:1\", output_format \"png\", n \"1\". Provider rejections: Sourceful: output_format: not supported. Accepted: jpeg"
+    },
+    {
+      "model": "sourceful/riverflow-v2-fast",
+      "name": "Sourceful: Riverflow V2 Fast",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 23614,
+      "settings": {
+        "model": "sourceful/riverflow-v2-fast",
+        "prompt": "Design a distinctive logo for RouteTok, an intelligent multi-provider LLM router and model evaluation sandbox. Create a bold route-switching symbol combining branching paths with a compact token or spark motif. Editorial technical aesthetic, dark graphite, warm off-white, rust orange, and sage green. Clean geometric mark with the readable wordmark RouteTok. Centered composition, square canvas, no mockup, no gradients, no extra text.",
+        "n": 1,
+        "aspect_ratio": "1:1",
+        "resolution": "1K"
+      },
+      "pricing": [
+        {
+          "provider": "Sourceful",
+          "unit": "image",
+          "costUsd": 0.02,
+          "variant": null
+        },
+        {
+          "provider": "Sourceful",
+          "unit": "image",
+          "costUsd": 0.04,
+          "variant": "2k"
+        }
+      ],
+      "file": "sourceful-riverflow-v2-fast.webp",
+      "mediaType": "image/webp",
+      "bytes": 13466,
+      "sha256": "73de3713b1eb512976cdd4d0901bd384b06cea5da28652758f037a744f1fe130",
+      "usage": {
+        "prompt_tokens": 109,
+        "completion_tokens": 4175,
+        "total_tokens": 4284,
+        "cost": 0.02,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.02,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0.02
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 4175
+        }
+      }
+    },
+    {
+      "model": "qwen/qwen-image-3",
+      "name": "Qwen: Qwen Image 3",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 55742,
+      "settings": {
+        "model": "qwen/qwen-image-3",
+        "prompt": "Design a distinctive logo for RouteTok, an intelligent multi-provider LLM router and model evaluation sandbox. Create a bold route-switching symbol combining branching paths with a compact token or spark motif. Editorial technical aesthetic, dark graphite, warm off-white, rust orange, and sage green. Clean geometric mark with the readable wordmark RouteTok. Centered composition, square canvas, no mockup, no gradients, no extra text.",
+        "n": 1,
+        "aspect_ratio": "1:1",
+        "resolution": "1K"
+      },
+      "pricing": [
+        {
+          "provider": "Alibaba Cloud Int.",
+          "unit": "image",
+          "costUsd": 0.03,
+          "variant": "1k"
+        },
+        {
+          "provider": "Alibaba Cloud Int.",
+          "unit": "image",
+          "costUsd": 0.03,
+          "variant": "2k"
+        }
+      ],
+      "file": "qwen-qwen-image-3.png",
+      "mediaType": "image/png",
+      "bytes": 595148,
+      "sha256": "63e246cc179b4978f17616dcb12b3cd5c8401ec7432fdbbf8fb58f2019cf587c",
+      "usage": {
+        "prompt_tokens": 109,
+        "completion_tokens": 4175,
+        "total_tokens": 4284,
+        "cost": 0.03,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.03,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0.03
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 4175
+        }
+      }
+    },
+    {
+      "model": "black-forest-labs/flux.2-pro",
+      "name": "Black Forest Labs: FLUX.2 Pro",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 13769,
+      "settings": {
+        "model": "black-forest-labs/flux.2-pro",
+        "prompt": "Design a distinctive logo for RouteTok, an intelligent multi-provider LLM router and model evaluation sandbox. Create a bold route-switching symbol combining branching paths with a compact token or spark motif. Editorial technical aesthetic, dark graphite, warm off-white, rust orange, and sage green. Clean geometric mark with the readable wordmark RouteTok. Centered composition, square canvas, no mockup, no gradients, no extra text.",
+        "n": 1,
+        "aspect_ratio": "1:1",
+        "output_format": "png"
+      },
+      "pricing": [
+        {
+          "provider": "Black Forest Labs",
+          "unit": "megapixel",
+          "costUsd": 0.03,
+          "variant": null
+        }
+      ],
+      "file": "black-forest-labs-flux-2-pro.png",
+      "mediaType": "image/png",
+      "bytes": 781003,
+      "sha256": "a270ec0854196b7c0bce7e07789f90fe58853e0637d6341985cdc9634250c1c4",
+      "usage": {
+        "prompt_tokens": 109,
+        "completion_tokens": 4096,
+        "total_tokens": 4205,
+        "cost": 0.03,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.03,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0.03
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 4096
+        }
+      }
+    },
+    {
+      "model": "bytedance-seed/seedream-5-0-lite",
+      "name": "ByteDance Seed: Seedream 5.0 Lite",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 41317,
+      "settings": {
+        "model": "bytedance-seed/seedream-5-0-lite",
+        "prompt": "Design a distinctive logo for RouteTok, an intelligent multi-provider LLM router and model evaluation sandbox. Create a bold route-switching symbol combining branching paths with a compact token or spark motif. Editorial technical aesthetic, dark graphite, warm off-white, rust orange, and sage green. Clean geometric mark with the readable wordmark RouteTok. Centered composition, square canvas, no mockup, no gradients, no extra text.",
+        "aspect_ratio": "1:1",
+        "resolution": "2K",
+        "n": 1
+      },
+      "pricing": [
+        {
+          "provider": "Seed",
+          "unit": "image",
+          "costUsd": 0.035,
+          "variant": null
+        }
+      ],
+      "error": null,
+      "file": "bytedance-seed-seedream-5-0-lite.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 131682,
+      "sha256": "ae4d5a158be0f5546f1d04b041d948c31bc25df2796b8df19e4d3066b77871f8",
+      "usage": {
+        "prompt_tokens": 109,
+        "completion_tokens": 16384,
+        "total_tokens": 16493,
+        "cost": 0.035,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.035,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0.035
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 16384
+        }
+      },
+      "retryReason": "No provider for bytedance-seed/seedream-5-0-lite supports the requested parameter(s): resolution \"1K\", aspect_ratio \"1:1\", n \"1\". Provider rejections: Seed: resolution: not supported. Accepted: 2K, 4K"
+    },
+    {
+      "model": "recraft/recraft-v4-styles",
+      "name": "Recraft: Recraft V4 Styles",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 18787,
+      "settings": {
+        "model": "recraft/recraft-v4-styles",
+        "prompt": "Design a distinctive logo for RouteTok, an intelligent multi-provider LLM router and model evaluation sandbox. Create a bold route-switching symbol combining branching paths with a compact token or spark motif. Editorial technical aesthetic, dark graphite, warm off-white, rust orange, and sage green. Clean geometric mark with the readable wordmark RouteTok. Centered composition, square canvas, no mockup, no gradients, no extra text.",
+        "aspect_ratio": "1:1",
+        "n": 1,
+        "input_references": "one FLUX reference image"
+      },
+      "pricing": [
+        {
+          "provider": "Recraft",
+          "unit": "image",
+          "costUsd": 0.035,
+          "variant": null
+        }
+      ],
+      "error": null,
+      "file": "recraft-recraft-v4-styles.webp",
+      "mediaType": "image/webp",
+      "bytes": 619254,
+      "sha256": "5d63de35b9c6df0323d8ec90fc6f892d7f12ce17c775472c2241e60a0fc7e3f0",
+      "usage": {
+        "prompt_tokens": 109,
+        "completion_tokens": 4175,
+        "total_tokens": 4284,
+        "cost": 0.04,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.04,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0.04
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 4175
+        }
+      },
+      "retryReason": "Recraft V4 Styles models require at least one input reference image; text-to-image is not supported."
+    },
+    {
+      "model": "recraft/recraft-v4.1-utility",
+      "name": "Recraft: Recraft V4.1 Utility",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 11135,
+      "settings": {
+        "model": "recraft/recraft-v4.1-utility",
+        "prompt": "Design a distinctive logo for RouteTok, an intelligent multi-provider LLM router and model evaluation sandbox. Create a bold route-switching symbol combining branching paths with a compact token or spark motif. Editorial technical aesthetic, dark graphite, warm off-white, rust orange, and sage green. Clean geometric mark with the readable wordmark RouteTok. Centered composition, square canvas, no mockup, no gradients, no extra text.",
+        "n": 1,
+        "aspect_ratio": "1:1"
+      },
+      "pricing": [
+        {
+          "provider": "Recraft",
+          "unit": "image",
+          "costUsd": 0.035,
+          "variant": null
+        }
+      ],
+      "file": "recraft-recraft-v4-1-utility.webp",
+      "mediaType": "image/webp",
+      "bytes": 306484,
+      "sha256": "5f00322afdb97feb95c3715261037157939bf73b50ce219ad8babb17e14fef2c",
+      "usage": {
+        "prompt_tokens": 109,
+        "completion_tokens": 4175,
+        "total_tokens": 4284,
+        "cost": 0.035,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.035,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0.035
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 4175
+        }
+      }
+    },
+    {
+      "model": "recraft/recraft-v4.1",
+      "name": "Recraft: Recraft V4.1",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 5279,
+      "settings": {
+        "model": "recraft/recraft-v4.1",
+        "prompt": "Design a distinctive logo for RouteTok, an intelligent multi-provider LLM router and model evaluation sandbox. Create a bold route-switching symbol combining branching paths with a compact token or spark motif. Editorial technical aesthetic, dark graphite, warm off-white, rust orange, and sage green. Clean geometric mark with the readable wordmark RouteTok. Centered composition, square canvas, no mockup, no gradients, no extra text.",
+        "n": 1,
+        "aspect_ratio": "1:1"
+      },
+      "pricing": [
+        {
+          "provider": "Recraft",
+          "unit": "image",
+          "costUsd": 0.035,
+          "variant": null
+        }
+      ],
+      "file": "recraft-recraft-v4-1.webp",
+      "mediaType": "image/webp",
+      "bytes": 244612,
+      "sha256": "4b95f931706c93fc2fb0decf8c0316126e80b7401baede99d2e207f1cabd03c8",
+      "usage": {
+        "prompt_tokens": 109,
+        "completion_tokens": 4175,
+        "total_tokens": 4284,
+        "cost": 0.035,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.035,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0.035
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 4175
+        }
+      }
+    },
+    {
+      "model": "qwen/qwen-image-3-pro",
+      "name": "Qwen: Qwen Image 3 Pro",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 32809,
+      "settings": {
+        "model": "qwen/qwen-image-3-pro",
+        "prompt": "Design a distinctive logo for RouteTok, an intelligent multi-provider LLM router and model evaluation sandbox. Create a bold route-switching symbol combining branching paths with a compact token or spark motif. Editorial technical aesthetic, dark graphite, warm off-white, rust orange, and sage green. Clean geometric mark with the readable wordmark RouteTok. Centered composition, square canvas, no mockup, no gradients, no extra text.",
+        "n": 1,
+        "aspect_ratio": "1:1",
+        "resolution": "1K"
+      },
+      "pricing": [
+        {
+          "provider": "Alibaba Cloud Int.",
+          "unit": "image",
+          "costUsd": 0.04,
+          "variant": "1k"
+        },
+        {
+          "provider": "Alibaba Cloud Int.",
+          "unit": "image",
+          "costUsd": 0.075,
+          "variant": "2k"
+        }
+      ],
+      "file": "qwen-qwen-image-3-pro.png",
+      "mediaType": "image/png",
+      "bytes": 638654,
+      "sha256": "32cf07413c6c242ffc7106c7b4fb38eedaace46e8fc398b65ec635eb8fd94088",
+      "usage": {
+        "prompt_tokens": 109,
+        "completion_tokens": 4175,
+        "total_tokens": 4284,
+        "cost": 0.04,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.04,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0.04
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 4175
+        }
+      }
+    },
+    {
+      "model": "x-ai/grok-imagine-image-2.0",
+      "name": "xAI: Grok Imagine Image 2.0",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 11908,
+      "settings": {
+        "model": "x-ai/grok-imagine-image-2.0",
+        "prompt": "Design a distinctive logo for RouteTok, an intelligent multi-provider LLM router and model evaluation sandbox. Create a bold route-switching symbol combining branching paths with a compact token or spark motif. Editorial technical aesthetic, dark graphite, warm off-white, rust orange, and sage green. Clean geometric mark with the readable wordmark RouteTok. Centered composition, square canvas, no mockup, no gradients, no extra text.",
+        "n": 1,
+        "aspect_ratio": "1:1",
+        "resolution": "1K",
+        "quality": "low"
+      },
+      "pricing": [
+        {
+          "provider": "SpaceXAI",
+          "unit": "image",
+          "costUsd": 0.04,
+          "variant": "low_1k"
+        },
+        {
+          "provider": "SpaceXAI",
+          "unit": "image",
+          "costUsd": 0.06,
+          "variant": "low_2k"
+        },
+        {
+          "provider": "SpaceXAI",
+          "unit": "image",
+          "costUsd": 0.06,
+          "variant": "medium_1k"
+        },
+        {
+          "provider": "SpaceXAI",
+          "unit": "image",
+          "costUsd": 0.08,
+          "variant": "medium_2k"
+        }
+      ],
+      "file": "x-ai-grok-imagine-image-2-0.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 165305,
+      "sha256": "707d38abe041e985e869a22354041f19f63ddd6432941329a87f4588cfcb58f8",
+      "usage": {
+        "prompt_tokens": 109,
+        "completion_tokens": 4175,
+        "total_tokens": 4284,
+        "cost": 0.04,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.04,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0.04
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 4175
+        }
+      }
+    },
+    {
+      "model": "bytedance-seed/seedream-4.5",
+      "name": "ByteDance Seed: Seedream 4.5",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 8301,
+      "settings": {
+        "model": "bytedance-seed/seedream-4.5",
+        "prompt": "Design a distinctive logo for RouteTok, an intelligent multi-provider LLM router and model evaluation sandbox. Create a bold route-switching symbol combining branching paths with a compact token or spark motif. Editorial technical aesthetic, dark graphite, warm off-white, rust orange, and sage green. Clean geometric mark with the readable wordmark RouteTok. Centered composition, square canvas, no mockup, no gradients, no extra text.",
+        "aspect_ratio": "1:1",
+        "resolution": "2K",
+        "n": 1
+      },
+      "pricing": [
+        {
+          "provider": "Seed",
+          "unit": "image",
+          "costUsd": 0.04,
+          "variant": null
+        }
+      ],
+      "error": null,
+      "file": "bytedance-seed-seedream-4-5.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 404701,
+      "sha256": "c34e1d568a10f278e7e414cadd428b8d9474e8d9f638e15968c7ab0b944165b7",
+      "usage": {
+        "prompt_tokens": 109,
+        "completion_tokens": 16384,
+        "total_tokens": 16493,
+        "cost": 0.04,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.04,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0.04
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 16384
+        }
+      },
+      "retryReason": "bytedance-seed/seedream-4.5 requires at least 3,686,400 output pixels; size \"1024x1024\" is 1,048,576. Use a larger resolution such as \"2K\", or omit resolution to use the default."
+    },
+    {
+      "model": "recraft/recraft-v4-styles-vector",
+      "name": "Recraft: Recraft V4 Styles Vector",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 20221,
+      "settings": {
+        "model": "recraft/recraft-v4-styles-vector",
+        "prompt": "Design a distinctive logo for RouteTok, an intelligent multi-provider LLM router and model evaluation sandbox. Create a bold route-switching symbol combining branching paths with a compact token or spark motif. Editorial technical aesthetic, dark graphite, warm off-white, rust orange, and sage green. Clean geometric mark with the readable wordmark RouteTok. Centered composition, square canvas, no mockup, no gradients, no extra text.",
+        "aspect_ratio": "1:1",
+        "output_format": "svg",
+        "n": 1,
+        "input_references": "one FLUX reference image"
+      },
+      "pricing": [
+        {
+          "provider": "Recraft",
+          "unit": "image",
+          "costUsd": 0.05,
+          "variant": null
+        }
+      ],
+      "error": null,
+      "file": "recraft-recraft-v4-styles-vector.svg",
+      "mediaType": "image/svg+xml",
+      "bytes": 11586,
+      "sha256": "3f7bcc709ad4255495713c0300663b937713357a182bd8e1eda3a26bcf097f2e",
+      "usage": {
+        "prompt_tokens": 109,
+        "completion_tokens": 4175,
+        "total_tokens": 4284,
+        "cost": 0.055,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.055,
+          "upstream_inference_prompt_cost": 0,
+          "upstream_inference_completions_cost": 0.055
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 4175
+        }
+      },
+      "retryReason": "Recraft V4 Styles models require at least one input reference image; text-to-image is not supported."
+    },
+    {
+      "model": "openai/gpt-image-1-mini",
+      "name": "OpenAI: GPT Image 1 Mini",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 10007,
+      "settings": {
+        "model": "openai/gpt-image-1-mini",
+        "prompt": "Design a distinctive logo for RouteTok, an intelligent multi-provider LLM router and model evaluation sandbox. Create a bold route-switching symbol combining branching paths with a compact token or spark motif. Editorial technical aesthetic, dark graphite, warm off-white, rust orange, and sage green. Clean geometric mark with the readable wordmark RouteTok. Centered composition, square canvas, no mockup, no gradients, no extra text.",
+        "n": 1,
+        "aspect_ratio": "1:1",
+        "quality": "low"
+      },
+      "pricing": [
+        {
+          "provider": "OpenAI",
+          "unit": "token",
+          "costUsd": 0.000008,
+          "variant": null
+        }
+      ],
+      "file": "openai-gpt-image-1-mini.png",
+      "mediaType": "image/png",
+      "bytes": 1363193,
+      "sha256": "11e93ac4dcbbf0af3fbf0562e539e6403ab15fea2d9b059d1442ad97ffa21357",
+      "usage": {
+        "prompt_tokens": 91,
+        "completion_tokens": 272,
+        "total_tokens": 363,
+        "cost": 0.002358,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.002358,
+          "upstream_inference_prompt_cost": 0.000182,
+          "upstream_inference_completions_cost": 0.002176
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 272
+        }
+      }
+    },
+    {
+      "model": "openai/gpt-5-image-mini",
+      "name": "OpenAI: GPT-5 Image Mini",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 10146,
+      "settings": {
+        "model": "openai/gpt-5-image-mini",
+        "prompt": "Design a distinctive logo for RouteTok, an intelligent multi-provider LLM router and model evaluation sandbox. Create a bold route-switching symbol combining branching paths with a compact token or spark motif. Editorial technical aesthetic, dark graphite, warm off-white, rust orange, and sage green. Clean geometric mark with the readable wordmark RouteTok. Centered composition, square canvas, no mockup, no gradients, no extra text.",
+        "n": 1,
+        "aspect_ratio": "1:1",
+        "quality": "low"
+      },
+      "pricing": [
+        {
+          "provider": "OpenAI",
+          "unit": "token",
+          "costUsd": 0.000008,
+          "variant": null
+        }
+      ],
+      "file": "openai-gpt-5-image-mini.png",
+      "mediaType": "image/png",
+      "bytes": 1382686,
+      "sha256": "ba13e80921ad8d0c607eb8f90007c751ba54be803b59f6ae433fa7616532f7f5",
+      "usage": {
+        "prompt_tokens": 91,
+        "completion_tokens": 272,
+        "total_tokens": 363,
+        "cost": 0.0024035,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.0024035,
+          "upstream_inference_prompt_cost": 0.0002275,
+          "upstream_inference_completions_cost": 0.002176
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 272
+        }
+      }
+    },
+    {
+      "model": "google/gemini-2.5-flash-image",
+      "name": "Google: Nano Banana (Gemini 2.5 Flash Image)",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 5283,
+      "settings": {
+        "model": "google/gemini-2.5-flash-image",
+        "prompt": "Design a distinctive logo for RouteTok, an intelligent multi-provider LLM router and model evaluation sandbox. Create a bold route-switching symbol combining branching paths with a compact token or spark motif. Editorial technical aesthetic, dark graphite, warm off-white, rust orange, and sage green. Clean geometric mark with the readable wordmark RouteTok. Centered composition, square canvas, no mockup, no gradients, no extra text.",
+        "n": 1,
+        "aspect_ratio": "1:1"
+      },
+      "pricing": [
+        {
+          "provider": "Google AI Studio Priority",
+          "unit": "token",
+          "costUsd": 0.000054,
+          "variant": null
+        },
+        {
+          "provider": "Google AI Studio Flex",
+          "unit": "token",
+          "costUsd": 0.000015,
+          "variant": null
+        },
+        {
+          "provider": "Google AI Studio",
+          "unit": "token",
+          "costUsd": 0.00003,
+          "variant": null
+        },
+        {
+          "provider": "Google Vertex",
+          "unit": "token",
+          "costUsd": 0.00003,
+          "variant": null
+        }
+      ],
+      "file": "google-gemini-2-5-flash-image.png",
+      "mediaType": "image/png",
+      "bytes": 341755,
+      "sha256": "379ed993b7145c95c36a324ddf04696a3cea28c1237a85fd2a6ec73d9cf131db",
+      "usage": {
+        "prompt_tokens": 86,
+        "completion_tokens": 1290,
+        "total_tokens": 1376,
+        "cost": 0.0387258,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.0387258,
+          "upstream_inference_prompt_cost": 0.0000258,
+          "upstream_inference_completions_cost": 0.0387
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 1290
+        }
+      }
+    },
+    {
+      "model": "google/gemini-3.1-flash-lite-image",
+      "name": "Google: Nano Banana 2 Lite (Gemini 3.1 Flash Lite Image)",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 3455,
+      "settings": {
+        "model": "google/gemini-3.1-flash-lite-image",
+        "prompt": "Design a distinctive logo for RouteTok, an intelligent multi-provider LLM router and model evaluation sandbox. Create a bold route-switching symbol combining branching paths with a compact token or spark motif. Editorial technical aesthetic, dark graphite, warm off-white, rust orange, and sage green. Clean geometric mark with the readable wordmark RouteTok. Centered composition, square canvas, no mockup, no gradients, no extra text.",
+        "n": 1,
+        "aspect_ratio": "1:1",
+        "resolution": "1K"
+      },
+      "pricing": [
+        {
+          "provider": "Google Vertex",
+          "unit": "token",
+          "costUsd": 0.00003,
+          "variant": null
+        },
+        {
+          "provider": "Google AI Studio",
+          "unit": "token",
+          "costUsd": 0.00003,
+          "variant": null
+        }
+      ],
+      "file": "google-gemini-3-1-flash-lite-image.jpg",
+      "mediaType": "image/jpeg",
+      "bytes": 55785,
+      "sha256": "90ba4489cf126c465e81cf2897291f72ba3103ca8f3d2b5f50c8a87f3054be45",
+      "usage": {
+        "prompt_tokens": 86,
+        "completion_tokens": 1120,
+        "total_tokens": 1206,
+        "cost": 0.0336215,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.0336215,
+          "upstream_inference_prompt_cost": 0.0000215,
+          "upstream_inference_completions_cost": 0.0336
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 1120
+        }
+      }
+    },
+    {
+      "model": "openai/gpt-image-2",
+      "name": "OpenAI: GPT Image 2",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 14464,
+      "settings": {
+        "model": "openai/gpt-image-2",
+        "prompt": "Design a distinctive logo for RouteTok, an intelligent multi-provider LLM router and model evaluation sandbox. Create a bold route-switching symbol combining branching paths with a compact token or spark motif. Editorial technical aesthetic, dark graphite, warm off-white, rust orange, and sage green. Clean geometric mark with the readable wordmark RouteTok. Centered composition, square canvas, no mockup, no gradients, no extra text.",
+        "n": 1,
+        "aspect_ratio": "1:1",
+        "quality": "low"
+      },
+      "pricing": [
+        {
+          "provider": "OpenAI",
+          "unit": "token",
+          "costUsd": 0.00003,
+          "variant": null
+        }
+      ],
+      "file": "openai-gpt-image-2.png",
+      "mediaType": "image/png",
+      "bytes": 848155,
+      "sha256": "39dc6d05034a1567393cf96ff79ec46e7ece38efcd6b5da015c2a2255a9168e8",
+      "usage": {
+        "prompt_tokens": 91,
+        "completion_tokens": 196,
+        "total_tokens": 287,
+        "cost": 0.006335,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.006335,
+          "upstream_inference_prompt_cost": 0.000455,
+          "upstream_inference_completions_cost": 0.00588
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 196
+        }
+      }
+    },
+    {
+      "model": "openai/gpt-5.4-image-2",
+      "name": "OpenAI: GPT-5.4 Image 2",
+      "ok": true,
+      "status": 200,
+      "latencyMs": 11941,
+      "settings": {
+        "model": "openai/gpt-5.4-image-2",
+        "prompt": "Design a distinctive logo for RouteTok, an intelligent multi-provider LLM router and model evaluation sandbox. Create a bold route-switching symbol combining branching paths with a compact token or spark motif. Editorial technical aesthetic, dark graphite, warm off-white, rust orange, and sage green. Clean geometric mark with the readable wordmark RouteTok. Centered composition, square canvas, no mockup, no gradients, no extra text.",
+        "n": 1,
+        "aspect_ratio": "1:1",
+        "quality": "low"
+      },
+      "pricing": [
+        {
+          "provider": "OpenAI",
+          "unit": "token",
+          "costUsd": 0.00003,
+          "variant": null
+        }
+      ],
+      "file": "openai-gpt-5-4-image-2.png",
+      "mediaType": "image/png",
+      "bytes": 871324,
+      "sha256": "2d8aa9b9c3d1c7af192d3a7f4c90886183f570df6f19f1c466d14ed66f5fe648",
+      "usage": {
+        "prompt_tokens": 91,
+        "completion_tokens": 196,
+        "total_tokens": 287,
+        "cost": 0.006608,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.006608,
+          "upstream_inference_prompt_cost": 0.000728,
+          "upstream_inference_completions_cost": 0.00588
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 0,
+          "image_tokens": 196
+        }
+      }
+    }
+  ],
+  "attempts": 24
+}

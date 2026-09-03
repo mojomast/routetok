@@ -19,3 +19,23 @@ Confirm the base URL points to the API root and serves `GET /models` plus `POST 
 ## Dashboard authentication
 
 Clear the saved dashboard token from browser site storage and reconnect. Credential management requires `DASHBOARD_TOKEN` even on loopback.
+
+## Fieldbook does not load
+
+Confirm `/sandbox.js` and the explicitly mapped `/fieldbook/*.js` modules return `200`. RouteTok must run from the project working directory with the complete `public/` tree present. Unknown module paths intentionally return `404`.
+
+## Fieldbook state looks stale
+
+Fieldbook data belongs to the current origin and browser profile in `routetok-model-fieldbook` IndexedDB. A different hostname, port, or browser profile has separate notes. Clear that site's IndexedDB only when you intend to remove local notes, evaluations, rooms, and Studio projects.
+
+## Studio patch is rejected
+
+Inspect the visible failure state. Patches are rejected for stale base revisions, malformed diffs, unsafe paths, excessive output, or changes outside the selected agent's file scope. Retry the same agent against current state or skip it; failed turns are refunded.
+
+## Image model is unavailable
+
+Image generation requires an OpenRouter image-output model explicitly enabled in dashboard configuration. Studio image cards are additionally revision-bound and require per-request approval. Rejected or stale cards intentionally make no provider request.
+
+## Local transcription is unavailable
+
+Verify Speaches is listening at `LOCAL_STT_BASE_URL`, the configured model is installed, and RouteTok can reach the loopback endpoint. RouteTok does not start or download models for an external Speaches deployment unless you use the included `deploy/local-stt/compose.yml` stack.

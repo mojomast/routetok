@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { AdminAudioService } from "./admin-audio.js";
+import { AdminImageService } from "./admin-images.js";
 import { CatalogService, isFreeExternalCatalogModel, isTextGenerationModel } from "./catalog.js";
 import { ConfigStore } from "./config.js";
 import { CreditsService } from "./credits.js";
@@ -98,6 +99,7 @@ const credits = new CreditsService(providers);
 const router = new HealthRouter();
 const proxy = new ProxyHandler({ providers, catalog, config, router, metrics, internalToken: internalSandboxToken });
 const adminAudio = new AdminAudioService(providers, { baseUrl: localSttBaseUrl, model: localSttModel, apiKey: localSttApiKey });
+const adminImages = new AdminImageService(providers, catalog, config);
 await catalog.refresh();
 void credits.refresh();
 
@@ -161,9 +163,9 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-type ChatMessage = { role: "user" | "assistant"; content: string };
+type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 type SandboxPurpose = "chat" | "design" | "diagnose";
-type SandboxParameters = { maxTokens?: number; temperature?: number; topP?: number };
+type SandboxParameters = { maxTokens?: number; maxOutputMiB?: number; temperature?: number; topP?: number };
 type SandboxBranch = { id: string; model: string; messages: ChatMessage[]; parameters: SandboxParameters };
 
 interface ConfigProposal {
@@ -191,8 +193,8 @@ function dashboardChatMessages(messages: unknown): ChatMessage[] {
       throw new Error("Every chat message must be an object");
     }
     const value = message as Record<string, unknown>;
-    if (value.role !== "user" && value.role !== "assistant") {
-      throw new Error("Chat message role must be user or assistant");
+    if (value.role !== "system" && value.role !== "user" && value.role !== "assistant") {
+      throw new Error("Chat message role must be system, user, or assistant");
     }
     if (typeof value.content !== "string" || !value.content.trim()) {
       throw new Error("Chat message content must be a non-empty string");
@@ -238,7 +240,9 @@ function sandboxRequest(input: unknown): { branches: SandboxBranch[]; purpose: S
     if (value.parameters !== undefined && (!value.parameters || typeof value.parameters !== "object" || Array.isArray(value.parameters))) throw new Error("parameters must be an object");
     const rawParameters = (value.parameters ?? {}) as Record<string, unknown>;
     const maxTokens = rawParameters.maxTokens;
+    const maxOutputMiB = rawParameters.maxOutputMiB;
     if (maxTokens !== undefined && (!Number.isInteger(maxTokens) || Number(maxTokens) < 256 || Number(maxTokens) > 262_144)) throw new Error("maxTokens must be an integer between 256 and 262144");
+    if (maxOutputMiB !== undefined && (!Number.isInteger(maxOutputMiB) || Number(maxOutputMiB) < 1 || Number(maxOutputMiB) > 64)) throw new Error("maxOutputMiB must be an integer between 1 and 64");
     if (rawParameters.temperature !== undefined && (typeof rawParameters.temperature !== "number" || rawParameters.temperature < 0 || rawParameters.temperature > 2)) throw new Error("temperature must be between 0 and 2");
     if (rawParameters.topP !== undefined && (typeof rawParameters.topP !== "number" || rawParameters.topP < 0 || rawParameters.topP > 1)) throw new Error("topP must be between 0 and 1");
     const messages = dashboardChatMessages(value.messages);
@@ -253,6 +257,7 @@ function sandboxRequest(input: unknown): { branches: SandboxBranch[]; purpose: S
       messages,
       parameters: {
         ...(typeof maxTokens === "number" ? { maxTokens } : {}),
+        ...(typeof maxOutputMiB === "number" ? { maxOutputMiB } : {}),
         ...(typeof rawParameters.temperature === "number" ? { temperature: rawParameters.temperature } : {}),
         ...(typeof rawParameters.topP === "number" ? { topP: rawParameters.topP } : {})
       }
@@ -579,6 +584,7 @@ async function runDashboardModel(
   let content = "";
   let reasoning = "";
   let error: string | null = null;
+  const maximumOutputBytes = (parameters.maxOutputMiB ?? 4) * 1024 * 1024;
   if (upstream.ok && upstream.body) {
     const reader = upstream.body.getReader();
     const decoder = new TextDecoder();
@@ -587,9 +593,9 @@ async function runDashboardModel(
     while (true) {
       const result = await reader.read();
       receivedBytes += result.value?.byteLength ?? 0;
-      if (receivedBytes > 4 * 1024 * 1024) {
-        await reader.cancel("sandbox output exceeded 4 MiB");
-        throw new Error("Sandbox model output exceeded 4 MiB");
+      if (receivedBytes > maximumOutputBytes) {
+        await reader.cancel(`sandbox output exceeded ${parameters.maxOutputMiB ?? 4} MiB`);
+        throw new Error(`Sandbox model output exceeded ${parameters.maxOutputMiB ?? 4} MiB`);
       }
       pending += decoder.decode(result.value ?? new Uint8Array(), { stream: !result.done });
       const blocks = pending.replaceAll("\r\n", "\n").split("\n\n");
@@ -982,21 +988,44 @@ function anthropicModelsResponse(): object {
 const staticFiles: Record<string, [string, string]> = {
   "/": ["index.html", "text/html; charset=utf-8"],
   "/dashboard": ["index.html", "text/html; charset=utf-8"],
-  "/sandbox": ["index.html", "text/html; charset=utf-8"],
+  "/sandbox": ["sandbox.html", "text/html; charset=utf-8"],
+  "/sandbox/": ["sandbox.html", "text/html; charset=utf-8"],
+  "/sandbox.js": ["sandbox.js", "text/javascript; charset=utf-8"],
+  "/sandbox.css": ["sandbox.css", "text/css; charset=utf-8"],
+  "/fieldbook/panels.js": ["fieldbook/panels.js", "text/javascript; charset=utf-8"],
+  "/fieldbook/context-broker.js": ["fieldbook/context-broker.js", "text/javascript; charset=utf-8"],
+  "/fieldbook/studio-chat.js": ["fieldbook/studio-chat.js", "text/javascript; charset=utf-8"],
+  "/fieldbook/image-approvals.js": ["fieldbook/image-approvals.js", "text/javascript; charset=utf-8"],
+  "/image-gallery": ["image-gallery/index.html", "text/html; charset=utf-8"],
+  "/image-gallery/": ["image-gallery/index.html", "text/html; charset=utf-8"],
+  "/image-gallery/gallery.css": ["image-gallery/gallery.css", "text/css; charset=utf-8"],
   "/app.js": ["app.js", "text/javascript; charset=utf-8"],
   "/styles.css": ["styles.css", "text/css; charset=utf-8"]
 };
 
 async function serveStatic(response: ServerResponse, pathname: string): Promise<boolean> {
-  const file = staticFiles[pathname];
+  const galleryAsset = pathname.match(/^\/image-gallery\/assets\/([a-z0-9][a-z0-9._-]*\.(?:png|jpe?g|webp|svg))$/i);
+  const galleryType = galleryAsset?.[1]?.toLowerCase().endsWith(".png") ? "image/png"
+    : galleryAsset?.[1]?.toLowerCase().match(/\.jpe?g$/) ? "image/jpeg"
+      : galleryAsset?.[1]?.toLowerCase().endsWith(".webp") ? "image/webp"
+        : galleryAsset ? "image/svg+xml" : "";
+  const file = staticFiles[pathname]
+    ?? (pathname === "/image-gallery/manifest.json" ? ["image-gallery/manifest.json", "application/json; charset=utf-8"] as [string, string] : undefined)
+    ?? (galleryAsset ? [`image-gallery/assets/${galleryAsset[1]}`, galleryType] as [string, string] : undefined);
   if (!file) return false;
   try {
     const bytes = await readFile(path.join(publicDir, file[0]));
     response.writeHead(200, {
       "content-type": file[1],
       "content-length": String(bytes.length),
-      "cache-control": pathname === "/" || pathname === "/dashboard" ? "no-store" : "public, max-age=300",
-      "content-security-policy": "frame-ancestors 'none'",
+      "cache-control": pathname === "/" || pathname === "/dashboard" || pathname === "/sandbox" || pathname === "/sandbox/" || pathname === "/image-gallery" || pathname === "/image-gallery/" || pathname === "/image-gallery/manifest.json" ? "no-store" : pathname.startsWith("/image-gallery/assets/") ? "public, max-age=86400, immutable" : "public, max-age=300",
+      "content-security-policy": pathname.startsWith("/image-gallery/assets/")
+        ? "default-src 'none'; style-src 'unsafe-inline'; img-src data:; object-src 'none'; base-uri 'none'; sandbox; frame-ancestors 'none'"
+        : pathname === "/image-gallery" || pathname === "/image-gallery/" || pathname === "/image-gallery/gallery.css" || pathname === "/image-gallery/manifest.json"
+          ? "default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+        : pathname.startsWith("/sandbox") || pathname.startsWith("/fieldbook/")
+        ? "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+        : "frame-ancestors 'none'",
       "x-frame-options": "DENY",
       "x-content-type-options": "nosniff",
       "referrer-policy": "no-referrer",
@@ -1080,6 +1109,39 @@ const server = createServer(async (request, response) => {
 
       if (request.method === "GET" && pathname === "/admin/api/audio/capabilities") {
         await adminAudio.capabilities(response, url.searchParams.get("refresh") === "true");
+        return;
+      }
+
+      if (request.method === "GET" && pathname === "/admin/api/images/capabilities") {
+        adminImages.capabilities(response);
+        return;
+      }
+
+      if (request.method === "POST" && pathname === "/admin/api/images/generations") {
+        await adminImages.generate(request, response, await readJson(request));
+        return;
+      }
+
+      if (request.method === "GET" && pathname === "/admin/api/sandbox/catalog") {
+        const models = catalog.getModels().filter((model) => sandboxEligible(model.id)).map((model) => ({
+          id: model.id,
+          displayName: model.displayName ?? model.id,
+          provider: model.providerId ?? "agentrouter",
+          free: (model.providerId ?? "agentrouter") !== "agentrouter" && isFreeExternalCatalogModel(model),
+          pricing: {
+            input: model.pricing?.input ?? null,
+            output: model.pricing?.output ?? null,
+            cacheRead: model.pricing?.cacheRead ?? null,
+            cacheWrite: model.pricing?.cacheWrite ?? null
+          },
+          contextTokens: model.contextTokens ?? null,
+          maxOutputTokens: model.maxOutputTokens ?? null,
+          inputModalities: model.inputModalities ?? [],
+          outputModalities: model.outputModalities ?? [],
+          capabilities: model.capabilities ?? { tools: null, vision: null, audio: null, reasoning: null, caching: null, webSearch: null },
+          supportedParameters: model.supportedParameters ?? []
+        }));
+        json(response, 200, { models, maxLanes: 4, supportedPurposes: ["chat", "design", "diagnose"] });
         return;
       }
 

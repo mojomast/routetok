@@ -39,9 +39,16 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
   let speechRequest: { authorization: string | undefined; dashboard: string | undefined; body: unknown } | null = null;
   let transcriptionRequest: { authorization: string | undefined; model: string; language: string; name: string; bytes: Buffer } | null = null;
   let localTranscriptionRequest: { authorization: string | undefined; model: string; language: string; prompt: string; name: string; bytes: Buffer } | null = null;
+  let imageRequest: { authorization: string | undefined; body: Record<string, unknown> } | null = null;
   let speechDiscoveryCount = 0;
   const upstream = createServer(async (request, response) => {
-    if (request.url === "/openrouter/v1/models?output_modalities=all" || request.url === "/requesty/v1/models") {
+    if (request.url === "/openrouter/v1/models?output_modalities=all") {
+      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{
+        id: "vendor/image-model", name: "Image Model", architecture: { input_modalities: ["text"], output_modalities: ["image"] }, pricing: { prompt: "0", completion: "0" }, supported_parameters: ["max_tokens"]
+      }] }));
+      return;
+    }
+    if (request.url === "/requesty/v1/models") {
       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [] }));
       return;
     }
@@ -77,6 +84,12 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
         body: JSON.parse((await incomingBytes(request)).toString("utf8"))
       };
       response.writeHead(200, { "content-type": "audio/mpeg; charset=binary", "x-generation-id": "gen-safe", "x-secret": "hidden" }).end(speechBytes);
+      return;
+    }
+    if (request.url === "/openrouter/v1/images") {
+      imageRequest = { authorization: request.headers.authorization, body: JSON.parse((await incomingBytes(request)).toString("utf8")) as Record<string, unknown> };
+      const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
+      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{ b64_json: png.toString("base64"), media_type: "image/png" }], usage: { prompt_tokens: 4, completion_tokens: 8, total_tokens: 12, cost: 0.02, secret: "hidden" } }));
       return;
     }
     if (request.url === "/requesty/v1/audio/transcriptions") {
@@ -146,6 +159,26 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
   try {
     await ready(child);
     assert.equal((await fetch(`${base}/admin/api/audio/capabilities`)).status, 401);
+    assert.equal((await fetch(`${base}/admin/api/sandbox/catalog`)).status, 401);
+    assert.equal((await fetch(`${base}/admin/api/images/capabilities`)).status, 401);
+
+    const sandboxCatalogResponse = await fetch(`${base}/admin/api/sandbox/catalog`, { headers: dashboardHeaders });
+    assert.equal(sandboxCatalogResponse.status, 200);
+    const sandboxCatalog = await sandboxCatalogResponse.json() as { maxLanes: number; supportedPurposes: string[]; models: Array<{ id: string; provider: string; displayName: string; pricing: { input: number | null; output: number | null } }> };
+    assert.equal(sandboxCatalog.maxLanes, 4);
+    assert.deepEqual(sandboxCatalog.supportedPurposes, ["chat", "design", "diagnose"]);
+    assert(sandboxCatalog.models.length > 0);
+    assert(sandboxCatalog.models.every((model) => model.id && model.provider && model.displayName && model.pricing && "input" in model.pricing && "output" in model.pricing));
+    assert.doesNotMatch(JSON.stringify(sandboxCatalog), /api.?key|credential|base.?url|effective-openrouter|secret|private/i);
+    assert(!sandboxCatalog.models.some((model) => model.id.includes("image-model")), "image-only models must not enter text comparisons");
+
+    const initialImageCapabilities = await fetch(`${base}/admin/api/images/capabilities`, { headers: dashboardHeaders }).then((response) => response.json()) as { models: unknown[] };
+    assert.equal(initialImageCapabilities.models.length, 0, "paid or unknown image models require explicit enablement");
+    const enabledImageConfig = await fetch(`${base}/admin/api/config`, { method: "PATCH", headers: { ...dashboardHeaders, "content-type": "application/json" }, body: JSON.stringify({ enabledExternalModels: ["openrouter:vendor/image-model"] }) });
+    assert.equal(enabledImageConfig.status, 200);
+    const imageCapabilities = await fetch(`${base}/admin/api/images/capabilities`, { headers: dashboardHeaders }).then((response) => response.json()) as { ephemeral: boolean; models: Array<{ id: string }> };
+    assert.equal(imageCapabilities.ephemeral, true);
+    assert.deepEqual(imageCapabilities.models.map((model) => model.id), ["openrouter:vendor/image-model"]);
 
     const capabilityResponse = await fetch(`${base}/admin/api/audio/capabilities`, { headers: dashboardHeaders });
     assert.equal(capabilityResponse.status, 200);
@@ -173,6 +206,14 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
 
     const beforeStatus = await fetch(`${base}/admin/api/status`, { headers: dashboardHeaders }).then((response) => response.json()) as { metrics: { totals: { requests: number }; recent: unknown[] } };
     const beforeHistory = await fetch(`${base}/admin/api/history`, { headers: dashboardHeaders }).then((response) => response.json()) as { samples: unknown[]; retained: number };
+    const generatedImage = await fetch(`${base}/admin/api/images/generations`, { method: "POST", headers: { ...dashboardHeaders, "content-type": "application/json" }, body: JSON.stringify({ model: "openrouter:vendor/image-model", prompt: "A bounded test image", aspectRatio: "1:1", quality: "low", outputFormat: "png" }) });
+    assert.equal(generatedImage.status, 200);
+    const generatedPayload = await generatedImage.json() as { images: Array<{ dataUrl: string; mediaType: string; bytes: number }>; usage: { cost: number }; ephemeral: boolean };
+    assert.equal(generatedPayload.ephemeral, true);
+    assert.equal(generatedPayload.images[0]?.mediaType, "image/png");
+    assert.match(generatedPayload.images[0]?.dataUrl ?? "", /^data:image\/png;base64,/);
+    assert.equal(generatedPayload.usage.cost, 0.02);
+    assert.deepEqual(imageRequest, { authorization: "Bearer effective-openrouter", body: { model: "vendor/image-model", prompt: "A bounded test image", n: 1, aspect_ratio: "1:1", quality: "low", output_format: "png" } });
     const speech = await fetch(`${base}/admin/api/audio/speech`, {
       method: "POST",
       headers: { authorization: "Bearer dashboard-secret", "content-type": "application/json", "x-dashboard-token": "caller-value" },

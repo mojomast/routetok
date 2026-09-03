@@ -19,4 +19,6 @@ All external routes are namespaced and unknown-price routes require explicit opt
 
 Catalog metadata varies by provider. RouteTok keeps missing capability and pricing data unknown rather than guessing. New providers never enter automatic or free routing unless explicitly configured.
 
+OpenRouter also supplies catalog-confirmed text-to-speech and explicitly enabled image-output models to authenticated dashboard/Fieldbook endpoints. Requesty may supply transcription models when its live catalog advertises approved audio-input capability. A separately configured local Speaches service appears under the `local:` namespace and is not part of proxy fallback routing.
+
 Fireworks and Groq Responses behavior differs from OpenAI; stateful response IDs should remain pinned to their originating physical provider. Together, DeepInfra, Cerebras, and Mistral are advertised as chat-only.

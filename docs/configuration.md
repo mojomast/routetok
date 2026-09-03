@@ -14,6 +14,18 @@ Copy `.env.example` to `.env`. RouteTok uses Node's environment-file support and
 
 Every provider has an `*_API_KEY` and optional `*_BASE_URL`; see `.env.example`. Dashboard-managed keys override environment values. Deleting a stored key creates a tombstone that suppresses environment fallback, except OpenCode which returns to `public`.
 
+## Local Transcription
+
+RouteTok can expose a separately managed OpenAI-compatible Speaches service to the dashboard and Fieldbook:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `LOCAL_STT_BASE_URL` | empty | Trusted local Speaches API root, normally `http://127.0.0.1:8000/v1` |
+| `LOCAL_STT_MODEL` | `Systran/faster-whisper-small` | Advertised local transcription model |
+| `LOCAL_STT_API_KEY` | empty | Optional bearer credential sent only to the configured local STT root |
+
+RouteTok does not launch Speaches. A loopback-only, digest-pinned CPU example with persistent model cache is included at `deploy/local-stt/compose.yml`.
+
 ## Generic OpenAI
 
 `GENERIC_OPENAI_BASE_URL` is startup-only trusted configuration. It should identify an API root, usually ending in `/v1`, not a request endpoint.
@@ -27,3 +39,5 @@ Every provider has an `*_API_KEY` and optional `*_BASE_URL`; see `.env.example`.
 ## Routing Policy
 
 Routing policy is edited through the dashboard and persisted in `config.json`. It includes protocol orders, free order, paid external enablement, disabled routes, timeout/circuit settings, fallback behavior, and custom cascades. Configuration writes use optimistic revisions.
+
+Explicit image-model enablement is also the spending boundary for direct Fieldbook image generation. Studio-requested images add a second per-request approval boundary in the browser.

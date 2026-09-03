@@ -405,6 +405,35 @@ export function stripThinkingForFallback(body: Record<string, unknown>): Record<
   return transformed;
 }
 
+export function flattenAgentRouterDeepSeekToolHistory(body: Record<string, unknown>): Record<string, unknown> {
+  const transformed = structuredClone(body);
+  if (!Array.isArray(transformed.messages)) return transformed;
+  transformed.messages = transformed.messages.map((message) => {
+    if (!message || typeof message !== "object") return message;
+    const value = message as Record<string, unknown>;
+    if (!Array.isArray(value.content)) return value;
+    value.content = value.content.map((block) => {
+      if (!block || typeof block !== "object") return block;
+      const item = block as Record<string, unknown>;
+      if (item.type === "tool_use") {
+        const name = typeof item.name === "string" && /^[a-zA-Z0-9_-]{1,128}$/.test(item.name) ? item.name : "tool";
+        return { type: "text", text: `[Historical tool call: ${name}]` };
+      }
+      if (item.type === "tool_result") {
+        const result = typeof item.content === "string"
+          ? item.content
+          : Array.isArray(item.content)
+            ? item.content.map((part) => part && typeof part === "object" && typeof (part as Record<string, unknown>).text === "string" ? (part as Record<string, unknown>).text : "").filter(Boolean).join("\n")
+            : "";
+        return { type: "text", text: `[Historical tool result${item.is_error === true ? " error" : ""}]${result ? `\n${result}` : ""}` };
+      }
+      return item;
+    });
+    return value;
+  });
+  return transformed;
+}
+
 function protocolError(protocol: Protocol, requestId: string, message: string, code: string): object {
   if (protocol === "anthropic") {
     return {
@@ -1033,7 +1062,10 @@ export class ProxyHandler {
           config.thinkingFallbackMode === "strip" &&
           (stripThinkingOnFirstAttempt || pinnedModel && model !== pinnedModel)
         );
-        const attemptBody = stripThinking ? stripThinkingForFallback(parsed.raw) : parsed.raw;
+        let attemptBody = stripThinking ? stripThinkingForFallback(parsed.raw) : parsed.raw;
+        if (providerId === "agentrouter" && protocol === "anthropic" && model.startsWith("deepseek-")) {
+          attemptBody = flattenAgentRouterDeepSeekToolHistory(attemptBody);
+        }
         const body = JSON.stringify({ ...attemptBody, model: catalogModel.upstreamId ?? model });
         let upstream: Response;
         try {

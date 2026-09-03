@@ -5,6 +5,28 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { flattenAgentRouterDeepSeekToolHistory } from "../../src/proxy.js";
+
+test("AgentRouter DeepSeek compatibility flattens only historical Anthropic tool blocks", () => {
+  const input = {
+    model: "deepseek-v4-flash",
+    tools: [{ name: "bash", input_schema: { type: "object" } }],
+    messages: [
+      { role: "assistant", content: [{ type: "text", text: "Checking" }, { type: "tool_use", id: "call_123", name: "bash", input: { command: "curl -X PATCH https://example.test" } }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "call_123", content: "completed" }, { type: "text", text: "Continue" }] }
+    ]
+  };
+  const output = flattenAgentRouterDeepSeekToolHistory(input);
+  assert.deepEqual(output, {
+    model: "deepseek-v4-flash",
+    tools: input.tools,
+    messages: [
+      { role: "assistant", content: [{ type: "text", text: "Checking" }, { type: "text", text: "[Historical tool call: bash]" }] },
+      { role: "user", content: [{ type: "text", text: "[Historical tool result]\ncompleted" }, { type: "text", text: "Continue" }] }
+    ]
+  });
+  assert.deepEqual(input.messages[0]?.content[1], { type: "tool_use", id: "call_123", name: "bash", input: { command: "curl -X PATCH https://example.test" } });
+});
 
 interface CapturedCall {
   model: string;
@@ -129,6 +151,13 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
       const request = JSON.stringify({ needs: ["capabilities", "readiness", "providers", "totals", "health"] }).replace(/}$/, ",}");
       response.writeHead(200, { "content-type": "text/event-stream" });
       response.end(`data: ${JSON.stringify({ id: "needs", object: "chat.completion.chunk", model: "good-model", choices: [{ index: 0, delta: { content: request }, finish_reason: null }] })}\n\ndata: [DONE]\n\n`);
+      return;
+    }
+    if (payload.model === "good-model" && payload.stream === true && messages.some((message) => JSON.stringify(message).includes("sandbox output cap probe"))) {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      const event = `data: ${JSON.stringify({ id: "large", object: "chat.completion.chunk", model: "good-model", choices: [{ index: 0, delta: { content: "X".repeat(64 * 1024) }, finish_reason: null }] })}\n\n`;
+      response.write(event);
+      setTimeout(() => response.end(`${event.repeat(79)}data: ${JSON.stringify({ id: "large", object: "chat.completion.chunk", model: "good-model", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`), 20);
       return;
     }
     if (payload.model === "good-model" && payload.stream === true) {
@@ -270,6 +299,57 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
     const dashboardPage = await fetch(`http://127.0.0.1:${proxyPort}/dashboard`);
     assert.equal(dashboardPage.status, 200);
     assert.match(await dashboardPage.text(), /ROUTETOK<span>\/01<\/span>/);
+
+    for (const sandboxPath of ["/sandbox", "/sandbox/"]) {
+      const sandboxPage = await fetch(`http://127.0.0.1:${proxyPort}${sandboxPath}`);
+      assert.equal(sandboxPage.status, 200);
+      assert.equal(sandboxPage.headers.get("cache-control"), "no-store");
+      assert.equal(sandboxPage.headers.get("x-frame-options"), "DENY");
+      assert.equal(sandboxPage.headers.get("x-content-type-options"), "nosniff");
+      assert.match(sandboxPage.headers.get("content-security-policy") ?? "", /default-src 'self'.*object-src 'none'.*frame-ancestors 'none'/);
+      const sandboxHtml = await sandboxPage.text();
+      assert.match(sandboxHtml, /Model Fieldbook/);
+      assert.match(sandboxHtml, /\/sandbox\.js/);
+      assert.match(sandboxHtml, /\/sandbox\.css/);
+      assert.doesNotMatch(sandboxHtml, /(?:src|href)=["']\/(?:app\.js|styles\.css)/);
+    }
+    for (const asset of ["/sandbox.js", "/sandbox.css", "/fieldbook/panels.js", "/fieldbook/context-broker.js", "/fieldbook/studio-chat.js", "/fieldbook/image-approvals.js"]) {
+      const response = await fetch(`http://127.0.0.1:${proxyPort}${asset}`);
+      assert.equal(response.status, 200);
+      assert.match(response.headers.get("content-type") ?? "", asset.endsWith(".js") ? /text\/javascript/ : /text\/css/);
+      assert.equal(response.headers.get("cache-control"), "public, max-age=300");
+      assert.equal(response.headers.get("x-frame-options"), "DENY");
+      assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+      assert.match(response.headers.get("content-security-policy") ?? "", /default-src 'self'/);
+    }
+    assert.equal((await fetch(`http://127.0.0.1:${proxyPort}/fieldbook/not-mapped.js`)).status, 404, "Fieldbook paths are explicitly mapped, not directory-served");
+    for (const galleryPath of ["/image-gallery", "/image-gallery/"]) {
+      const galleryPage = await fetch(`http://127.0.0.1:${proxyPort}${galleryPath}`);
+      assert.equal(galleryPage.status, 200);
+      assert.equal(galleryPage.headers.get("cache-control"), "no-store");
+      assert.match(galleryPage.headers.get("content-security-policy") ?? "", /script-src 'none'.*img-src 'self'/);
+      const galleryHtml = await galleryPage.text();
+      assert.match(galleryHtml, /RouteTok Logo Model Gallery/);
+      assert.equal((galleryHtml.match(/class="logo-card"/g) ?? []).length, 19);
+      assert.doesNotMatch(galleryHtml, /<script\b/i);
+    }
+    const galleryCss = await fetch(`http://127.0.0.1:${proxyPort}/image-gallery/gallery.css`);
+    assert.equal(galleryCss.status, 200);
+    assert.match(galleryCss.headers.get("content-type") ?? "", /text\/css/);
+
+    const galleryManifest = await fetch(`http://127.0.0.1:${proxyPort}/image-gallery/manifest.json`);
+    assert.equal(galleryManifest.status, 200);
+    assert.equal(galleryManifest.headers.get("cache-control"), "no-store");
+    assert.match(galleryManifest.headers.get("content-type") ?? "", /application\/json/);
+    const gallery = await galleryManifest.json() as { requested: number; succeeded: number; reportedCostUsd: number; results: unknown[] };
+    assert.equal(gallery.requested, 19);
+    assert.equal(gallery.succeeded, 19);
+    assert.equal(gallery.results.length, 19);
+    assert(gallery.reportedCostUsd > 0);
+    const gallerySvg = await fetch(`http://127.0.0.1:${proxyPort}/image-gallery/assets/recraft-recraft-v4-styles-vector.svg`);
+    assert.equal(gallerySvg.status, 200);
+    assert.equal(gallerySvg.headers.get("content-type"), "image/svg+xml");
+    assert.equal(gallerySvg.headers.get("cache-control"), "public, max-age=86400, immutable");
 
     const openAiModels = await fetch(`http://127.0.0.1:${proxyPort}/v1/models`, {
       headers: { "x-api-key": "local-client-key" }
@@ -496,24 +576,35 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
 
     const providerDefault = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/sandbox`, {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ purpose: "chat", requests: [{ id: "default", model: "good-model", parameters: {}, messages: [{ role: "user", content: "Use provider defaults" }] }] })
+      body: JSON.stringify({ purpose: "chat", requests: [{ id: "default", model: "good-model", parameters: { maxOutputMiB: 8 }, messages: [{ role: "user", content: "Use provider defaults" }] }] })
     });
     assert.equal(providerDefault.status, 200);
-    await providerDefault.text();
+    const providerDefaultPayload = await providerDefault.json() as { results: Array<{ parameters: { maxOutputMiB?: number } }> };
+    assert.equal(providerDefaultPayload.results[0]?.parameters.maxOutputMiB, 8);
     assert.equal(calls.at(-1)?.maxTokens, undefined, "provider-default mode must omit max_tokens upstream");
+    const invalidOutputLimit = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/sandbox`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ purpose: "chat", requests: [{ id: "oversized-limit", model: "good-model", parameters: { maxOutputMiB: 65 }, messages: [{ role: "user", content: "Reject the limit" }] }] }) });
+    assert.equal(invalidOutputLimit.status, 400);
+    const defaultOutputLimit = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/sandbox`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ purpose: "chat", requests: [{ id: "default-output-limit", model: "good-model", messages: [{ role: "user", content: "sandbox output cap probe" }] }] }) });
+    const defaultOutputPayload = await defaultOutputLimit.json() as { results: Array<{ error: string | null }> };
+    assert.match(defaultOutputPayload.results[0]?.error ?? "", /exceeded 4 MiB/);
+    const expandedOutputLimit = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/sandbox`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ purpose: "chat", requests: [{ id: "expanded-output-limit", model: "good-model", parameters: { maxOutputMiB: 6 }, messages: [{ role: "user", content: "sandbox output cap probe" }] }] }) });
+    const expandedOutputPayload = await expandedOutputLimit.json() as { results: Array<{ content: string; error: string | null }> };
+    assert.equal(expandedOutputPayload.results[0]?.error, null);
+    assert.equal(expandedOutputPayload.results[0]?.content.length, 5 * 1024 * 1024);
 
     const duplicateLanes = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/sandbox`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ purpose: "chat", requests: [
-        { id: "sample-1", model: "good-model", messages: [{ role: "user", content: "Produce an independent sample" }] },
-        { id: "sample-2", model: "good-model", messages: [{ role: "user", content: "Produce an independent sample" }] }
+        { id: "sample-1", model: "good-model", messages: [{ role: "system", content: "Be concise" }, { role: "user", content: "Produce an independent sample" }] },
+        { id: "sample-2", model: "good-model", messages: [{ role: "system", content: "Be concise" }, { role: "user", content: "Produce an independent sample" }] }
       ] })
     });
     assert.equal(duplicateLanes.status, 200);
     const duplicatePayload = await duplicateLanes.json() as { results: Array<{ id: string; requestedModel: string }> };
     assert.deepEqual(duplicatePayload.results.map((result) => result.id), ["sample-1", "sample-2"]);
     assert(duplicatePayload.results.every((result) => result.requestedModel === "good-model"));
+    assert(calls.slice(-2).every((call) => (call.messages[0] as { role?: string })?.role === "system"));
 
     const designResponse = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/sandbox`, {
       method: "POST",

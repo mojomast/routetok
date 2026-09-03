@@ -18,4 +18,8 @@ Upgrade procedure:
 2. Install dependencies with `npm ci`.
 3. Run typecheck/tests/build.
 4. Restart the process.
-5. Verify `/healthz`, `/v1/models`, and dashboard status.
+5. Verify `/healthz`, `/v1/models`, `/dashboard`, and `/sandbox`.
+
+Keep the complete `public/` directory beside the built service. The Fieldbook imports explicitly routed modules from `public/fieldbook/`, and the optional static benchmark gallery uses `public/image-gallery/`.
+
+If local transcription is enabled, operate Speaches as a separate loopback-only service and preserve its model cache independently from RouteTok's `DATA_DIR`.
