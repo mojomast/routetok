@@ -14,6 +14,17 @@ Copy `.env.example` to `.env`. RouteTok uses Node's environment-file support and
 
 `PROXY_API_KEY` remains the baseline client credential and is useful for bootstrap and recovery. Once `DASHBOARD_TOKEN` is configured, API Setup can create additional labelled client keys without changing the environment or restarting RouteTok. Managed keys are additive and individually revocable.
 
+## Docker Compose
+
+Compose overrides `HOST`, `PORT`, and `DATA_DIR` inside the container with `0.0.0.0`, `8787`, and `/app/data`. Use these Compose-only variables to control host publishing:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ROUTETOK_DOCKER_BIND` | `127.0.0.1` | Host interface receiving the published container port |
+| `ROUTETOK_DOCKER_PORT` | `8787` | Host port mapped to container port `8787` |
+
+These variables do not alter native deployment settings. Containerized local-provider URLs must use `host.docker.internal` rather than `127.0.0.1`; see [Deployment](deployment.md#local-providers).
+
 Every provider has an `*_API_KEY` and optional `*_BASE_URL`; see `.env.example`. Dashboard-managed keys override environment values. Deleting a stored key creates a tombstone that suppresses environment fallback, except OpenCode which returns to `public`.
 
 ## Local Transcription

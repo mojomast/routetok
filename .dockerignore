@@ -1,0 +1,15 @@
+.git
+.gitignore
+.env
+.env.*
+node_modules
+dist
+data
+data-dev
+artifacts
+coverage
+*.log
+*.tgz
+.DS_Store
+.idea
+.vscode

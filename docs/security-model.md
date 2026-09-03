@@ -24,3 +24,5 @@ Server metrics persist request metadata, errors, timing, tokens, and costs. Elig
 Generated image bytes, recordings, speech output, filenames, and unreviewed transcripts remain ephemeral. They are excluded from metrics, history, retained requests, Fieldbook notes, IndexedDB, and exports.
 
 Filesystem permissions do not protect against root, same-UID compromise, process compromise, backups, swap, or an unencrypted disk. Use full-disk encryption or an external secret manager where those threats matter.
+
+The provided Docker deployment runs as a non-root user, drops capabilities, prevents privilege escalation, and uses a read-only root filesystem with only `/app/data` and a bounded `/tmp` writable. Compose loads `.env` at runtime; Docker build context rules exclude environment files and runtime data from the image.

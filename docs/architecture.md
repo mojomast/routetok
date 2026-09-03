@@ -31,6 +31,10 @@ Provider catalogs, credits, routing configuration, metrics, dashboard content, a
 
 Audio and image bytes remain ephemeral and are excluded from persisted metrics, retained request bodies, browser notes, and exports.
 
+## Runtime Packaging
+
+Native and Docker deployments run the same compiled `dist/src/server.js` and static `public/` assets. The Docker image builds TypeScript in a separate stage, then runs only the compiled server and frontend as an unprivileged user. `/app/data` is the sole persistent writable application path; `/tmp` is an ephemeral bounded `tmpfs`, and the remaining container filesystem is read-only.
+
 ## Compatibility
 
 AgentRouter is one provider with legacy bare model aliases. All additional providers use `<provider>:<upstream-id>` canonical routes. Public `x-router-*` headers report the selected physical route.

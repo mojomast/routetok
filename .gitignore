@@ -6,6 +6,7 @@ data-dev/
 data/
 *.log
 **/secrets/provider-credentials.json
+**/secrets/client-api-keys.json
 artifacts/
 coverage/
 *.tgz

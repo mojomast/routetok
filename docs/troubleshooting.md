@@ -24,6 +24,14 @@ Clear the saved dashboard token from browser site storage and reconnect. Credent
 
 Confirm the application uses the complete one-time `rtk_…` secret as either `Authorization: Bearer <key>` or `x-api-key: <key>`. API Setup lists labels and IDs, not secret values. If the secret was lost, revoke that entry and create a replacement. The environment `PROXY_API_KEY` remains a separate accepted credential.
 
+## Docker container exits during startup
+
+Run `docker compose logs routetok`. Because the container listens on `0.0.0.0` internally, it requires `PROXY_API_KEY` or an existing managed client key in the persisted volume. New Docker deployments should set both `PROXY_API_KEY` and `DASHBOARD_TOKEN` in `.env` before startup.
+
+## Docker cannot reach a local provider
+
+Container loopback is isolated from host loopback. Replace host-local URLs such as `http://127.0.0.1:8000/v1` with `http://host.docker.internal:8000/v1`. The provided Compose file maps that hostname to the host gateway. Confirm the local service accepts connections from the Docker bridge and remains protected from untrusted networks.
+
 ## Fieldbook does not load
 
 Confirm `/sandbox.js` and the explicitly mapped `/fieldbook/*.js` modules return `200`. RouteTok must run from the project working directory with the complete `public/` tree present. Unknown module paths intentionally return `404`.

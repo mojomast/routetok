@@ -50,7 +50,7 @@ Use Iteration Studio to coordinate one to four scoped agents over a browser-loca
 
 ## Quick Start
 
-Requirements: Node.js 22 or newer.
+Requirements: Node.js 22 or newer for a native install, or Docker Engine with Docker Compose for the container deployment.
 
 ```bash
 git clone https://github.com/mojomast/routetok.git
@@ -70,6 +70,17 @@ DASHBOARD_TOKEN=replace-with-an-admin-token
 npm run build
 npm start
 ```
+
+Or run the same application in Docker with a persistent named data volume:
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+The Compose service publishes to `127.0.0.1:8787` by default, runs as a non-root user with a read-only container filesystem, and never copies `.env` into the image. Set `PROXY_API_KEY` and `DASHBOARD_TOKEN` in `.env` before starting it. If port `8787` is already occupied, set `ROUTETOK_DOCKER_PORT` to another host port.
+
+[Read the deployment guide](docs/deployment.md) for volumes, upgrades, local-provider networking, and reverse-proxy guidance.
 
 Open:
 

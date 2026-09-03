@@ -1,0 +1,31 @@
+services:
+  routetok:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: routetok:local
+    init: true
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8787
+      DATA_DIR: /app/data
+    ports:
+      - "${ROUTETOK_DOCKER_BIND:-127.0.0.1}:${ROUTETOK_DOCKER_PORT:-8787}:8787"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - routetok-data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  routetok-data:

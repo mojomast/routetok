@@ -12,6 +12,7 @@
 - Focused the dashboard arena on RouteTok Support and added a visible API setup and write-only provider-key management section.
 - Moved runtime telemetry to the dashboard header area, removed the System card, hid unconfigured provider status cards, and added persisted Route Health model visibility and sorting controls.
 - Converted API Setup into a dismissible drawer and added generated, hashed, individually revocable proxy client API keys alongside the existing environment key.
+- Added a hardened multi-stage Docker image and loopback-only Compose deployment with persistent runtime state.
 
 ## 0.1.0 - 2026-09-02
 
