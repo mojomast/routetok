@@ -107,15 +107,29 @@ The dashboard includes provider and key status, catalog filtering, price ranges,
 
 ![RouteTok parallel sandbox with synthetic model outputs](docs/images/sandbox-comparison.png)
 
-The sandbox runs up to four models in parallel, keeps independent multi-turn branches, supports failed-card retries, can omit `max_tokens` to use provider defaults, and automatically saves completed runs in browser IndexedDB.
+The unified arena keeps independent Chat, Design, and Agent workstreams with their own drafts, lineups, settings, results, and scroll positions. It runs up to four independent model lanes in parallel, supports repeated lanes of the same model for output-variance testing, preserves branch-specific multi-turn context, retries failed cards, can omit `max_tokens` to use provider defaults, and automatically saves completed runs in browser IndexedDB.
+
+Speech controls are built into the arena. Result cards can be read aloud through catalog-confirmed free OpenRouter TTS models, beginning with Deepgram Flux TTS Free and Fish Audio S2.1 Pro Free. Microphone recordings and uploaded audio can be transcribed through local Speaches or an approved Requesty transcription model. Discovered local models appear first, so the arena prefers local STT when available. Recordings, generated audio, filenames, and unreviewed transcripts remain ephemeral and are excluded from RouteTok metrics, history, retained request bodies, exports, and IndexedDB. Transcripts must be reviewed before insertion and are never sent automatically.
+
+For example, run Speaches separately with a CPU INT8 faster-whisper model, then point RouteTok at its OpenAI-compatible API (RouteTok does not launch or manage the Speaches process or container):
+
+```dotenv
+LOCAL_STT_BASE_URL=http://127.0.0.1:8000/v1
+LOCAL_STT_MODEL=Systran/faster-whisper-small
+LOCAL_STT_API_KEY=
+```
+
+Configure Speaches itself to use CPU execution and INT8 compute according to the Speaches image/version you run. `LOCAL_STT_API_KEY` is optional; when empty, RouteTok sends no authorization header.
+
+This repository includes a loopback-only, digest-pinned CPU deployment at `deploy/local-stt/compose.yml`. A one-shot initialization service downloads `Systran/faster-whisper-small` through Speaches' model-management API, while the inference service keeps it resident, uses INT8 with four CPU threads, disables the Speaches UI and Hugging Face telemetry, and persists only the model cache.
 
 ## Configuration Safety
 
 The assistant can propose routing changes but cannot apply them. Proposals are validated, displayed as typed interactive settings, editable, revalidated after changes, revision-bound, and require a separate exact-diff confirmation.
 
-In Assistant mode, natural-language requests to suggest configuration changes invoke that proposal workflow automatically. Requests to run a chat or design comparison invoke a bounded planner: the selected advisor chooses one to four currently eligible physical models, generation settings, comparison mode, and an improved prompt. RouteTok validates the complete plan before starting a fresh saved arena run.
+Agent mode defaults to automatic intent detection for diagnosis, route explanation, onboarding, optimization, configuration, and comparison planning; explicit intent controls are available only inside Agent and override detection. Configuration language enters the editable proposal workflow instead of ordinary diagnostic chat. The bounded comparison planner can choose one to four eligible physical model lanes, including duplicate lanes when repeated samples are useful. Plans are validated and shown for review, then handed to Chat or Design as a draft; they never execute automatically. Result evidence is collapsed by default and includes model, endpoint, provider, route, request, attempt, timing, token/cache, throughput, cost, and generation-setting details.
 
-Operational diagnosis uses lazy data retrieval. Each assistant model first requests only the bounded dashboard resources needed for the question, such as totals, health, recent failures, history, providers, or configuration. RouteTok then supplies only those API results instead of embedding the entire catalog and metrics history in every prompt.
+Operational diagnosis uses lazy data retrieval. Each Agent model first requests only the bounded dashboard resources needed for the question, including capabilities, readiness, totals, health, recent failures, history, sanitized providers, or configuration. RouteTok supplies only those API results instead of embedding the entire catalog and metrics history in every prompt. The Agent can explain setup and client usage, diagnose and teach routing behavior, prepare comparisons and designs, and propose operational or configuration changes, but it cannot access secrets, files, shell, raw request bodies, or execute actions itself.
 
 Provider keys entered in the dashboard are write-only. Stored overrides live under `DATA_DIR/secrets/provider-credentials.json` in a `0700` directory and `0600` file. Values are never returned in status, metrics, logs, proposals, or browser storage.
 

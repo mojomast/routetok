@@ -36,6 +36,7 @@ async function ready(child: ChildProcess): Promise<void> {
 
 test("multi-provider inference and credits keep credentials and model IDs separated", async () => {
   const inference: Array<{ url: string; authorization: string | undefined; apiKey: string | undefined; anthropicVersion: string | undefined; model: unknown }> = [];
+  const openRouterArenaUserAgents: string[] = [];
   const upstream = createServer(async (request, response) => {
     if (request.url === "/agent/api/pricing") {
       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{
@@ -72,6 +73,12 @@ test("multi-provider inference and credits keep credentials and model IDs separa
     }
     if (request.url === "/openrouter/v1/chat/completions" || request.url === "/requesty/v1/messages" || request.url === "/generic/v1/chat/completions") {
       const payload = await requestBody(request);
+      if (request.url === "/openrouter/v1/chat/completions" && payload.stream === true) {
+        openRouterArenaUserAgents.push(String(request.headers["user-agent"] || ""));
+        response.writeHead(200, { "content-type": "text/event-stream" });
+        response.end(`data: ${JSON.stringify({ id: "arena", object: "chat.completion.chunk", model: payload.model, choices: [{ index: 0, delta: { content: "arena-ok" }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ id: "arena", object: "chat.completion.chunk", model: payload.model, choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`);
+        return;
+      }
       inference.push({ url: request.url, authorization: request.headers.authorization,
         apiKey: request.headers["x-api-key"] as string | undefined,
         anthropicVersion: request.headers["anthropic-version"] as string | undefined, model: payload.model });
@@ -117,6 +124,17 @@ test("multi-provider inference and credits keep credentials and model IDs separa
     assert.equal(openRouter.headers.get("x-router-provider"), "openrouter");
     assert.equal(openRouter.headers.get("x-router-route"), "openrouter:vendor/or-model");
     await openRouter.text();
+
+    const openRouterArena = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/sandbox`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ purpose: "chat", requests: [{ id: "openrouter-arena", model: "openrouter:vendor/or-model", messages: [{ role: "user", content: "Use the OpenCode harness identity" }] }] })
+    });
+    assert.equal(openRouterArena.status, 200);
+    const openRouterArenaPayload = await openRouterArena.json() as { results: Array<{ content: string; error: string | null }> };
+    assert.equal(openRouterArenaPayload.results[0]?.content, "arena-ok");
+    assert.equal(openRouterArenaPayload.results[0]?.error, null);
+    assert.deepEqual(openRouterArenaUserAgents, ["opencode/1.15.13"]);
 
     const requesty = await fetch(`http://127.0.0.1:${proxyPort}/v1/messages`, { method: "POST",
       headers: { "x-api-key": "local", "content-type": "application/json", "anthropic-version": "2023-06-01" },

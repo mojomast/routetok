@@ -1,20 +1,53 @@
+const ARENA_MODES = ["chat", "design", "diagnose"];
+const ARENA_WORKSPACES_KEY = "routetok-arena-workspaces-v1";
+const AUDIO_SETTINGS_KEY = "routetok-arena-audio-settings-v1";
+const AUDIO_MAX_BYTES = 16 * 1024 * 1024;
+const AUDIO_MAX_MS = 3 * 60 * 1000;
+const DEFAULT_TTS_MODEL = "openrouter:deepgram/flux-tts:free";
+const DEFAULT_TTS_VOICE = "flux-alexis-en";
+
+function createArenaWorkspace(mode, saved = {}) {
+  const parameters = saved.parameters && typeof saved.parameters === "object" ? saved.parameters : {};
+  return {
+    mode,
+    turns: [],
+    runId: typeof saved.runId === "string" ? saved.runId : crypto.randomUUID(),
+    draft: typeof saved.draft === "string" ? saved.draft : "",
+    selectedModels: new Set(Array.isArray(saved.selectedModels) ? saved.selectedModels.slice(0, 4) : []),
+    modelLineup: Array.isArray(saved.modelLineup) ? saved.modelLineup.filter((model) => typeof model === "string").slice(0, 4) : [],
+    parameters: {
+      providerDefaultMax: parameters.providerDefaultMax === true,
+      maxTokens: Number.isFinite(Number(parameters.maxTokens)) ? Number(parameters.maxTokens) : 4096,
+      temperature: parameters.temperature ?? "",
+      topP: parameters.topP ?? ""
+    },
+    assistantPlan: null,
+    configProposal: null,
+    scrollTop: Number(saved.scrollTop) || 0,
+    userScrolled: saved.userScrolled === true,
+    busy: false,
+    controller: null,
+    pendingCards: new Map(),
+    inflight: null,
+    status: saved.status === "failed" ? "failed" : saved.draft ? "draft" : "ready",
+    saveState: "ready",
+    intent: ["auto", "diagnose", "explain", "onboard", "optimize", "configure", "compare"].includes(saved.intent) ? saved.intent : "auto"
+  };
+}
+
+let storedArena = null;
+try { storedArena = JSON.parse(localStorage.getItem(ARENA_WORKSPACES_KEY) || "null"); } catch {}
+const storedArenaMode = ARENA_MODES.includes(storedArena?.activeMode) ? storedArena.activeMode : "chat";
+
 const state = {
   status: null,
   token: localStorage.getItem("routetok-dashboard-token") || localStorage.getItem("agentrouter-dashboard-token") || "",
   timer: null,
-  chatTurns: [],
-  sandboxRunId: crypto.randomUUID(),
   sandboxLibraryOpen: false,
-  assistantPlan: null,
-  pendingSandboxCards: new Map(),
-  chatBusy: false,
-  chatController: null,
-  sandboxSelectedModels: new Set(),
-  sandboxMode: "chat",
-  configProposal: null,
+  arenaWorkspaces: Object.fromEntries(ARENA_MODES.map((mode) => [mode, createArenaWorkspace(mode, storedArena?.workspaces?.[mode])])),
+  sandboxMode: storedArenaMode,
   confirmingProposal: null,
   chatOpen: false,
-  userScrolled: false,
   configOpen: false,
   expandedRequests: new Set(),
   expandedRequestContent: new Set(),
@@ -50,6 +83,52 @@ const state = {
   railExpanded: false,
   collapsedSections: new Set()
 };
+if (Number(storedArena?.version) < 3) {
+  for (const workspace of Object.values(state.arenaWorkspaces)) workspace.intent = "auto";
+}
+
+const audioState = {
+  capabilities: null,
+  capabilitiesPromise: null,
+  settings: { sttModel: "", language: "", ttsModel: DEFAULT_TTS_MODEL, voice: DEFAULT_TTS_VOICE, speed: 1 },
+  recorder: null,
+  recordingRequest: 0,
+  stream: null,
+  chunks: [],
+  bytes: 0,
+  timer: null,
+  sttController: null,
+  transcriptTarget: null,
+  ttsController: null,
+  playback: null,
+  playbackUrl: null,
+  ttsButton: null,
+  ttsKey: null
+};
+try {
+  const savedAudio = JSON.parse(localStorage.getItem(AUDIO_SETTINGS_KEY) || "null");
+  if (savedAudio && typeof savedAudio === "object") {
+    for (const key of ["sttModel", "language", "ttsModel", "voice"]) if (typeof savedAudio[key] === "string") audioState.settings[key] = savedAudio[key];
+    if (Number.isFinite(Number(savedAudio.speed))) audioState.settings.speed = Math.max(0.25, Math.min(4, Number(savedAudio.speed)));
+  }
+} catch {}
+
+const activeWorkspace = () => state.arenaWorkspaces[state.sandboxMode];
+function workspaceModelLanes(workspace = activeWorkspace()) {
+  const models = workspace.modelLineup.length ? workspace.modelLineup : [...workspace.selectedModels];
+  return models.slice(0, 4).map((model, index) => ({ id: `lane_${index}`, model, index }));
+}
+for (const [property, workspaceProperty] of Object.entries({
+  chatTurns: "turns", sandboxRunId: "runId", assistantPlan: "assistantPlan",
+  pendingSandboxCards: "pendingCards", chatBusy: "busy", chatController: "controller",
+  sandboxSelectedModels: "selectedModels", configProposal: "configProposal", userScrolled: "userScrolled"
+})) {
+  Object.defineProperty(state, property, {
+    configurable: true,
+    get: () => activeWorkspace()[workspaceProperty],
+    set: (value) => { activeWorkspace()[workspaceProperty] = value; }
+  });
+}
 
 const byId = (id) => document.getElementById(id);
 const firstById = (...ids) => ids.map(byId).find(Boolean) || null;
@@ -245,6 +324,26 @@ async function api(path, options = {}) {
   return payload;
 }
 
+async function audioFetch(path, options = {}) {
+  const response = await fetch(path, {
+    ...options,
+    headers: { ...headers(false), ...(options.headers || {}) }
+  });
+  if (response.status === 401) {
+    byId("auth-dialog").showModal();
+    throw new Error("Dashboard authentication required");
+  }
+  if (!response.ok) {
+    const type = response.headers.get("content-type") || "";
+    const payload = type.includes("json") ? await response.json().catch(() => null) : null;
+    const message = typeof payload?.error === "string" ? payload.error : payload?.error?.message || payload?.message;
+    const error = new Error(message || `HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  return response;
+}
+
 const SANDBOX_DB_NAME = "agentrouter-sandbox-catalog";
 const SANDBOX_DB_VERSION = 1;
 let sandboxDbPromise;
@@ -275,24 +374,60 @@ async function sandboxStore(mode, callback) {
   });
 }
 
-async function saveSandboxRun() {
-  if (!state.chatTurns.length) return;
-  const existing = await sandboxStore("readonly", (store) => store.get(state.sandboxRunId)).catch(() => null);
+function persistArenaWorkspaces() {
+  const workspaces = {};
+  for (const mode of ARENA_MODES) {
+    const workspace = state.arenaWorkspaces[mode];
+    workspaces[mode] = {
+      runId: workspace.runId,
+      draft: workspace.draft,
+      selectedModels: [...workspace.selectedModels],
+      modelLineup: [...workspace.modelLineup],
+      parameters: workspace.parameters,
+      scrollTop: workspace.scrollTop,
+      userScrolled: workspace.userScrolled,
+      status: workspace.status,
+      intent: workspace.intent
+    };
+  }
+  try {
+    localStorage.setItem(ARENA_WORKSPACES_KEY, JSON.stringify({ version: 3, activeMode: state.sandboxMode, workspaces }));
+  } catch {}
+  renderArenaStatus();
+}
+
+async function saveSandboxRun(workspace = activeWorkspace(), force = false) {
+  if (!force && !workspace.turns.length && !workspace.assistantPlan && !workspace.configProposal) return;
+  workspace.saveState = "saving";
+  if (workspace === activeWorkspace()) renderArenaStatus();
+  const existing = await sandboxStore("readonly", (store) => store.get(workspace.runId)).catch(() => null);
   const now = new Date().toISOString();
   const record = {
-    schemaVersion: 1,
-    id: state.sandboxRunId,
+    schemaVersion: 2,
+    id: workspace.runId,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
-    mode: state.sandboxMode,
-    models: [...state.sandboxSelectedModels],
-    assistantPlan: state.assistantPlan ? structuredClone(state.assistantPlan) : null,
-    turns: structuredClone(state.chatTurns)
+    mode: workspace.mode,
+    models: workspaceModelLanes(workspace).map((lane) => lane.model),
+    modelLineup: [...workspace.modelLineup],
+    parameters: structuredClone(workspace.parameters),
+    draft: workspace.draft,
+    assistantPlan: workspace.assistantPlan ? structuredClone(workspace.assistantPlan) : null,
+    configProposal: workspace.configProposal ? structuredClone(workspace.configProposal) : null,
+    turns: structuredClone(workspace.turns)
   };
-  await sandboxStore("readwrite", (store) => store.put(record));
-  const runs = await sandboxStore("readonly", (store) => store.getAll());
-  for (const stale of runs.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(100)) {
-    await sandboxStore("readwrite", (store) => store.delete(stale.id));
+  try {
+    await sandboxStore("readwrite", (store) => store.put(record));
+    const runs = await sandboxStore("readonly", (store) => store.getAll());
+    for (const stale of runs.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(100)) {
+      await sandboxStore("readwrite", (store) => store.delete(stale.id));
+    }
+    workspace.saveState = "saved";
+  } catch (error) {
+    workspace.saveState = "failed";
+    throw error;
+  } finally {
+    persistArenaWorkspaces();
   }
 }
 
@@ -312,6 +447,104 @@ function resetChatMessages(message = "Choose up to four models. Prompts are sent
   proposalHost.className = "config-proposal-host";
   proposalHost.setAttribute("aria-live", "polite");
   container.append(empty, proposalHost);
+}
+
+function readGenerationControls(workspace = activeWorkspace()) {
+  workspace.parameters = {
+    providerDefaultMax: byId("sandbox-provider-default-max").checked,
+    maxTokens: Number(byId("sandbox-max-tokens").value) || 4096,
+    temperature: byId("sandbox-temperature").value.trim(),
+    topP: byId("sandbox-top-p").value.trim()
+  };
+}
+
+function applyGenerationControls(workspace) {
+  const parameters = workspace.parameters || {};
+  byId("sandbox-provider-default-max").checked = parameters.providerDefaultMax === true;
+  byId("sandbox-max-tokens").disabled = parameters.providerDefaultMax === true;
+  byId("sandbox-max-tokens").value = parameters.maxTokens || 4096;
+  byId("sandbox-temperature").value = parameters.temperature ?? "";
+  byId("sandbox-top-p").value = parameters.topP ?? "";
+}
+
+function workspaceStatus(workspace) {
+  if (workspace.busy) return "RUNNING";
+  if (workspace.status === "failed") return "FAILED";
+  if (workspace.draft) return "DRAFT";
+  if (workspace.turns.length || workspace.assistantPlan || workspace.configProposal) return "COMPLETE";
+  return "READY";
+}
+
+function renderArenaStatus() {
+  const workspace = activeWorkspace();
+  for (const mode of ARENA_MODES) {
+    const target = document.querySelector(`[data-mode-status="${mode}"]`);
+    if (target) {
+      const status = workspaceStatus(state.arenaWorkspaces[mode]);
+      target.textContent = status;
+      target.dataset.status = status.toLowerCase();
+    }
+  }
+  const label = workspace.mode === "diagnose" ? "AGENT" : workspace.mode.toUpperCase();
+  byId("arena-title").textContent = `${label} WORKSTREAM`;
+  byId("arena-save-state").textContent = workspace.saveState === "saving" ? "LOCAL / SAVING" : workspace.saveState === "failed" ? "LOCAL SAVE FAILED" : workspace.draft ? "LOCAL / DRAFT SAVED" : workspace.turns.length || workspace.assistantPlan || workspace.configProposal ? "LOCAL / SAVED" : "LOCAL / READY";
+  const lanes = workspaceModelLanes(workspace);
+  byId("arena-model-summary").textContent = lanes.length ? lanes.map((lane) => `${lane.index + 1}. ${lane.model}`).join("  ") : "SELECT LINEUP";
+  byId("arena-model-lock").classList.toggle("hidden", !workspace.turns.length);
+  byId("agent-intents").classList.toggle("hidden", workspace.mode !== "diagnose");
+  byId("propose-config").hidden = workspace.mode !== "diagnose" || !["configure", "optimize"].includes(workspace.intent);
+  const intentDescriptions = {
+    auto: "Detect the appropriate safe workflow from your request.",
+    diagnose: "Analyze bounded live evidence and recommend next checks.",
+    explain: "Explain routing, fallback, health, models, or configuration without changing anything.",
+    onboard: "Teach setup, APIs, providers, speech, and normal RouteTok workflows.",
+    optimize: "Generate an editable optimization proposal; nothing is applied automatically.",
+    configure: "Generate an editable configuration proposal that requires validation and confirmation.",
+    compare: "Prepare a reviewed Chat or Design comparison plan without running it."
+  };
+  byId("agent-intent-help").textContent = intentDescriptions[workspace.intent] || intentDescriptions.auto;
+  if (workspace.mode === "diagnose") {
+    const actionLabels = { auto: "ASK", diagnose: "ANALYZE", explain: "EXPLAIN", onboard: "GUIDE", optimize: "PROPOSE", configure: "PROPOSE", compare: "PLAN" };
+    const placeholders = {
+      auto: "Ask naturally; Agent will choose diagnosis, explanation, planning, or a proposal workflow...",
+      diagnose: "Describe symptoms or unexpected router behavior...",
+      explain: "Ask why a request took a route or how a RouteTok feature works...",
+      onboard: "Ask how to set up, use, or understand RouteTok...",
+      optimize: "Describe the reliability, latency, or cost objective...",
+      configure: "Describe the exact configuration change to propose...",
+      compare: "Describe a comparison to plan; it will not run automatically..."
+    };
+    byId("send-chat").textContent = actionLabels[workspace.intent] || "ASK";
+    byId("chat-input").placeholder = placeholders[workspace.intent] || placeholders.auto;
+  }
+  for (const chip of document.querySelectorAll("[data-agent-intent]")) {
+    const active = chip.dataset.agentIntent === workspace.intent;
+    chip.classList.toggle("active", active);
+    chip.setAttribute("aria-pressed", String(active));
+  }
+}
+
+function renderActiveWorkspace() {
+  const workspace = activeWorkspace();
+  for (const pending of workspace.pendingCards.values()) if (pending.card?._progressTimer) clearInterval(pending.card._progressTimer);
+  workspace.pendingCards.clear();
+  resetChatMessages(workspace.mode === "diagnose" ? "Choose an explicit Agent intent, then ask about this router. Operational context excludes request bodies and credentials." : undefined);
+  byId("chat-messages").querySelector(".chat-empty")?.remove();
+  workspace.turns.forEach((turn, index) => renderSandboxTurn(turn.prompt, Object.values(turn.results || {}), turn.mode || workspace.mode, index));
+  if (workspace.inflight) renderInflightWorkspace(workspace);
+  if (workspace.assistantPlan) renderAssistantPlan(workspace.assistantPlan);
+  if (workspace.configProposal) renderConfigProposal(workspace.configProposal, workspace);
+  if (!workspace.turns.length && !workspace.inflight && !workspace.assistantPlan && !workspace.configProposal) {
+    resetChatMessages(workspace.mode === "diagnose" ? "Choose an explicit Agent intent, then ask about this router. Operational context excludes request bodies and credentials." : undefined);
+  }
+  applyGenerationControls(workspace);
+  byId("chat-input").value = workspace.draft;
+  byId("send-chat").disabled = workspace.busy;
+  byId("propose-config").disabled = workspace.busy;
+  byId("stop-chat").hidden = !workspace.busy;
+  renderArenaStatus();
+  renderChatModelOptions(state.status?.config || {});
+  requestAnimationFrame(() => { byId("chat-messages").scrollTop = workspace.scrollTop; });
 }
 
 function compactNumber(value) {
@@ -1018,7 +1251,8 @@ function renderChatModelOptions(config) {
     if (!configuredProviders.has(provider)) return false;
     return provider === "agentrouter" || isFreeExternalModel(model) || (config.enabledExternalModels || []).includes(model.id);
   });
-  if (!state.sandboxSelectedModels.size) {
+  if (!state.sandboxSelectedModels.size && !activeWorkspace()._defaultsLoaded) {
+    activeWorkspace()._defaultsLoaded = true;
     const stored = readStoredJson(localStorage, SANDBOX_MODELS_KEY);
     for (const id of Array.isArray(stored) ? stored : config.openaiOrder?.slice(0, 2) || []) {
       if (models.some((model) => model.id === id) && state.sandboxSelectedModels.size < 4) state.sandboxSelectedModels.add(id);
@@ -1031,9 +1265,11 @@ function renderChatModelOptions(config) {
     locked: state.chatBusy || state.chatTurns.length > 0
   });
   if (signature === state.sandboxModelSignature) {
-    byId("chat-model-count").textContent = `${state.sandboxSelectedModels.size} / 4 MODELS`;
-    if (state.chatBusy) byId("chat-route").textContent = `${state.sandboxSelectedModels.size} RUNNING`;
-    else if (!state.chatTurns.length) byId("chat-route").textContent = `${state.sandboxSelectedModels.size} READY`;
+    const laneCount = workspaceModelLanes().length;
+    byId("chat-model-count").textContent = `${laneCount} / 4 LANES${laneCount !== state.sandboxSelectedModels.size ? ` · ${state.sandboxSelectedModels.size} MODEL` : ""}`;
+    if (state.chatBusy) byId("chat-route").textContent = `${laneCount} RUNNING`;
+    else if (!state.chatTurns.length) byId("chat-route").textContent = `${laneCount} READY`;
+    renderArenaStatus();
     return;
   }
   state.sandboxModelSignature = signature;
@@ -1050,9 +1286,11 @@ function renderChatModelOptions(config) {
     label.append(checkbox, text);
     container.append(label);
   }
-  byId("chat-model-count").textContent = `${state.sandboxSelectedModels.size} / 4 MODELS`;
-  if (state.chatBusy) byId("chat-route").textContent = `${state.sandboxSelectedModels.size} RUNNING`;
-  else if (!state.chatTurns.length) byId("chat-route").textContent = `${state.sandboxSelectedModels.size} READY`;
+  const laneCount = workspaceModelLanes().length;
+  byId("chat-model-count").textContent = `${laneCount} / 4 LANES${laneCount !== state.sandboxSelectedModels.size ? ` · ${state.sandboxSelectedModels.size} MODEL` : ""}`;
+  if (state.chatBusy) byId("chat-route").textContent = `${laneCount} RUNNING`;
+  else if (!state.chatTurns.length) byId("chat-route").textContent = `${laneCount} READY`;
+  renderArenaStatus();
 }
 
 function syncDraftInputs() {
@@ -1693,7 +1931,8 @@ function renderLiveTelemetry(inFlight, recent) {
 }
 
 function updateSandboxPendingMetrics(inFlight) {
-  for (const [model, pending] of state.pendingSandboxCards) {
+  for (const pending of state.pendingSandboxCards.values()) {
+    const model = pending.model;
     const request = [...inFlight].reverse().find((entry) => entry.requestedModel === model || entry.selectedModel === model);
     if (!request) continue;
     pending.elapsed.textContent = `${(request.durationMs / 1000).toFixed(1)} s`;
@@ -1723,6 +1962,331 @@ function notify(message, successful = false) {
   notice.className = `notice${successful ? " success" : ""}`;
   window.clearTimeout(notice._timer);
   notice._timer = window.setTimeout(() => notice.classList.add("hidden"), 5000);
+}
+
+function setAudioStatus(message, failed = false) {
+  const target = byId("audio-status");
+  if (!target) return;
+  target.textContent = message;
+  target.classList.toggle("failed", failed);
+}
+
+function audioModelId(model) {
+  return typeof model === "string" ? model : String(model?.id || model?.model || model?.name || "");
+}
+
+function audioModels(payload, kind) {
+  const section = kind === "tts" ? payload?.tts || payload?.speech : payload?.stt || payload?.transcriptions || payload?.transcription;
+  const source = Array.isArray(section) ? section : section?.models || payload?.[`${kind}Models`] || [];
+  const models = Array.isArray(source) ? source : Object.entries(source || {}).map(([id, value]) => typeof value === "object" ? { id, ...value } : id);
+  return models.filter((model) => audioModelId(model) && (typeof model === "string" || (model.available !== false && model.enabled !== false)));
+}
+
+function audioVoices(payload, model) {
+  const id = audioModelId(model);
+  const section = payload?.tts || payload?.speech || {};
+  const source = typeof model === "object" && Array.isArray(model.voices)
+    ? model.voices
+    : Array.isArray(section.voices) ? section.voices : section.voices?.[id] || payload?.voices?.[id] || [];
+  return (Array.isArray(source) ? source : []).map((voice) => typeof voice === "string" ? voice : String(voice?.id || voice?.voice || voice?.name || "")).filter(Boolean);
+}
+
+function audioProvider(model) {
+  if (typeof model === "object" && model.provider) return String(model.provider);
+  const id = audioModelId(model);
+  if (id.includes(":")) return id.split(":", 1)[0];
+  if (/requesty/i.test(id)) return "Requesty";
+  if (/fish/i.test(id)) return "Fish Audio";
+  if (/deepgram|flux/i.test(id)) return "OpenRouter / Deepgram";
+  return "configured speech provider";
+}
+
+function persistAudioSettings() {
+  try { localStorage.setItem(AUDIO_SETTINGS_KEY, JSON.stringify(audioState.settings)); } catch {}
+}
+
+function fillAudioSelect(select, models, selected, emptyLabel) {
+  select.replaceChildren();
+  for (const model of models) {
+    const id = audioModelId(model);
+    const display = typeof model === "object" ? String(model.label || model.displayName || id) : id;
+    const option = new Option(`${display}${display !== id ? ` / ${id}` : ""}${model?.free ? " / FREE" : ""}`, id);
+    select.append(option);
+  }
+  if (!models.length) select.append(new Option(emptyLabel, ""));
+  select.disabled = !models.length;
+  if (models.some((model) => audioModelId(model) === selected)) select.value = selected;
+}
+
+function syncAudioControls() {
+  if (!audioState.capabilities) return;
+  const ttsModels = audioModels(audioState.capabilities, "tts");
+  const sttModels = audioModels(audioState.capabilities, "stt");
+  const supportedTts = new Set(ttsModels.map(audioModelId));
+  const supportedStt = new Set(sttModels.map(audioModelId));
+  if (!supportedTts.has(audioState.settings.ttsModel)) {
+    audioState.settings.ttsModel = supportedTts.has(DEFAULT_TTS_MODEL) ? DEFAULT_TTS_MODEL : audioModelId(ttsModels[0]);
+  }
+  if (!supportedStt.has(audioState.settings.sttModel)) {
+    audioState.settings.sttModel = audioModelId(
+      sttModels.find((model) => audioModelId(model).startsWith("local:"))
+      || sttModels.find((model) => /requesty/i.test(`${audioProvider(model)} ${audioModelId(model)}`))
+      || sttModels[0]
+    );
+  }
+  fillAudioSelect(byId("audio-stt-model"), sttModels, audioState.settings.sttModel, "No STT model available");
+  fillAudioSelect(byId("audio-tts-model"), ttsModels, audioState.settings.ttsModel, "No TTS model available");
+  const selectedTts = ttsModels.find((model) => audioModelId(model) === audioState.settings.ttsModel);
+  const voices = selectedTts ? audioVoices(audioState.capabilities, selectedTts) : [];
+  if (!voices.includes(audioState.settings.voice)) audioState.settings.voice = voices.includes(DEFAULT_TTS_VOICE) ? DEFAULT_TTS_VOICE : voices[0] || "";
+  fillAudioSelect(byId("audio-voice"), voices, audioState.settings.voice, voices.length ? "Provider default" : "No voice advertised");
+  byId("audio-language").value = audioState.settings.language;
+  byId("audio-speed").value = String(audioState.settings.speed);
+  const canRecord = Boolean(sttModels.length && window.isSecureContext && navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+  byId("audio-record").disabled = !canRecord;
+  byId("audio-record").title = canRecord ? "Record up to 3 minutes / 16 MiB" : !sttModels.length ? "No STT model is configured" : !window.isSecureContext ? "Microphone recording requires HTTPS or localhost" : "This browser does not support audio recording";
+  byId("audio-file").disabled = !sttModels.length;
+  byId("audio-file-button").disabled = !sttModels.length;
+  byId("audio-file-button").title = sttModels.length ? "Choose an audio file up to 16 MiB" : "No STT model is configured";
+  for (const button of document.querySelectorAll(".tts-listen")) {
+    button.disabled = !ttsModels.length;
+    button.title = ttsModels.length ? "Read this result aloud" : "No TTS model is configured";
+  }
+  const providers = [...new Set([sttModels.find((model) => audioModelId(model) === audioState.settings.sttModel), selectedTts].filter(Boolean).map(audioProvider))];
+  byId("audio-privacy").textContent = `Explicit speech actions send audio or result text to ${providers.join(" and ") || "no configured provider"}. Clips, playback, and object URLs are ephemeral and are never saved.`;
+  const availability = !sttModels.length && !ttsModels.length
+    ? "SPEECH UNAVAILABLE / NO MODELS CONFIGURED"
+    : !sttModels.length ? "TTS READY / STT UNAVAILABLE"
+      : !ttsModels.length ? "STT READY / TTS UNAVAILABLE"
+      : !window.isSecureContext ? "READY FOR FILE / MICROPHONE REQUIRES HTTPS OR LOCALHOST"
+        : !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder ? "READY FOR FILE / RECORDING UNSUPPORTED"
+          : "READY / AUDIO IS EPHEMERAL";
+  setAudioStatus(availability, !sttModels.length && !ttsModels.length);
+  persistAudioSettings();
+}
+
+async function loadAudioCapabilities() {
+  if (audioState.capabilities) { syncAudioControls(); return audioState.capabilities; }
+  if (audioState.capabilitiesPromise) return audioState.capabilitiesPromise;
+  setAudioStatus("LOADING SPEECH CAPABILITIES");
+  audioState.capabilitiesPromise = audioFetch("/admin/api/audio/capabilities")
+    .then((response) => response.json())
+    .then((payload) => { audioState.capabilities = payload; syncAudioControls(); return payload; })
+    .catch((error) => {
+      setAudioStatus(`SPEECH UNAVAILABLE / ${error.message}`, true);
+      byId("audio-record").disabled = true;
+      byId("audio-file").disabled = true;
+      byId("audio-file-button").disabled = true;
+      throw error;
+    })
+    .finally(() => { audioState.capabilitiesPromise = null; });
+  return audioState.capabilitiesPromise;
+}
+
+function captureTranscriptTarget() {
+  const input = byId("chat-input");
+  const workspace = activeWorkspace();
+  return { mode: workspace.mode, runId: workspace.runId, draft: input.value, start: input.selectionStart ?? input.value.length, end: input.selectionEnd ?? input.value.length };
+}
+
+function stopMediaTracks() {
+  for (const track of audioState.stream?.getTracks?.() || []) track.stop();
+  audioState.stream = null;
+}
+
+function stopRecorder(transcribe = false, reason = "RECORDING STOPPED") {
+  audioState.recordingRequest += 1;
+  if (!audioState.recorder) return;
+  audioState.recorder._transcribe = transcribe;
+  audioState.recorder._stopReason = reason;
+  if (audioState.recorder.state !== "inactive") audioState.recorder.stop();
+  else stopMediaTracks();
+}
+
+async function transcribeAudio(file, target) {
+  audioState.sttController?.abort();
+  stopTts();
+  if (!file || file.size > AUDIO_MAX_BYTES) return setAudioStatus("AUDIO REJECTED / 16 MiB MAXIMUM", true);
+  const language = audioState.settings.language.trim();
+  if (language && !/^[a-z]{2}$/.test(language)) return setAudioStatus("TRANSCRIPTION REFUSED / LANGUAGE MUST BE TWO LOWERCASE LETTERS", true);
+  if (byId("transcript-review-dialog").open) byId("transcript-review-dialog").close("replaced");
+  audioState.sttController = new AbortController();
+  const controller = audioState.sttController;
+  const form = new FormData();
+  const extension = file.type.includes("ogg") ? "ogg" : file.type.includes("mp4") ? "mp4" : file.type.includes("mpeg") ? "mp3" : file.type.includes("wav") ? "wav" : "webm";
+  form.append("file", file, file.name || `recording-${Date.now()}.${extension}`);
+  form.append("model", audioState.settings.sttModel);
+  if (language) form.append("language", language);
+  setAudioStatus("TRANSCRIBING / AUDIO HELD IN MEMORY");
+  try {
+    const response = await audioFetch("/admin/api/audio/transcriptions", { method: "POST", body: form, signal: controller.signal });
+    const payload = await response.json();
+    if (!payload || typeof payload.text !== "string") throw new Error("Transcription returned no text");
+    audioState.transcriptTarget = target;
+    byId("transcript-review-text").value = payload.text.slice(0, 50000);
+    byId("transcript-review-dialog").showModal();
+    byId("transcript-review-text").focus();
+    setAudioStatus("TRANSCRIPT READY / REVIEW REQUIRED");
+  } catch (error) {
+    if (error.name !== "AbortError") setAudioStatus(`TRANSCRIPTION FAILED / ${error.message}`, true);
+  } finally {
+    if (audioState.sttController === controller) audioState.sttController = null;
+    file = null;
+  }
+}
+
+async function startRecording() {
+  if (audioState.recorder?.state === "recording") return stopRecorder(true, "TRANSCRIBING RECORDING");
+  audioState.sttController?.abort();
+  const target = captureTranscriptTarget();
+  const request = ++audioState.recordingRequest;
+  byId("audio-record").disabled = true;
+  setAudioStatus("WAITING FOR MICROPHONE PERMISSION");
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (request !== audioState.recordingRequest || document.visibilityState === "hidden" || !state.chatOpen) {
+      for (const track of stream.getTracks()) track.stop();
+      return;
+    }
+    audioState.stream = stream;
+    const types = ["audio/webm;codecs=opus", "audio/mp4;codecs=mp4a.40.2", "audio/mp4", "audio/ogg;codecs=opus"];
+    const mimeType = types.find((type) => MediaRecorder.isTypeSupported?.(type));
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    audioState.recorder = recorder;
+    audioState.chunks = [];
+    audioState.bytes = 0;
+    recorder.ondataavailable = (event) => {
+      if (!event.data?.size) return;
+      audioState.bytes += event.data.size;
+      if (audioState.bytes > AUDIO_MAX_BYTES) return stopRecorder(false, "RECORDING DISCARDED / 16 MiB LIMIT");
+      audioState.chunks.push(event.data);
+    };
+    recorder.onerror = () => stopRecorder(false, "RECORDING FAILED");
+    recorder.onstop = () => {
+      window.clearTimeout(audioState.timer);
+      const chunks = audioState.chunks;
+      const shouldTranscribe = recorder._transcribe && audioState.bytes <= AUDIO_MAX_BYTES;
+      audioState.chunks = [];
+      audioState.bytes = 0;
+      audioState.recorder = null;
+      stopMediaTracks();
+      byId("audio-record").textContent = "RECORD";
+      byId("audio-record").setAttribute("aria-pressed", "false");
+      if (shouldTranscribe) void transcribeAudio(new Blob(chunks, { type: recorder.mimeType || chunks[0]?.type || "audio/webm" }), target);
+      else setAudioStatus(recorder._stopReason || "RECORDING DISCARDED", true);
+    };
+    recorder.start(1000);
+    byId("audio-record").disabled = false;
+    byId("audio-record").textContent = "STOP";
+    byId("audio-record").setAttribute("aria-pressed", "true");
+    setAudioStatus("RECORDING / STOP TO TRANSCRIBE");
+    audioState.timer = window.setTimeout(() => stopRecorder(true, "TRANSCRIBING / 3 MINUTE LIMIT"), AUDIO_MAX_MS);
+  } catch (error) {
+    stopMediaTracks();
+    audioState.recorder = null;
+    if (request === audioState.recordingRequest) setAudioStatus(`MICROPHONE UNAVAILABLE / ${error.message}`, true);
+  } finally {
+    if (!audioState.recorder) byId("audio-record").disabled = !(audioModels(audioState.capabilities, "stt").length && window.isSecureContext && navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+  }
+}
+
+function markdownPlainText(text) {
+  const shell = document.createElement("div");
+  shell.innerHTML = renderMarkdown(String(text || ""));
+  return shell.innerText.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function resultSpeechText(result, mode) {
+  if (mode !== "design") return markdownPlainText(result.content).slice(0, 4096);
+  const parsed = new DOMParser().parseFromString(extractDesignHtml(result.content), "text/html");
+  parsed.querySelectorAll("script, style, noscript, template").forEach((element) => element.remove());
+  return (parsed.body?.innerText || parsed.body?.textContent || "").replace(/\s+/g, " ").trim().slice(0, 4096);
+}
+
+function setTtsButton(button, label, pressed = false) {
+  if (!button?.isConnected) return;
+  button.textContent = label;
+  button.setAttribute("aria-pressed", String(pressed));
+}
+
+function stopTts(label = "LISTEN") {
+  audioState.ttsController?.abort();
+  audioState.ttsController = null;
+  if (audioState.playback) {
+    audioState.playback.onended = null;
+    audioState.playback.onerror = null;
+    audioState.playback.pause();
+    audioState.playback.removeAttribute("src");
+    audioState.playback.load();
+  }
+  if (audioState.playbackUrl) URL.revokeObjectURL(audioState.playbackUrl);
+  setTtsButton(audioState.ttsButton, label);
+  audioState.playback = null;
+  audioState.playbackUrl = null;
+  audioState.ttsButton = null;
+  audioState.ttsKey = null;
+  audioState.ttsStatus = label;
+}
+
+async function playResultSpeech(button, result, mode, key) {
+  if (audioState.ttsKey === key) {
+    if (audioState.ttsController || (audioState.playback && !audioState.playback.paused)) return stopTts();
+    if (audioState.playback) {
+      const playback = audioState.playback;
+      try {
+        await playback.play();
+        if (audioState.playback !== playback) return;
+        setTtsButton(button, "STOP", true); audioState.ttsStatus = "STOP";
+      } catch {
+        if (audioState.playback !== playback) return;
+        setTtsButton(button, "PLAY READY"); audioState.ttsStatus = "PLAY READY";
+      }
+      return;
+    }
+  }
+  stopTts();
+  let input;
+  try { input = resultSpeechText(result, mode); }
+  catch (error) { setTtsButton(button, "FAILED"); return setAudioStatus(`SPEECH FAILED / ${error.message}`, true); }
+  if (!input) { setTtsButton(button, "FAILED"); return setAudioStatus("SPEECH FAILED / RESULT HAS NO READABLE TEXT", true); }
+  const controller = new AbortController();
+  audioState.ttsController = controller;
+  audioState.ttsButton = button;
+  audioState.ttsKey = key;
+  audioState.ttsStatus = "LOADING";
+  setTtsButton(button, "LOADING", true);
+  setAudioStatus(`SYNTHESIZING / ${audioProvider(audioState.settings.ttsModel)}`);
+  try {
+    const response = await audioFetch("/admin/api/audio/speech", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: audioState.settings.ttsModel, input, ...(audioState.settings.voice ? { voice: audioState.settings.voice } : {}), responseFormat: "mp3", speed: audioState.settings.speed }),
+      signal: controller.signal
+    });
+    const blob = await response.blob();
+    if (audioState.ttsController !== controller) return;
+    if (!blob.size) throw new Error("Speech provider returned empty audio");
+    const url = URL.createObjectURL(blob);
+    const playback = new Audio(url);
+    audioState.ttsController = null;
+    audioState.playbackUrl = url;
+    audioState.playback = playback;
+    playback.onended = () => stopTts();
+    playback.onerror = () => { const current = audioState.ttsButton; stopTts(); setTtsButton(current, "FAILED"); setAudioStatus("PLAYBACK FAILED", true); };
+    try {
+      await playback.play();
+      if (audioState.playback !== playback) return;
+      setTtsButton(button, "STOP", true); audioState.ttsStatus = "STOP"; setAudioStatus("PLAYING / CLICK STOP TO END");
+    } catch {
+      if (audioState.playback !== playback) return;
+      setTtsButton(button, "PLAY READY"); audioState.ttsStatus = "PLAY READY"; setAudioStatus("AUDIO READY / CLICK PLAY READY");
+    }
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    stopTts("FAILED");
+    setTtsButton(button, "FAILED");
+    setAudioStatus(`SPEECH FAILED / ${error.message}`, true);
+  }
 }
 
 function chatBubble(role, content = "") {
@@ -1755,11 +2319,11 @@ function parseSseBlocks(buffer) {
   return { blocks: parts.slice(0, -1), remainder: parts.at(-1) || "" };
 }
 
-function sandboxMessages(model, prompt) {
+function sandboxMessages(lane, prompt, workspace = activeWorkspace()) {
   const messages = [];
-  for (const turn of state.chatTurns) {
+  for (const turn of workspace.turns) {
     messages.push({ role: "user", content: turn.prompt });
-    const result = turn.results[model];
+    const result = turn.results[lane.id] || turn.results[lane.model];
     if (result?.content && !result.error) messages.push({ role: "assistant", content: result.content });
   }
   messages.push({ role: "user", content: prompt });
@@ -1835,7 +2399,7 @@ function designArtifact(result) {
   };
   const actions = [
     ["PREVIEW", "preview"], ["SOURCE", "source"], ["MOBILE", "390"], ["TABLET", "768"], ["DESKTOP", "1440"], ["FIT", "fit"],
-    ["ENABLE JS", "scripts"], ["POPOUT", "popout"], ["COPY", "copy"], ["DOWNLOAD SAFE", "download"]
+    ["ENABLE JS", "scripts"], ["POPOUT", "popout"], ["COPY", "copy"], ["EXPAND", "expand"], ["DOWNLOAD SAFE", "download"]
   ];
   for (const [label, action] of actions) {
     const button = document.createElement("button");
@@ -1848,7 +2412,7 @@ function designArtifact(result) {
         sourceView.classList.toggle("hidden", action !== "source");
       } else if (["390", "768", "1440", "fit"].includes(action)) {
         iframe.dataset.viewport = action;
-        iframe.style.width = "100%";
+        iframe.style.width = action === "fit" ? "100%" : `${action}px`;
       } else if (action === "scripts") {
         if (!scripts && !confirm("Enable generated JavaScript inside an opaque sandbox? Network APIs and dashboard access remain blocked, but generated code can consume browser CPU or memory.")) return;
         scripts = !scripts; button.textContent = scripts ? "DISABLE JS" : "ENABLE JS"; renderFrame();
@@ -1859,6 +2423,9 @@ function designArtifact(result) {
       } else if (action === "copy") {
         await navigator.clipboard.writeText(source);
         notify("Design source copied.", true);
+      } else if (action === "expand") {
+        shell.closest(".sandbox-result")?.classList.toggle("focused-result");
+        button.textContent = shell.closest(".sandbox-result")?.classList.contains("focused-result") ? "COLLAPSE" : "EXPAND";
       } else if (action === "download") {
         const url = URL.createObjectURL(new Blob([designPreviewDocument(source, false)], { type: "text/html;charset=utf-8" }));
         const link = document.createElement("a");
@@ -1880,15 +2447,41 @@ function sandboxResultCard(result, mode, context = {}) {
   const card = document.createElement("article");
   card.className = `sandbox-result${result.error ? " failed" : ""}`;
   card.dataset.sandboxModel = result.requestedModel;
+  card.dataset.sandboxLane = result.laneId || result.requestedModel;
+  if (Number.isInteger(context.turnIndex)) card.dataset.sandboxTurn = String(context.turnIndex);
   const header = document.createElement("header");
   const title = document.createElement("strong");
-  title.textContent = result.requestedModel;
+  title.textContent = result.laneLabel || result.requestedModel;
   const status = document.createElement("span");
   status.className = "status-pill";
   status.textContent = result.error ? "FAILED" : "COMPLETE";
   header.append(title, status);
+  const quickActions = document.createElement("span");
+  quickActions.className = "result-quick-actions";
+  const quickActionList = [["COPY", "copy-result"], ["FOCUS", "focus-result"], [mode === "design" ? "TO CHAT" : "TO DESIGN", mode === "design" ? "chat" : "design"]];
+  if (!result.error && Number.isInteger(context.turnIndex)) quickActionList.unshift(["LISTEN", "listen"]);
+  for (const [label, action] of quickActionList) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `result-action${action === "listen" ? " tts-listen" : ""}`;
+    button.dataset.resultAction = action;
+    button.textContent = label;
+    if (action === "focus-result" || action === "listen") button.setAttribute("aria-pressed", "false");
+    if (action === "listen") {
+      const key = `${activeWorkspace().runId}:${context.turnIndex}:${result.laneId || result.requestedModel}`;
+      button.dataset.ttsKey = key;
+      button.disabled = !audioModels(audioState.capabilities, "tts").length;
+      button.title = audioModels(audioState.capabilities, "tts").length ? "Read this result aloud" : audioState.capabilities ? "No free TTS model is configured" : "Speech capabilities are loading";
+      if (audioState.ttsKey === key) {
+        audioState.ttsButton = button;
+        setTtsButton(button, audioState.ttsStatus || "STOP", audioState.ttsStatus === "STOP" || audioState.ttsStatus === "LOADING");
+      }
+    }
+    quickActions.append(button);
+  }
+  header.append(quickActions);
   if (Number.isInteger(context.turnIndex)) {
-    const star = document.createElement("button"); star.type = "button"; star.className = `sandbox-star${result.starred ? " active" : ""}`; star.dataset.starModel = result.requestedModel; star.dataset.starTurn = String(context.turnIndex); star.setAttribute("aria-pressed", String(Boolean(result.starred))); star.title = result.starred ? "Remove from starred gallery" : "Add to starred gallery"; star.textContent = result.starred ? "★" : "☆"; header.append(star);
+    const star = document.createElement("button"); star.type = "button"; star.className = `sandbox-star${result.starred ? " active" : ""}`; star.dataset.starLane = result.laneId || result.requestedModel; star.dataset.starTurn = String(context.turnIndex); star.setAttribute("aria-pressed", String(Boolean(result.starred))); star.title = result.starred ? "Remove from starred gallery" : "Add to starred gallery"; star.textContent = result.starred ? "★" : "☆"; header.append(star);
   }
   const content = document.createElement("div");
   content.className = "content";
@@ -1917,15 +2510,30 @@ function sandboxResultCard(result, mode, context = {}) {
     card.append(details);
   }
   const metrics = result.metrics;
+  const metricsDetails = document.createElement("details");
+  metricsDetails.className = "sandbox-metrics-details";
+  const metricsSummary = document.createElement("summary");
+  const outputTokens = metrics?.tokens?.output;
+  metricsSummary.textContent = metrics
+    ? `DETAILS / ${metrics.provider || "provider unknown"} / ${metrics.status ?? "status unknown"} / ${duration(metrics.latencyMs)}${Number.isFinite(outputTokens) ? ` / ${compactNumber(outputTokens)} out` : ""}`
+    : "DETAILS / METRICS UNAVAILABLE";
   const footer = document.createElement("footer");
   footer.className = "sandbox-metrics";
   const values = metrics ? [
+    ["MODEL", result.requestedModel || "--"],
+    ["ENDPOINT", metrics.endpoint || "/v1/chat/completions"],
+    ["PROVIDER", metrics.provider || "--"],
+    ["ROUTE", metrics.route || result.requestedModel || "--"],
+    ["STATUS", metrics.status == null ? "--" : String(metrics.status)],
+    ["REQUEST ID", metrics.requestId || "--"],
+    ["ATTEMPTS", Array.isArray(metrics.attempts) ? `${metrics.attempts.length}${metrics.attempts.length ? ` / ${metrics.attempts.map((attempt) => `${attempt.model}:${attempt.status ?? attempt.outcome}`).join(" > ")}` : ""}` : "--"],
     ["LATENCY", duration(metrics.latencyMs)],
     ["TTFT", duration(metrics.ttftMs)],
+    ["GENERATION", duration(metrics.generationDurationMs)],
     ["TOKENS", metrics.tokens ? `${compactNumber(metrics.tokens.input)} in / ${compactNumber(metrics.tokens.output)} out` : "--"],
+    ["CACHE", metrics.tokens ? `${compactNumber(metrics.tokens.cacheRead || 0)} read / ${compactNumber(metrics.tokens.cacheWrite || 0)} write` : "--"],
     ["SPEED", metrics.outputTokensPerSecond == null ? "--" : `${metrics.outputTokensPerSecond.toFixed(1)} tok/s`],
     ["COST", metrics.costUsd == null ? "--" : costUsd(metrics.costUsd)],
-    ["ROUTE", `${metrics.provider || "--"} / ${metrics.route || result.requestedModel}`],
     ["PARAMS", `${result.parameters?.maxTokens == null ? "provider default" : `${result.parameters.maxTokens} max`} / T ${result.parameters?.temperature ?? "default"} / P ${result.parameters?.topP ?? "default"}`]
   ] : [["METRICS", "Unavailable"]];
   for (const [label, value] of values) {
@@ -1937,15 +2545,26 @@ function sandboxResultCard(result, mode, context = {}) {
     item.append(key, text);
     footer.append(item);
   }
-  card.append(footer);
+  metricsDetails.append(metricsSummary, footer);
+  card.append(metricsDetails);
   if (result.error && Number.isInteger(context.turnIndex)) {
-    const retry = document.createElement("button"); retry.type = "button"; retry.className = "button secondary sandbox-retry"; retry.dataset.retryModel = result.requestedModel; retry.dataset.retryTurn = String(context.turnIndex); retry.textContent = "RETRY FAILED GENERATION"; card.append(retry);
+    const retry = document.createElement("button"); retry.type = "button"; retry.className = "button secondary sandbox-retry"; retry.dataset.retryLane = result.laneId || result.requestedModel; retry.dataset.retryTurn = String(context.turnIndex); retry.textContent = "RETRY FAILED GENERATION"; card.append(retry);
   }
   return card;
 }
 
 function renderSandboxTurn(prompt, results, mode, turnIndex = null) {
-  chatBubble("user", prompt);
+  const bubble = chatBubble("user", prompt);
+  const actions = document.createElement("div");
+  actions.className = "prompt-actions";
+  for (const [label, action] of [["COPY", "copy-prompt"], ["REUSE", "reuse-prompt"], ["TO CHAT", "chat"], ["TO DESIGN", "design"]]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.promptAction = action;
+    button.textContent = label;
+    actions.append(button);
+  }
+  bubble.article.append(actions);
   const grid = document.createElement("section");
   grid.className = "sandbox-results";
   grid.setAttribute("aria-label", "Model comparison results");
@@ -1954,18 +2573,34 @@ function renderSandboxTurn(prompt, results, mode, turnIndex = null) {
   if (!state.userScrolled) grid.scrollIntoView({ block: "end" });
 }
 
-function beginParallelSandboxTurn(prompt, models) {
+function renderInflightWorkspace(workspace) {
+  const inflight = workspace.inflight;
+  const turn = beginParallelSandboxTurn(inflight.prompt, inflight.lanes, workspace);
+  for (const lane of inflight.lanes) {
+    const result = inflight.results[lane.id];
+    if (!result) continue;
+    const card = turn.cards.get(lane.id);
+    if (card?._progressTimer) clearInterval(card._progressTimer);
+    card?.replaceWith(sandboxResultCard(result, workspace.mode));
+    workspace.pendingCards.delete(lane.id);
+  }
+}
+
+function beginParallelSandboxTurn(prompt, lanes, workspace = activeWorkspace()) {
   chatBubble("user", prompt);
   const grid = document.createElement("section");
   grid.className = "sandbox-results";
   grid.setAttribute("aria-label", "Parallel model comparison results");
   const cards = new Map();
-  for (const model of models) {
+  for (const lane of lanes) {
+    const model = lane.model;
     const card = document.createElement("article");
     card.className = "sandbox-result pending";
     const header = document.createElement("header");
     const title = document.createElement("strong");
-    title.textContent = model;
+    const duplicateCount = lanes.filter((candidate) => candidate.model === model).length;
+    const sample = lanes.slice(0, lane.index + 1).filter((candidate) => candidate.model === model).length;
+    title.textContent = `${model}${duplicateCount > 1 ? ` / SAMPLE ${sample}` : ""}`;
     const status = document.createElement("span");
     status.className = "status-pill";
     status.textContent = "GENERATING";
@@ -1995,48 +2630,51 @@ function beginParallelSandboxTurn(prompt, models) {
     header.append(title, status);
     card.append(header, content, progress);
     grid.append(card);
-    cards.set(model, card);
-    state.pendingSandboxCards.set(model, { card, progress, elapsed, tokens, rate });
+    cards.set(lane.id, card);
+    workspace.pendingCards.set(lane.id, { card, progress, elapsed, tokens, rate, model });
   }
   byId("chat-messages").append(grid);
   if (!state.userScrolled) grid.scrollIntoView({ block: "end" });
   return { grid, cards };
 }
 
-async function sendChat(message) {
-  if (state.chatBusy) return;
-  const models = [...state.sandboxSelectedModels];
-  if (!models.length) return notify("Select at least one sandbox model.");
-  const temperatureText = byId("sandbox-temperature").value.trim();
-  const topPText = byId("sandbox-top-p").value.trim();
+async function sendChat(message, workspace = activeWorkspace()) {
+  if (workspace.busy) return;
+  const lanes = workspaceModelLanes(workspace);
+  if (!lanes.length) return notify("Select at least one sandbox model.");
+  const submittedDraft = workspace.draft;
+  if (!workspace.modelLineup.length) workspace.modelLineup = lanes.map((lane) => lane.model);
+  if (workspace === activeWorkspace()) readGenerationControls(workspace);
+  const temperatureText = String(workspace.parameters.temperature ?? "").trim();
+  const topPText = String(workspace.parameters.topP ?? "").trim();
   const parameters = {
-    ...(byId("sandbox-provider-default-max").checked ? {} : { maxTokens: Number(byId("sandbox-max-tokens").value) }),
+    ...(workspace.parameters.providerDefaultMax ? {} : { maxTokens: Number(workspace.parameters.maxTokens) }),
     ...(temperatureText ? { temperature: Number(temperatureText) } : {}),
     ...(topPText ? { topP: Number(topPText) } : {})
   };
-  state.chatBusy = true;
-  state.chatController = new AbortController();
-  byId("send-chat").disabled = true;
-  byId("propose-config").disabled = true;
-  byId("stop-chat").hidden = false;
-  byId("chat-route").textContent = `${models.length} RUNNING`;
+  workspace.busy = true;
+  workspace.status = "running";
+  workspace.controller = new AbortController();
+  workspace.inflight = { prompt: message, lanes, results: {}, parameters };
+  if (workspace === activeWorkspace()) renderActiveWorkspace();
+  persistArenaWorkspaces();
 
   try {
-    const turn = beginParallelSandboxTurn(message, models);
     let completed = 0;
-    const results = await Promise.all(models.map(async (model, index) => {
+    const results = await Promise.all(lanes.map(async (lane, index) => {
+      const model = lane.model;
       let result;
       try {
         const response = await fetch("/admin/api/sandbox", {
           method: "POST",
           headers: headers(true),
-          body: JSON.stringify({ purpose: state.sandboxMode, requests: [{
+          body: JSON.stringify({ purpose: workspace.mode, requests: [{
             id: `model_${index}`,
             model,
-            messages: sandboxMessages(model, message),
+            messages: sandboxMessages(lane, message, workspace),
             parameters
           }] }),
-          signal: state.chatController.signal
+          signal: workspace.controller.signal
         });
         if (!response.ok) {
           const error = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
@@ -2047,81 +2685,99 @@ async function sendChat(message) {
       } catch (error) {
         result = { requestedModel: model, content: "", reasoning: "", error: error.name === "AbortError" ? "Cancelled" : error.message, metrics: null, parameters };
       }
-      const pendingCard = turn.cards.get(model);
-      if (pendingCard?._progressTimer) clearInterval(pendingCard._progressTimer);
-      state.pendingSandboxCards.delete(model);
-      pendingCard?.replaceWith(sandboxResultCard(result, state.sandboxMode));
+      result.laneId = lane.id;
+      const sameModelLanes = lanes.filter((candidate) => candidate.model === model);
+      if (sameModelLanes.length > 1) {
+        const sample = lanes.slice(0, index + 1).filter((candidate) => candidate.model === model).length;
+        result.laneLabel = `${model} / SAMPLE ${sample}`;
+      }
+      workspace.inflight.results[lane.id] = result;
+      const pending = workspace.pendingCards.get(lane.id);
+      if (pending?.card?._progressTimer) clearInterval(pending.card._progressTimer);
+      workspace.pendingCards.delete(lane.id);
       completed += 1;
-      byId("chat-route").textContent = `${completed} / ${models.length} COMPLETE`;
+      if (workspace === activeWorkspace()) {
+        renderActiveWorkspace();
+        byId("chat-route").textContent = `${completed} / ${lanes.length} COMPLETE`;
+      }
       return result;
     }));
-    state.chatTurns.push({ prompt: message, mode: state.sandboxMode, parameters, results: Object.fromEntries(results.map((result) => [result.requestedModel, result])) });
-    const turnIndex = state.chatTurns.length - 1;
-    for (const result of results) {
-      const card = turn.grid.querySelector(`[data-sandbox-model="${CSS.escape(result.requestedModel)}"]`);
-      if (card) card.replaceWith(sandboxResultCard(result, state.sandboxMode, { turnIndex }));
+    workspace.turns.push({ prompt: message, mode: workspace.mode, parameters, results: Object.fromEntries(results.map((result) => [result.laneId, result])) });
+    workspace.inflight = null;
+    const successCount = results.filter((result) => !result.error).length;
+    workspace.status = results.some((result) => result.error) ? "failed" : "ready";
+    if (successCount && workspace.draft === submittedDraft) workspace.draft = "";
+    await saveSandboxRun(workspace).catch((error) => notify(`Result could not be saved: ${error.message}`));
+    if (workspace === activeWorkspace()) {
+      renderActiveWorkspace();
+      byId("chat-route").textContent = `${successCount} COMPLETE / ${results.length - successCount} FAILED`;
     }
-    await saveSandboxRun().catch((error) => notify(`Result could not be saved: ${error.message}`));
-    byId("chat-route").textContent = `${results.filter((result) => !result.error).length} COMPLETE / ${results.filter((result) => result.error).length} FAILED`;
   } catch (error) {
-    byId("chat-route").textContent = error.name === "AbortError" ? "STOPPED" : "REQUEST FAILED";
+    workspace.status = "failed";
+    workspace.inflight = null;
+    if (workspace === activeWorkspace()) byId("chat-route").textContent = error.name === "AbortError" ? "STOPPED" : "REQUEST FAILED";
     if (error.name !== "AbortError") notify(error.message);
   } finally {
-    state.chatBusy = false;
-    state.chatController = null;
-    byId("send-chat").disabled = false;
-    byId("propose-config").disabled = false;
-    byId("stop-chat").hidden = true;
-    renderChatModelOptions(state.status?.config || {});
+    workspace.busy = false;
+    workspace.controller = null;
+    persistArenaWorkspaces();
+    if (workspace === activeWorkspace()) renderActiveWorkspace();
   }
 }
 
-function sandboxMessagesForTurn(model, turnIndex) {
+function sandboxMessagesForTurn(laneId, model, turnIndex, workspace = activeWorkspace()) {
   const messages = [];
   for (let index = 0; index <= turnIndex; index++) {
-    const turn = state.chatTurns[index];
+    const turn = workspace.turns[index];
     messages.push({ role: "user", content: turn.prompt });
     if (index < turnIndex) {
-      const result = turn.results[model];
+      const result = turn.results[laneId] || turn.results[model];
       if (result?.content && !result.error) messages.push({ role: "assistant", content: result.content });
     }
   }
   return messages;
 }
 
-async function retrySandboxGeneration(model, turnIndex) {
-  if (state.chatBusy) return;
-  const turn = state.chatTurns[turnIndex];
-  if (!turn || !turn.results[model]?.error) return notify("This generation is no longer retryable.");
-  const oldCard = byId("chat-messages").querySelectorAll(".sandbox-results")[turnIndex]?.querySelector(`[data-sandbox-model="${CSS.escape(model)}"]`);
+async function retrySandboxGeneration(laneId, turnIndex) {
+  const workspace = activeWorkspace();
+  if (workspace.busy) return;
+  const turn = workspace.turns[turnIndex];
+  const previous = turn?.results?.[laneId];
+  const model = previous?.requestedModel || laneId;
+  if (!turn || !previous?.error) return notify("This generation is no longer retryable.");
+  const oldCard = byId("chat-messages").querySelectorAll(".sandbox-results")[turnIndex]?.querySelector(`[data-sandbox-lane="${CSS.escape(laneId)}"]`);
   if (!oldCard) return notify("Could not locate the failed result card.");
   const holder = document.createElement("article"); holder.className = "sandbox-result pending"; holder.dataset.sandboxModel = model; holder.innerHTML = `<header><strong></strong><span class="status-pill">RETRYING</span></header><div class="content sandbox-pending">Retrying the same prompt with the original turn settings...</div><div class="sandbox-progress" role="progressbar"><i></i><span class="sandbox-progress-metrics"><b>IN FLIGHT</b><b>estimating tokens</b><b>estimating tok/s</b></span></div>`; holder.querySelector("strong").textContent = model; oldCard.replaceWith(holder);
   const retryMetrics = holder.querySelectorAll(".sandbox-progress-metrics b");
-  state.pendingSandboxCards.set(model, { card: holder, progress: holder.querySelector(".sandbox-progress"), elapsed: retryMetrics[0], tokens: retryMetrics[1], rate: retryMetrics[2] });
-  state.chatBusy = true; state.chatController = new AbortController(); byId("send-chat").disabled = true; byId("stop-chat").hidden = false;
+  workspace.pendingCards.set(laneId, { card: holder, progress: holder.querySelector(".sandbox-progress"), elapsed: retryMetrics[0], tokens: retryMetrics[1], rate: retryMetrics[2], model });
+  workspace.busy = true; workspace.controller = new AbortController(); renderArenaStatus(); byId("send-chat").disabled = true; byId("stop-chat").hidden = false;
   let result;
   try {
-    const response = await fetch("/admin/api/sandbox", { method: "POST", headers: headers(true), signal: state.chatController.signal, body: JSON.stringify({ purpose: turn.mode, requests: [{ id: `retry_${Date.now()}`, model, messages: sandboxMessagesForTurn(model, turnIndex), parameters: turn.parameters }] }) });
+    const response = await fetch("/admin/api/sandbox", { method: "POST", headers: headers(true), signal: workspace.controller.signal, body: JSON.stringify({ purpose: turn.mode, requests: [{ id: `retry_${Date.now()}`, model, messages: sandboxMessagesForTurn(laneId, model, turnIndex, workspace), parameters: turn.parameters }] }) });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     result = payload.results?.[0] || { requestedModel: model, content: "", reasoning: "", error: "Model returned no result", metrics: null, parameters: turn.parameters };
   } catch (error) {
     result = { requestedModel: model, content: "", reasoning: "", error: error.name === "AbortError" ? "Cancelled" : error.message, metrics: null, parameters: turn.parameters };
   } finally {
-    state.pendingSandboxCards.delete(model);
-    state.chatBusy = false; state.chatController = null; byId("send-chat").disabled = false; byId("stop-chat").hidden = true;
+    workspace.pendingCards.delete(laneId);
+    workspace.busy = false; workspace.controller = null;
   }
-  result.starred = Boolean(turn.results[model].starred);
-  turn.results[model] = result;
-  holder.replaceWith(sandboxResultCard(result, turn.mode, { turnIndex }));
-  await saveSandboxRun().catch((error) => notify(`Retry could not be saved: ${error.message}`));
+  result.starred = Boolean(previous.starred);
+  result.laneId = laneId;
+  result.laneLabel = previous.laneLabel;
+  turn.results[laneId] = result;
+  workspace.status = result.error ? "failed" : "ready";
+  if (workspace === activeWorkspace()) holder.replaceWith(sandboxResultCard(result, turn.mode, { turnIndex }));
+  await saveSandboxRun(workspace).catch((error) => notify(`Retry could not be saved: ${error.message}`));
+  if (workspace === activeWorkspace()) renderActiveWorkspace();
 }
 
 async function renderSandboxLibrary() {
   const list = byId("sandbox-library-list");
   const filter = byId("sandbox-library-filter").value;
   list.replaceChildren();
-  const runs = (await listSandboxRuns()).filter((run) => filter === "all" || filter === "starred" ? filter !== "starred" || run.turns.some((turn) => Object.values(turn.results).some((result) => result.starred)) : run.mode === filter);
+  const runs = (await listSandboxRuns()).filter((run) => filter === "all" || filter === "starred" ? filter !== "starred" || (run.turns || []).some((turn) => Object.values(turn.results || {}).some((result) => result.starred)) : run.mode === filter);
   if (!runs.length) {
     const empty = document.createElement("p");
     empty.className = "chat-empty";
@@ -2139,10 +2795,11 @@ async function renderSandboxLibrary() {
     const title = document.createElement("strong");
     title.textContent = `${run.mode === "diagnose" ? "ASSISTANT" : run.mode.toUpperCase()} / ${run.models.length} MODEL${run.models.length === 1 ? "" : "S"}`;
     const meta = document.createElement("span");
-    const stars = run.turns.reduce((total, turn) => total + Object.values(turn.results).filter((result) => result.starred).length, 0);
-    meta.textContent = `${new Date(run.updatedAt).toLocaleString()} / ${run.turns.length} TURN${run.turns.length === 1 ? "" : "S"}${stars ? ` / ★ ${stars}` : ""}`;
+    const turns = run.turns || [];
+    const stars = turns.reduce((total, turn) => total + Object.values(turn.results || {}).filter((result) => result.starred).length, 0);
+    meta.textContent = `${new Date(run.updatedAt).toLocaleString()} / ${turns.length} TURN${turns.length === 1 ? "" : "S"}${stars ? ` / ★ ${stars}` : ""}`;
     const prompt = document.createElement("small");
-    prompt.textContent = run.turns.at(-1)?.prompt || "No prompt";
+    prompt.textContent = turns.at(-1)?.prompt || run.assistantPlan?.request || "No prompt";
     button.append(title, meta, prompt);
     const remove = document.createElement("button");
     remove.type = "button";
@@ -2155,6 +2812,7 @@ async function renderSandboxLibrary() {
 }
 
 async function setSandboxLibraryOpen(open) {
+  if (open) stopTts();
   state.sandboxLibraryOpen = open;
   byId("sandbox-library").classList.toggle("hidden", !open);
   byId("chat-messages").classList.toggle("hidden", open);
@@ -2166,23 +2824,49 @@ async function setSandboxLibraryOpen(open) {
 async function openSavedRun(id) {
   const run = await sandboxStore("readonly", (store) => store.get(id));
   if (!run) return notify("Saved run is unavailable.");
-  state.sandboxRunId = run.id;
-  state.chatTurns = structuredClone(run.turns);
-  state.sandboxMode = run.mode;
-  state.sandboxSelectedModels = new Set(run.models);
-  const latestParameters = run.turns.at(-1)?.parameters || {};
-  byId("sandbox-provider-default-max").checked = latestParameters.maxTokens == null;
-  byId("sandbox-max-tokens").disabled = latestParameters.maxTokens == null;
-  byId("sandbox-max-tokens").value = latestParameters.maxTokens ?? "";
-  byId("sandbox-temperature").value = latestParameters.temperature ?? "";
-  byId("sandbox-top-p").value = latestParameters.topP ?? "";
-  resetChatMessages("");
-  byId("chat-messages").querySelector(".chat-empty")?.remove();
-  state.chatTurns.forEach((turn, index) => renderSandboxTurn(turn.prompt, Object.values(turn.results), turn.mode, index));
-  setSandboxMode(run.mode, true);
-  renderChatModelOptions(state.status?.config || {});
+  const mode = ARENA_MODES.includes(run.mode) ? run.mode : "chat";
+  const workspace = state.arenaWorkspaces[mode];
+  if (workspace.busy) return notify(`${mode.toUpperCase()} is still running. Stop it before opening another saved run.`);
+  stopTts();
+  setSandboxMode(mode, true);
+  workspace.runId = run.id;
+  workspace.turns = structuredClone(run.turns || []);
+  workspace.selectedModels = new Set((run.models || []).slice(0, 4));
+  workspace.modelLineup = (run.modelLineup || run.models || []).filter((model) => typeof model === "string").slice(0, 4);
+  workspace.assistantPlan = run.assistantPlan ? structuredClone(run.assistantPlan) : null;
+  workspace.configProposal = run.configProposal ? structuredClone(run.configProposal) : null;
+  if (workspace.configProposal) workspace.configProposal.requiresRevalidation = true;
+  workspace.draft = typeof run.draft === "string" ? run.draft : "";
+  workspace.status = "ready";
+  const latestParameters = (run.turns || []).at(-1)?.parameters || {};
+  workspace.parameters = run.parameters || {
+    providerDefaultMax: latestParameters.maxTokens == null,
+    maxTokens: latestParameters.maxTokens ?? 4096,
+    temperature: latestParameters.temperature ?? "",
+    topP: latestParameters.topP ?? ""
+  };
+  renderActiveWorkspace();
   await setSandboxLibraryOpen(false);
-  byId("chat-route").textContent = `SAVED / ${state.chatTurns.length} TURN${state.chatTurns.length === 1 ? "" : "S"}`;
+  byId("chat-route").textContent = `SAVED / ${workspace.turns.length} TURN${workspace.turns.length === 1 ? "" : "S"}`;
+  persistArenaWorkspaces();
+}
+
+async function restoreArenaWorkspaces() {
+  await Promise.all(ARENA_MODES.map(async (mode) => {
+    const workspace = state.arenaWorkspaces[mode];
+    const run = await sandboxStore("readonly", (store) => store.get(workspace.runId)).catch(() => null);
+    if (!run || run.mode !== mode) return;
+    workspace.turns = structuredClone(run.turns || []);
+    workspace.assistantPlan = run.assistantPlan ? structuredClone(run.assistantPlan) : null;
+    workspace.configProposal = run.configProposal ? structuredClone(run.configProposal) : null;
+    if (workspace.configProposal) workspace.configProposal.requiresRevalidation = true;
+    if (!workspace.selectedModels.size) workspace.selectedModels = new Set((run.models || []).slice(0, 4));
+    if (!workspace.modelLineup.length) workspace.modelLineup = (run.modelLineup || run.models || []).filter((model) => typeof model === "string").slice(0, 4);
+    if (!storedArena?.workspaces?.[mode]?.parameters) {
+      const latest = (run.turns || []).at(-1)?.parameters || {};
+      workspace.parameters = run.parameters || { providerDefaultMax: latest.maxTokens == null, maxTokens: latest.maxTokens ?? 4096, temperature: latest.temperature ?? "", topP: latest.topP ?? "" };
+    }
+  }));
 }
 
 const PROPOSAL_FIELDS = {
@@ -2214,8 +2898,9 @@ function proposalPatchFromEditor(card) {
   return patch;
 }
 
-function renderConfigProposal(proposal) {
-  state.configProposal = proposal;
+function renderConfigProposal(proposal, workspace = activeWorkspace()) {
+  workspace.configProposal = proposal;
+  if (workspace !== activeWorkspace()) return;
   const host = byId("config-proposal-host");
   byId("chat-messages").append(host);
   host.replaceChildren();
@@ -2235,7 +2920,10 @@ function renderConfigProposal(proposal) {
   editor.id = "proposal-patch-editor";
   editor.className = "proposal-editor";
   for (const [field, value] of Object.entries(proposal.patch)) editor.append(proposalControl(field, value));
-  const validation = document.createElement("p"); validation.className = "proposal-validation-status"; validation.textContent = "Server validated. Ready for review.";
+  const requiresRevalidation = proposal.requiresRevalidation === true || Number(proposal.expiresAt) <= Date.now();
+  const validation = document.createElement("p");
+  validation.className = `proposal-validation-status${requiresRevalidation ? " required" : ""}`;
+  validation.textContent = requiresRevalidation ? "Restored proposal requires server revalidation before approval." : "Server validated. Ready for review.";
   const changes = document.createElement("div");
   changes.className = "proposal-changes";
   for (const change of proposal.changes) {
@@ -2251,6 +2939,7 @@ function renderConfigProposal(proposal) {
     button.className = `button ${primary ? "primary-button" : "secondary"}`;
     button.dataset.proposalAction = action;
     button.textContent = text;
+    if (action === "apply" && requiresRevalidation) button.disabled = true;
     actions.append(button);
   }
   card.append(heading, summary, rationale, editor, validation, changes, actions);
@@ -2262,84 +2951,159 @@ function renderConfigProposal(proposal) {
   });
 }
 
-async function askForConfigProposal(prompt) {
-  const model = [...state.sandboxSelectedModels][0];
+async function askForConfigProposal(prompt, workspace = activeWorkspace(), intent = "configure") {
+  const model = [...workspace.selectedModels][0];
   if (!model) return notify("Select a model to act as the configuration advisor.");
   if (!prompt) return notify("Describe the configuration change you want proposed.");
+  const framedPrompt = intent === "optimize"
+    ? `Optimization objective: Review router policy for measurable reliability, latency, and cost improvements. Propose only justified, bounded changes.\n\nUser request: ${prompt}`
+    : `Configuration objective: Produce an editable, validated router configuration proposal matching this request.\n\nUser request: ${prompt}`;
   const button = byId("propose-config");
-  chatBubble("user", prompt);
-  const pending = chatBubble("assistant", "Analyzing the current policy and preparing an editable configuration proposal...");
-  pending.article.classList.add("pending");
-  state.chatBusy = true;
-  button.disabled = true;
-  byId("send-chat").disabled = true;
-  byId("chat-route").textContent = `CONFIG ADVISOR / ${model}`;
+  const pending = workspace === activeWorkspace() ? chatBubble("assistant", `${intent.toUpperCase()} / Analyzing current policy and preparing an editable proposal...`) : null;
+  pending?.article.classList.add("pending");
+  workspace.busy = true;
+  workspace.status = "running";
+  renderArenaStatus();
+  if (workspace === activeWorkspace()) { button.disabled = true; byId("send-chat").disabled = true; byId("chat-route").textContent = `${intent.toUpperCase()} / ${model}`; }
   try {
     const payload = await api("/admin/api/config/proposals/generate", {
       method: "POST",
-      body: JSON.stringify({ model, prompt })
+      body: JSON.stringify({ model, prompt: framedPrompt })
     });
-    renderConfigProposal(payload.proposal);
-    pending.text.textContent = `Proposal prepared by ${payload.advisorModel || model}. Review or modify each setting below, then revalidate before approval.`;
-    pending.article.classList.remove("pending");
+    workspace.configProposal = payload.proposal;
+    workspace.turns.push({ prompt: `${intent.toUpperCase()}: ${prompt}`, mode: "diagnose", parameters: {}, results: { [model]: { requestedModel: model, content: `Proposal prepared by ${payload.advisorModel || model}. Review or modify each setting below, then revalidate before approval.`, reasoning: "", error: null, metrics: null, parameters: {} } } });
+    workspace.draft = "";
+    workspace.status = "ready";
+    await saveSandboxRun(workspace).catch((error) => notify(`Proposal could not be saved locally: ${error.message}`));
+    if (workspace === activeWorkspace()) renderActiveWorkspace();
     notify("Configuration proposal generated. It has not been applied.", true);
   } catch (error) {
-    pending.text.textContent = `Could not generate a configuration proposal: ${error.message}`;
-    pending.article.classList.remove("pending");
-    pending.article.classList.add("failed");
+    workspace.status = "failed";
+    if (pending) { pending.text.textContent = `Could not generate a configuration proposal: ${error.message}`; pending.article.classList.remove("pending"); pending.article.classList.add("failed"); }
     notify(error.message);
   } finally {
-    state.chatBusy = false;
-    button.disabled = false;
-    byId("send-chat").disabled = false;
+    workspace.busy = false;
+    persistArenaWorkspaces();
+    if (workspace === activeWorkspace()) { button.disabled = false; byId("send-chat").disabled = false; renderArenaStatus(); }
   }
 }
 
 function assistantIntent(message) {
   const text = message.toLowerCase();
-  const configuration = /\b(config(?:uration|ure)?|settings?|routing policy|fallback|timeouts?|circuits?|cascades?|model orders?|queues?)\b/.test(text);
-  const propose = /\b(suggest|propose|recommend|change|adjust|update|tune|optimi[sz]e|improve|configure)\b/.test(text);
-  if (configuration && propose) return "config";
-  const comparison = /\b(compare|comparison|arena|side[- ]by[- ]side)\b/.test(text);
-  const run = /\b(run|start|launch|perform|create|make|do)\b/.test(text);
+  const explainOnly = /\b(do not|don't|dont|without)\s+(change|modify|apply|update)|\b(explain only|just explain|no changes?)\b/.test(text);
+  const configuration = /\b(config(?:uration|ure)?|settings?|routing policy|fallback|timeouts?|circuits?|cascades?|model orders?|free order|queues?|max(?:imum)? attempts?|dashboard model|enabled models?|disabled models?)\b/.test(text);
+  const optimize = /\b(optimi[sz]e|tune|reduce (?:cost|latency|failures?)|improve (?:routing|reliability|performance))\b/.test(text);
+  const propose = /\b(suggest|propose|recommend|change|adjust|update|set|add|remove|enable|disable|create|delete|replace|reorder|increase|decrease|fix|configure|turn on|turn off)\b/.test(text);
+  if (!explainOnly && configuration && optimize) return "optimize";
+  if (!explainOnly && configuration && (propose || /\bconfiguration changes?\b/.test(text))) return "config";
+  const comparison = /\b(compare|comparison|arena|side[- ]by[- ]side|benchmark|evaluate|a\/b|consistency test|variance)\b/.test(text);
+  const run = /\b(run|start|launch|perform|create|make|do|plan|prepare|generate)\b/.test(text);
   if (run && /\b(design|ui|ux|html|page|component|layout|website)\b/.test(text)) return "design";
-  if (comparison && run) return "chat";
+  if (comparison) return "chat";
   return "respond";
 }
 
-async function runAssistantComparison(modeHint, message) {
-  const advisorModel = [...state.sandboxSelectedModels][0];
+function renderAssistantPlan(plan) {
+  const card = document.createElement("article");
+  card.className = "assistant-plan";
+  const title = document.createElement("strong");
+  title.textContent = `COMPARE PLAN / ${String(plan.mode || "chat").toUpperCase()} / NOT RUN`;
+  const rationale = document.createElement("p");
+  rationale.textContent = plan.rationale;
+  const lineup = document.createElement("p");
+  lineup.textContent = `Lineup: ${(plan.models || []).join(" > ")}`;
+  const summary = document.createElement("p");
+  const providers = Array.isArray(plan.providerDestinations) ? [...new Set(plan.providerDestinations.map((destination) => destination?.provider).filter(Boolean))] : [];
+  summary.textContent = `${(plan.models || []).length} independent lane${(plan.models || []).length === 1 ? "" : "s"} / cost ${String(plan.costClass || "unknown").toUpperCase()}${providers.length ? ` / destinations ${providers.join(", ")}` : ""}`;
+  const prompt = document.createElement("pre");
+  prompt.textContent = plan.prompt;
+  const warnings = document.createElement("ul");
+  warnings.className = "assistant-plan-warnings";
+  for (const warning of Array.isArray(plan.warnings) ? plan.warnings : []) {
+    const item = document.createElement("li");
+    item.textContent = warning;
+    warnings.append(item);
+  }
+  const actions = document.createElement("div");
+  actions.className = "assistant-plan-actions";
+  for (const mode of ["chat", "design"]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `button ${mode === plan.mode ? "primary-button" : "secondary"}`;
+    button.dataset.planHandoff = mode;
+    button.textContent = `OPEN IN ${mode.toUpperCase()}`;
+    actions.append(button);
+  }
+  card.append(title, rationale, lineup, summary);
+  if (warnings.childElementCount) card.append(warnings);
+  card.append(prompt, actions);
+  byId("chat-messages").append(card);
+}
+
+function handoffToMode(mode, draft) {
+  if (!ARENA_MODES.includes(mode) || mode === "diagnose") return;
+  const target = state.arenaWorkspaces[mode];
+  if (target.busy) return notify(`${mode.toUpperCase()} is running; its draft was not changed.`);
+  target.draft = String(draft || "");
+  target.status = target.draft ? "draft" : target.status;
+  persistArenaWorkspaces();
+  setSandboxMode(mode, true);
+  byId("chat-input").focus();
+}
+
+async function handoffAssistantPlan(mode, plan) {
+  let target = state.arenaWorkspaces[mode];
+  if (!target || target.busy) return notify(`${mode.toUpperCase()} is running; the plan cannot replace its draft yet.`);
+  if (target.draft || target.turns.length || target.assistantPlan || target.configProposal) {
+    try { await saveSandboxRun(target, true); }
+    catch (error) { return notify(`The existing ${mode} workstream could not be saved: ${error.message}`); }
+    target = createArenaWorkspace(mode);
+    state.arenaWorkspaces[mode] = target;
+  }
+  target.draft = plan.prompt || "";
+  target.selectedModels = new Set((plan.models || []).slice(0, 4));
+  target.modelLineup = (plan.models || []).filter((model) => typeof model === "string").slice(0, 4);
+  target.parameters = {
+    providerDefaultMax: plan.parameters?.maxTokens == null,
+    maxTokens: plan.parameters?.maxTokens ?? 4096,
+    temperature: plan.parameters?.temperature ?? "",
+    topP: plan.parameters?.topP ?? ""
+  };
+  target.status = "draft";
+  target._defaultsLoaded = true;
+  persistArenaWorkspaces();
+  setSandboxMode(mode, true);
+  notify(`Plan opened as a ${mode} draft. Review it and send when ready.`, true);
+}
+
+async function runAssistantComparison(modeHint, message, workspace = activeWorkspace()) {
+  const advisorModel = [...workspace.selectedModels][0];
   if (!advisorModel) return notify("Select at least one advisor model first.");
-  chatBubble("user", message);
-  const pending = chatBubble("assistant", "Planning the comparison: selecting models, settings, and a focused prompt...");
-  pending.article.classList.add("pending");
-  state.chatBusy = true; byId("send-chat").disabled = true;
+  const pending = workspace === activeWorkspace() ? chatBubble("assistant", "Planning only: selecting a lineup, settings, and focused prompt. Nothing will run automatically.") : null;
+  pending?.article.classList.add("pending");
+  workspace.busy = true; workspace.status = "running";
+  if (workspace === activeWorkspace()) byId("send-chat").disabled = true;
+  renderArenaStatus();
   let plan;
   try {
     const payload = await api("/admin/api/assistant/plan", { method: "POST", body: JSON.stringify({ advisorModel, request: message, modeHint }) });
     plan = payload.plan;
   } catch (error) {
-    pending.text.textContent = `Could not plan the comparison: ${error.message}`; pending.article.classList.remove("pending"); pending.article.classList.add("failed"); notify(error.message); return;
+    workspace.status = "failed";
+    if (pending) { pending.text.textContent = `Could not plan the comparison: ${error.message}`; pending.article.classList.remove("pending"); pending.article.classList.add("failed"); }
+    notify(error.message);
+    return;
   } finally {
-    state.chatBusy = false; byId("send-chat").disabled = false;
+    workspace.busy = false;
+    if (workspace === activeWorkspace()) byId("send-chat").disabled = false;
+    persistArenaWorkspaces();
   }
-  state.chatTurns = [];
-  state.sandboxRunId = crypto.randomUUID();
-  state.configProposal = null;
-  state.assistantPlan = { request: message, advisorModel, ...plan };
-  state.sandboxSelectedModels = new Set(plan.models);
-  localStorage.setItem(SANDBOX_MODELS_KEY, JSON.stringify(plan.models));
-  resetChatMessages();
-  setSandboxMode(plan.mode, true);
-  byId("sandbox-provider-default-max").checked = plan.parameters.maxTokens == null;
-  byId("sandbox-max-tokens").disabled = plan.parameters.maxTokens == null;
-  byId("sandbox-max-tokens").value = plan.parameters.maxTokens ?? "";
-  byId("sandbox-temperature").value = plan.parameters.temperature ?? "";
-  byId("sandbox-top-p").value = plan.parameters.topP ?? "";
-  renderChatModelOptions(state.status?.config || {});
-  chatBubble("assistant", `Assistant plan: ${plan.rationale}\n\nMode: ${plan.mode}\nModels: ${plan.models.join(", ")}\nPrompt: ${plan.prompt}`);
-  notify(`Assistant planned a ${plan.mode} comparison with ${plan.models.length} model${plan.models.length === 1 ? "" : "s"}.`, true);
-  await sendChat(plan.prompt);
+  workspace.assistantPlan = { request: message, advisorModel, ...plan };
+  workspace.draft = "";
+  workspace.status = "ready";
+  await saveSandboxRun(workspace).catch((error) => notify(`Plan could not be saved locally: ${error.message}`));
+  if (workspace === activeWorkspace()) renderActiveWorkspace();
+  notify(`Plan ready. Choose a destination; no comparison has run.`, true);
 }
 
 async function load(silent = false) {
@@ -2611,20 +3375,30 @@ function setChatOpen(open) {
     setConfigOpen(false);
   }
   state.chatOpen = open;
+  if (open) state.chatReturnFocus = document.activeElement;
   document.body.classList.toggle("chat-open", open);
   const drawer = byId("chat-drawer");
+  drawer.inert = !open;
   drawer.classList.toggle("open", open);
   drawer.setAttribute("aria-hidden", String(!open));
   byId("open-chat")?.setAttribute("aria-expanded", String(open));
   byId("open-sandbox")?.setAttribute("aria-expanded", String(open));
   byId("open-assistant")?.setAttribute("aria-expanded", String(open));
+  if (!open) {
+    stopRecorder(false, "RECORDING DISCARDED / ARENA CLOSED");
+    audioState.sttController?.abort();
+    stopTts();
+    if (byId("transcript-review-dialog").open) byId("transcript-review-dialog").close("arena-closed");
+  }
   if (open) {
-    state.userScrolled = false;
+    void loadAudioCapabilities().catch(() => {});
+    renderActiveWorkspace();
     byId("chat-input").focus();
     const container = byId("chat-messages");
-    container.scrollTop = container.scrollHeight;
+    container.scrollTop = activeWorkspace().scrollTop || container.scrollHeight;
   } else if (document.activeElement?.closest("#chat-drawer")) {
-    byId("open-chat")?.focus();
+    (state.chatReturnFocus?.isConnected ? state.chatReturnFocus : byId("open-chat"))?.focus();
+    state.chatReturnFocus = null;
   }
 }
 
@@ -2836,13 +3610,23 @@ byId("chat-form").addEventListener("submit", (event) => {
   const input = byId("chat-input");
   const message = input.value.trim();
   if (!message) return;
-  input.value = "";
+  const workspace = activeWorkspace();
+  workspace.draft = input.value;
   if (state.sandboxMode === "diagnose") {
-    const intent = assistantIntent(message);
-    if (intent === "config") return void askForConfigProposal(message);
-    if (intent === "design" || intent === "chat") return void runAssistantComparison(intent, message);
+    const intent = workspace.intent === "auto" ? assistantIntent(message) : workspace.intent;
+    if (intent === "configure" || intent === "optimize" || intent === "config") return void askForConfigProposal(message, workspace, intent === "optimize" ? "optimize" : "configure");
+    if (intent === "compare" || intent === "design" || intent === "chat") {
+      const modeHint = /\b(design|ui|ux|html|page|component|layout|website)\b/i.test(message) ? "design" : "chat";
+      return void runAssistantComparison(modeHint, message, workspace);
+    }
+    const prefixes = {
+      diagnose: "Agent intent: Diagnose. Identify likely causes from bounded router operational metadata, distinguish evidence from inference, and suggest safe next checks.",
+      explain: "Agent intent: Explain route. Explain the routing decision, fallback behavior, and relevant health/policy signals in clear terms.",
+      onboard: "Agent intent: Onboard. Teach this console and router workflow progressively, using current operational metadata without exposing request bodies or credentials."
+    };
+    return void sendChat(`${prefixes[intent] || prefixes.diagnose}\n\nUser request: ${message}`, workspace);
   }
-  void sendChat(message);
+  void sendChat(message, workspace);
 });
 
 byId("chat-model-options")?.addEventListener("change", (event) => {
@@ -2857,53 +3641,101 @@ byId("chat-model-options")?.addEventListener("change", (event) => {
   } else {
     state.sandboxSelectedModels.delete(id);
   }
-  localStorage.setItem(SANDBOX_MODELS_KEY, JSON.stringify([...state.sandboxSelectedModels]));
+  activeWorkspace().modelLineup = [];
+  persistArenaWorkspaces();
   renderChatModelOptions(state.status?.config || {});
 });
 
 byId("chat-input").addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !event.shiftKey) {
+  if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && !event.isComposing) {
     event.preventDefault();
     byId("chat-form").requestSubmit();
   }
 });
+byId("chat-input").addEventListener("input", (event) => {
+  activeWorkspace().draft = event.target.value;
+  activeWorkspace().status = event.target.value ? "draft" : activeWorkspace().status === "draft" ? "ready" : activeWorkspace().status;
+  persistArenaWorkspaces();
+});
 byId("chat-messages").addEventListener("click", (event) => {
-  const retry = event.target.closest("[data-retry-model]");
-  if (retry) void retrySandboxGeneration(retry.dataset.retryModel, Number(retry.dataset.retryTurn));
-  const star = event.target.closest("[data-star-model]");
+  const retry = event.target.closest("[data-retry-lane]");
+  if (retry) void retrySandboxGeneration(retry.dataset.retryLane, Number(retry.dataset.retryTurn));
+  const star = event.target.closest("[data-star-lane]");
   if (star) {
-    const result = state.chatTurns[Number(star.dataset.starTurn)]?.results?.[star.dataset.starModel];
+    const result = state.chatTurns[Number(star.dataset.starTurn)]?.results?.[star.dataset.starLane];
     if (!result) return;
     result.starred = !result.starred; star.classList.toggle("active", result.starred); star.textContent = result.starred ? "★" : "☆"; star.setAttribute("aria-pressed", String(result.starred)); star.title = result.starred ? "Remove from starred gallery" : "Add to starred gallery"; void saveSandboxRun();
   }
+  const promptAction = event.target.closest("[data-prompt-action]");
+  if (promptAction) {
+    const prompt = promptAction.closest(".chat-message")?.querySelector(".content")?.textContent || "";
+    if (promptAction.dataset.promptAction === "copy-prompt") void navigator.clipboard.writeText(prompt).then(() => notify("Prompt copied.", true));
+    else if (promptAction.dataset.promptAction === "reuse-prompt") { activeWorkspace().draft = prompt; byId("chat-input").value = prompt; byId("chat-input").focus(); persistArenaWorkspaces(); }
+    else handoffToMode(promptAction.dataset.promptAction, prompt);
+  }
+  const resultAction = event.target.closest("[data-result-action]");
+  if (resultAction) {
+    const card = resultAction.closest(".sandbox-result");
+    const result = activeWorkspace().turns[Number(card?.dataset.sandboxTurn)]?.results?.[card?.dataset.sandboxLane];
+    const content = result?.content || card?.querySelector(":scope > .content")?.innerText || "";
+    if (resultAction.dataset.resultAction === "listen") {
+      if (!result || result.error || !Number.isInteger(Number(card?.dataset.sandboxTurn))) return setAudioStatus("SPEECH REFUSED / RESULT IS NO LONGER AVAILABLE", true);
+      void playResultSpeech(resultAction, result, activeWorkspace().turns[Number(card.dataset.sandboxTurn)].mode || activeWorkspace().mode, resultAction.dataset.ttsKey);
+    }
+    else if (resultAction.dataset.resultAction === "copy-result") void navigator.clipboard.writeText(content).then(() => notify("Result copied.", true));
+    else if (resultAction.dataset.resultAction === "focus-result") {
+      const focused = card?.classList.toggle("focused-result") ?? false;
+      resultAction.setAttribute("aria-pressed", String(focused));
+      if (focused) { card.tabIndex = -1; card.focus(); }
+    }
+    else handoffToMode(resultAction.dataset.resultAction, content);
+  }
+  const planHandoff = event.target.closest("[data-plan-handoff]");
+  if (planHandoff && activeWorkspace().assistantPlan) void handoffAssistantPlan(planHandoff.dataset.planHandoff, activeWorkspace().assistantPlan);
 });
 byId("sandbox-provider-default-max").addEventListener("change", (event) => {
   byId("sandbox-max-tokens").disabled = event.target.checked;
+  readGenerationControls(); persistArenaWorkspaces();
 });
+for (const id of ["sandbox-max-tokens", "sandbox-temperature", "sandbox-top-p"]) byId(id).addEventListener("input", () => { readGenerationControls(); persistArenaWorkspaces(); });
 
-byId("clear-chat").addEventListener("click", () => {
-  if (state.chatBusy) return;
-  state.chatTurns = [];
-  state.sandboxRunId = crypto.randomUUID();
-  state.userScrolled = false;
-  resetChatMessages();
-  renderChatModelOptions(state.status?.config || {});
-});
+async function newActiveWorkstream(clearModels = false) {
+  const workspace = activeWorkspace();
+  if (workspace.busy) return notify("Stop this workstream before starting a new one.");
+  stopTts();
+  try { await saveSandboxRun(workspace); }
+  catch (error) { notify(`Autosave failed; the current workstream was preserved: ${error.message}`); return; }
+  const replacement = createArenaWorkspace(workspace.mode, {
+    selectedModels: clearModels ? [] : [...workspace.selectedModels],
+    modelLineup: clearModels ? [] : workspaceModelLanes(workspace).map((lane) => lane.model)
+  });
+  replacement._defaultsLoaded = !clearModels;
+  state.arenaWorkspaces[workspace.mode] = replacement;
+  state.sandboxModelSignature = null;
+  persistArenaWorkspaces();
+  renderActiveWorkspace();
+  if (clearModels) byId("chat-model-picker").open = true;
+}
+byId("clear-chat").addEventListener("click", () => void newActiveWorkstream(false));
+byId("new-lineup").addEventListener("click", () => void newActiveWorkstream(true));
 
 byId("stop-chat").addEventListener("click", () => state.chatController?.abort());
 byId("propose-config").addEventListener("click", () => {
   const input = byId("chat-input");
   const prompt = input.value.trim();
-  if (prompt) input.value = "";
-  void askForConfigProposal(prompt);
+  activeWorkspace().draft = input.value;
+  void askForConfigProposal(prompt, activeWorkspace(), "configure");
 });
 
 byId("config-proposal-host").addEventListener("click", async (event) => {
+  const workspace = activeWorkspace();
   const action = event.target.closest("[data-proposal-action]")?.dataset.proposalAction;
-  if (!action || !state.configProposal) return;
+  if (!action || !workspace.configProposal) return;
   if (action === "discard") {
-    state.configProposal = null;
+    workspace.configProposal = null;
     byId("config-proposal-host").replaceChildren();
+    persistArenaWorkspaces();
+    void saveSandboxRun(workspace);
     return;
   }
   if (action === "validate") {
@@ -2913,9 +3745,10 @@ byId("config-proposal-host").addEventListener("click", async (event) => {
       const patch = proposalPatchFromEditor(card);
       const payload = await api("/admin/api/config/proposals/validate", {
         method: "POST",
-        body: JSON.stringify({ baseRevision: state.configProposal.baseRevision, summary: state.configProposal.summary, rationale: state.configProposal.rationale, patch })
+        body: JSON.stringify({ baseRevision: workspace.configProposal.baseRevision, summary: workspace.configProposal.summary, rationale: workspace.configProposal.rationale, patch })
       });
-      renderConfigProposal(payload.proposal);
+      renderConfigProposal(payload.proposal, workspace);
+      await saveSandboxRun(workspace);
       notify("Edited proposal validated. It remains unapplied.", true);
     } catch (error) {
       validation.className = "proposal-validation-status error"; validation.textContent = error.message;
@@ -2928,19 +3761,20 @@ byId("config-proposal-host").addEventListener("click", async (event) => {
   }
   const list = byId("proposal-confirm-changes");
   list.replaceChildren();
-  for (const change of state.configProposal.changes) {
+  for (const change of workspace.configProposal.changes) {
     const row = document.createElement("p");
     row.textContent = `${change.field}: ${JSON.stringify(change.before)} -> ${JSON.stringify(change.after)}`;
     list.append(row);
   }
-  state.confirmingProposal = structuredClone(state.configProposal);
+  state.confirmingProposal = { proposal: structuredClone(workspace.configProposal), workspace };
   byId("proposal-confirm-dialog").showModal();
 });
 
 byId("confirm-apply-proposal").addEventListener("click", async (event) => {
   event.preventDefault();
-  const proposal = state.confirmingProposal;
-  if (!proposal) return;
+  const confirmation = state.confirmingProposal;
+  if (!confirmation) return;
+  const { proposal, workspace } = confirmation;
   const button = event.currentTarget;
   button.disabled = true;
   try {
@@ -2950,15 +3784,17 @@ byId("confirm-apply-proposal").addEventListener("click", async (event) => {
     });
     byId("proposal-confirm-dialog").close();
     state.confirmingProposal = null;
-    state.configProposal = null;
-    byId("config-proposal-host").replaceChildren();
+    workspace.configProposal = null;
+    if (workspace === activeWorkspace()) byId("config-proposal-host").replaceChildren();
+    await saveSandboxRun(workspace);
     notify("Reviewed configuration proposal applied.", true);
     await load(true);
   } catch (error) {
     notify(error.message);
     if (error.status === 409) {
-      state.configProposal = null;
-      byId("config-proposal-host").replaceChildren();
+      workspace.configProposal = null;
+      if (workspace === activeWorkspace()) byId("config-proposal-host").replaceChildren();
+      await saveSandboxRun(workspace).catch(() => {});
       await load(true);
     }
   } finally {
@@ -2970,25 +3806,95 @@ byId("proposal-confirm-dialog").addEventListener("close", () => {
 });
 
 function setSandboxMode(mode, force = false) {
-  if (!force && (state.chatBusy || state.chatTurns.length || !["chat", "design", "diagnose"].includes(mode))) return;
+  if (!ARENA_MODES.includes(mode)) return;
+  const previous = activeWorkspace();
+  if (previous.mode !== mode) stopTts();
+  if (byId("chat-input")) previous.draft = byId("chat-input").value;
+  if (byId("sandbox-max-tokens")) readGenerationControls(previous);
+  if (byId("chat-messages")) previous.scrollTop = byId("chat-messages").scrollTop;
   state.sandboxMode = mode;
+  state.sandboxModelSignature = null;
   for (const button of document.querySelectorAll("[data-sandbox-mode]")) {
     const active = button.dataset.sandboxMode === mode;
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
   }
-  byId("propose-config").hidden = mode === "design";
+  byId("propose-config").hidden = mode !== "diagnose" || !["configure", "optimize"].includes(activeWorkspace().intent);
   byId("chat-input").placeholder = mode === "design"
     ? "Describe a responsive page or component to generate..."
     : mode === "diagnose"
       ? "Ask for diagnosis, configuration suggestions, or a planned chat/design comparison..."
       : "Send one prompt to every selected model...";
   byId("send-chat").textContent = mode === "design" ? "GENERATE" : "SEND";
+  persistArenaWorkspaces();
+  if (!state.sandboxLibraryOpen || force) renderActiveWorkspace();
 }
 
 byId("sandbox-mode").addEventListener("click", (event) => {
   const button = event.target.closest("[data-sandbox-mode]");
   if (button) setSandboxMode(button.dataset.sandboxMode);
+});
+byId("agent-intents").addEventListener("click", (event) => {
+  const chip = event.target.closest("[data-agent-intent]");
+  if (!chip) return;
+  activeWorkspace().intent = chip.dataset.agentIntent;
+  persistArenaWorkspaces();
+  renderArenaStatus();
+  const framing = { diagnose: "Describe symptoms or unexpected router behavior...", explain: "Ask why a request took a route or fallback...", onboard: "Ask how to use or understand RouteTok...", optimize: "Describe the reliability, latency, or cost objective...", configure: "Describe the policy change to propose...", compare: "Describe a comparison to plan; it will not run automatically..." };
+  byId("chat-input").placeholder = chip.dataset.agentIntent === "auto" ? "Ask naturally; Agent will choose the appropriate safe workflow..." : framing[chip.dataset.agentIntent];
+});
+
+byId("audio-record").addEventListener("click", () => void startRecording());
+byId("audio-file-button").addEventListener("click", () => byId("audio-file").click());
+byId("audio-file").addEventListener("click", () => { audioState.fileTarget = captureTranscriptTarget(); });
+byId("audio-file").addEventListener("change", (event) => {
+  const file = event.target.files?.[0];
+  event.target.value = "";
+  if (!file) return;
+  const extension = file.name.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1];
+  if ((file.type && !file.type.startsWith("audio/")) || !["flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"].includes(extension || "")) return setAudioStatus("FILE REJECTED / SELECT SUPPORTED AUDIO", true);
+  if (file.size > AUDIO_MAX_BYTES) return setAudioStatus("FILE REJECTED / 16 MiB MAXIMUM", true);
+  stopRecorder(false, "RECORDING DISCARDED / FILE SELECTED");
+  void transcribeAudio(file, audioState.fileTarget || captureTranscriptTarget());
+  audioState.fileTarget = null;
+});
+for (const [id, key] of [["audio-stt-model", "sttModel"], ["audio-language", "language"], ["audio-tts-model", "ttsModel"], ["audio-voice", "voice"], ["audio-speed", "speed"]]) {
+  byId(id).addEventListener("change", (event) => {
+    audioState.settings[key] = key === "speed" ? Math.max(0.25, Math.min(4, Number(event.target.value) || 1)) : event.target.value;
+    if (["ttsModel", "voice", "speed"].includes(key)) stopTts();
+    if (key === "ttsModel") syncAudioControls();
+    else persistAudioSettings();
+  });
+}
+byId("discard-transcript").addEventListener("click", () => byId("transcript-review-dialog").close("discard"));
+byId("insert-transcript").addEventListener("click", () => {
+  const target = audioState.transcriptTarget;
+  const workspace = target && state.arenaWorkspaces[target.mode];
+  if (!target || !workspace || workspace.runId !== target.runId) {
+    setAudioStatus("INSERT REFUSED / ORIGINAL WORKSTREAM CHANGED", true);
+    byId("transcript-review-dialog").close("stale");
+    return;
+  }
+  const transcript = byId("transcript-review-text").value;
+  const draftChanged = workspace.draft !== target.draft;
+  const activeInput = activeWorkspace() === workspace ? byId("chat-input") : null;
+  const start = draftChanged ? (activeInput?.selectionStart ?? workspace.draft.length) : Math.min(target.start, workspace.draft.length);
+  const end = draftChanged ? (activeInput?.selectionEnd ?? start) : Math.max(start, Math.min(target.end, workspace.draft.length));
+  workspace.draft = `${workspace.draft.slice(0, start)}${transcript}${workspace.draft.slice(end)}`;
+  workspace.status = workspace.draft ? "draft" : workspace.status;
+  if (activeWorkspace() === workspace) {
+    byId("chat-input").value = workspace.draft;
+    const caret = start + transcript.length;
+    byId("chat-input").setSelectionRange(caret, caret);
+    byId("chat-input").focus();
+  }
+  persistArenaWorkspaces();
+  setAudioStatus(draftChanged ? "TRANSCRIPT INSERTED AT CURRENT CARET / DRAFT CHANGED" : "TRANSCRIPT INSERTED / NOT SENT");
+  byId("transcript-review-dialog").close("insert");
+});
+byId("transcript-review-dialog").addEventListener("close", () => {
+  byId("transcript-review-text").value = "";
+  audioState.transcriptTarget = null;
 });
 
 byId("open-sandbox-library").addEventListener("click", () => void setSandboxLibraryOpen(true));
@@ -3003,10 +3909,16 @@ byId("sandbox-library-list").addEventListener("click", async (event) => {
   await sandboxStore("readwrite", (store) => store.delete(remove));
   await renderSandboxLibrary();
 });
-byId("popout-sandbox").addEventListener("click", () => window.open("/sandbox", "_blank", "noopener,noreferrer"));
+byId("popout-sandbox").addEventListener("click", async () => {
+  const workspace = activeWorkspace();
+  try { await saveSandboxRun(workspace, true); }
+  catch (error) { notify(`Popout could not save this run: ${error.message}`); return; }
+  const url = `/sandbox?run=${encodeURIComponent(workspace.runId)}&mode=${encodeURIComponent(workspace.mode)}`;
+  window.open(url, "_blank", "noopener,noreferrer");
+});
 byId("open-assistant").addEventListener("click", () => {
+  setSandboxMode("diagnose", true);
   setChatOpen(true);
-  if (!state.chatTurns.length) setSandboxMode("diagnose");
 });
 for (const id of ["open-help", "sandbox-help"]) byId(id)?.addEventListener("click", () => byId("help-dialog").showModal());
 byId("open-api-keys").addEventListener("click", () => {
@@ -3043,7 +3955,7 @@ byId("api-key-manager").addEventListener("click", async (event) => {
 
 byId("export-chat").addEventListener("click", () => {
   if (!state.chatTurns.length) return notify("Run a comparison before exporting it.");
-  const payload = { version: 1, exportedAt: new Date().toISOString(), selectedModels: [...state.sandboxSelectedModels], turns: state.chatTurns };
+  const payload = { version: 2, exportedAt: new Date().toISOString(), modelLineup: workspaceModelLanes().map((lane) => lane.model), turns: state.chatTurns };
   const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
   const link = document.createElement("a");
   link.href = url;
@@ -3057,13 +3969,17 @@ byId("toggle-chat").addEventListener("click", () => {
 });
 
 byId("open-chat").addEventListener("click", () => {
+  setSandboxMode("chat", true);
   setChatOpen(true);
 });
-byId("open-sandbox")?.addEventListener("click", () => setChatOpen(true));
+byId("open-sandbox")?.addEventListener("click", () => { setSandboxMode("chat", true); setChatOpen(true); });
 
 byId("chat-messages").addEventListener("scroll", () => {
   const container = byId("chat-messages");
-  state.userScrolled = !isUserNearBottom(container);
+  activeWorkspace().scrollTop = container.scrollTop;
+  activeWorkspace().userScrolled = !isUserNearBottom(container);
+  window.clearTimeout(state.arenaScrollTimer);
+  state.arenaScrollTimer = window.setTimeout(persistArenaWorkspaces, 150);
 });
 
 const resizeHandle = byId("chat-resize-handle");
@@ -3085,6 +4001,17 @@ document.addEventListener("mousemove", (e) => {
   const delta = startY - e.clientY;
   const newHeight = Math.max(200, Math.min(window.innerHeight - 60, startHeight + delta));
   chatDrawer.style.height = `${newHeight}px`;
+  resizeHandle.setAttribute("aria-valuenow", String(Math.round(newHeight)));
+});
+resizeHandle.setAttribute("aria-valuenow", String(Math.round(chatDrawer.offsetHeight)));
+resizeHandle.addEventListener("keydown", (event) => {
+  if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const maximum = Math.max(240, window.innerHeight - 24);
+  const height = event.key === "Home" ? 240 : event.key === "End" ? maximum : Math.max(240, Math.min(maximum, chatDrawer.offsetHeight + (event.key === "ArrowUp" ? 24 : -24)));
+  chatDrawer.style.height = `${height}px`;
+  resizeHandle.setAttribute("aria-valuemax", String(Math.round(maximum)));
+  resizeHandle.setAttribute("aria-valuenow", String(Math.round(height)));
 });
 
 document.addEventListener("mouseup", () => {
@@ -3267,7 +4194,11 @@ document.addEventListener("keydown", (event) => {
     return;
   }
   if (event.key === "Escape") {
-    if (state.commandOpen) setCommandOpen(false);
+    const focusedResult = document.querySelector(".sandbox-result.focused-result");
+    if (focusedResult) {
+      focusedResult.classList.remove("focused-result");
+      focusedResult.querySelector('[data-result-action="focus-result"]')?.setAttribute("aria-pressed", "false");
+    } else if (state.commandOpen) setCommandOpen(false);
     else if (state.customizeOpen) setCustomizeOpen(false);
     else if (state.configOpen) setConfigOpen(false);
     else if (state.chatOpen) setChatOpen(false);
@@ -3310,10 +4241,16 @@ byId("history-range").addEventListener("change", () => {
   renderHistory();
 });
 
+await restoreArenaWorkspaces();
+byId("chat-input").value = activeWorkspace().draft;
+applyGenerationControls(activeWorkspace());
 setConnectionState(document.visibilityState === "visible" ? "offline" : "paused");
 setupCollapsibleSections();
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") {
+    stopRecorder(false, "RECORDING DISCARDED / PAGE HIDDEN");
+    audioState.sttController?.abort();
+    stopTts();
     setConnectionState("paused");
     return;
   }
@@ -3321,9 +4258,25 @@ document.addEventListener("visibilitychange", () => {
   void load(false);
   void loadLive();
 });
+window.addEventListener("pagehide", () => {
+  stopRecorder(false, "RECORDING DISCARDED / PAGE CLOSED");
+  audioState.sttController?.abort();
+  stopTts();
+  stopMediaTracks();
+});
 state.staleTimer = window.setInterval(updateStaleness, 1_000);
 
 await load();
+const arenaQuery = new URLSearchParams(location.search);
+const queryMode = arenaQuery.get("mode");
+const queryRun = arenaQuery.get("run");
+if (queryRun) {
+  await openSavedRun(queryRun).catch((error) => notify(`Could not restore saved run: ${error.message}`));
+} else if (ARENA_MODES.includes(queryMode)) {
+  setSandboxMode(queryMode, true);
+} else {
+  setSandboxMode(state.sandboxMode, true);
+}
 if (location.pathname === "/sandbox") {
   document.body.classList.add("sandbox-popout");
   setChatOpen(true);

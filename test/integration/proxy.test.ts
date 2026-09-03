@@ -120,13 +120,13 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
       return;
     }
     if (payload.model === "good-model" && payload.stream === true && messages.some((message) => JSON.stringify(message).includes("bounded comparison planner"))) {
-      const plan = JSON.stringify({ mode: "design", models: ["good-model"], prompt: "Design a synthetic status card.", parameters: { maxTokens: 2048, temperature: 0.4 }, rationale: "The selected model supports the requested design task." }).replace(/}$/, ",}");
+      const plan = JSON.stringify({ mode: "design", models: ["good-model", "good-model"], prompt: "Design two independent samples of a synthetic status card.", parameters: { maxTokens: 2048, temperature: 0.4 }, rationale: "Duplicate lanes measure output variance from the same model." }).replace(/}$/, ",}");
       response.writeHead(200, { "content-type": "text/event-stream" });
       response.end(`data: ${JSON.stringify({ id: "planner", object: "chat.completion.chunk", model: "good-model", choices: [{ index: 0, delta: { content: plan }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ id: "planner", object: "chat.completion.chunk", model: "good-model", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`);
       return;
     }
     if (payload.model === "good-model" && payload.stream === true && messages.some((message) => JSON.stringify(message).includes("selecting RouteTok dashboard API resources"))) {
-      const request = JSON.stringify({ needs: ["totals", "health"] }).replace(/}$/, ",}");
+      const request = JSON.stringify({ needs: ["capabilities", "readiness", "providers", "totals", "health"] }).replace(/}$/, ",}");
       response.writeHead(200, { "content-type": "text/event-stream" });
       response.end(`data: ${JSON.stringify({ id: "needs", object: "chat.completion.chunk", model: "good-model", choices: [{ index: 0, delta: { content: request }, finish_reason: null }] })}\n\ndata: [DONE]\n\n`);
       return;
@@ -180,6 +180,8 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
       DATA_DIR: dataDir,
       AGENTROUTER_API_KEY: "test-upstream-key",
       AGENTROUTER_BASE_URL: `http://127.0.0.1:${upstreamAddress.port}`,
+      GROQ_API_KEY: "test-groq-key",
+      GROQ_BASE_URL: `http://127.0.0.1:${upstreamAddress.port}`,
       PROXY_API_KEY: "local-client-key"
     },
     stdio: ["ignore", "pipe", "pipe"]
@@ -223,6 +225,29 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
     assert.equal(dashboard.metrics.totals.fallbacks, 1);
     assert.doesNotMatch(JSON.stringify(dashboard), /Reply OK/);
     assert.doesNotMatch(JSON.stringify(dashboard), /"series"/);
+
+    const readinessResponse = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/readiness`);
+    assert.equal(readinessResponse.status, 200);
+    const readiness = await readinessResponse.json() as {
+      authentication: { proxyEnabled: boolean; dashboardEnabled: boolean };
+      catalog: { state: string; ageSeconds: number | null; errorPresent: boolean };
+      providers: { configuredCount: number; configuredAndCatalogConnectedCount: number };
+      viableEligibleModelCounts: { openai: number; anthropic: number };
+      freeRouteCount: number;
+      enabledPaidOrUnknownModelCount: number;
+      health: { unhealthyModelCount: number; rateLimitedModelCount: number; blockedModelCount: number };
+      staleConfiguredOrderEntries: { openai: number; anthropic: number; free: number; total: number };
+      recommendedNextActions: string[];
+    };
+    assert.deepEqual(readiness.authentication, { proxyEnabled: true, dashboardEnabled: false });
+    assert(readiness.providers.configuredCount >= readiness.providers.configuredAndCatalogConnectedCount);
+    assert(readiness.viableEligibleModelCounts.openai >= 0 && readiness.viableEligibleModelCounts.anthropic >= 0);
+    assert(readiness.catalog.ageSeconds === null || readiness.catalog.ageSeconds <= 31_536_000);
+    assert(readiness.freeRouteCount >= 0 && readiness.enabledPaidOrUnknownModelCount >= 0);
+    assert.equal(readiness.staleConfiguredOrderEntries.total, readiness.staleConfiguredOrderEntries.openai + readiness.staleConfiguredOrderEntries.anthropic + readiness.staleConfiguredOrderEntries.free);
+    const readinessActions = new Set(["configure_provider", "refresh_catalog", "enable_eligible_models", "repair_stale_routes", "investigate_model_health", "review_credit_status", "ready"]);
+    assert(readiness.recommendedNextActions.length > 0 && readiness.recommendedNextActions.every((action) => readinessActions.has(action)));
+    assert.doesNotMatch(JSON.stringify(readiness), /baseUrl|credentials|lastError|test-groq-key|catalog returned HTTP 404/);
 
     const initialHistoryResponse = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/history?limit=100`);
     assert.equal(initialHistoryResponse.status, 200);
@@ -457,11 +482,12 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
       ] })
     });
     assert.equal(dashboardChat.status, 200);
-    const sandbox = await dashboardChat.json() as { results: Array<{ requestedModel: string; content: string; error: string | null; metrics: { route: string | null; latencyMs: number } | null }> };
+    const sandbox = await dashboardChat.json() as { results: Array<{ requestedModel: string; content: string; error: string | null; metrics: { route: string | null; endpoint: string; latencyMs: number } | null }> };
     assert.equal(sandbox.results.length, 2);
     assert.equal(sandbox.results.find((result) => result.requestedModel === "good-model")?.content, "FALLBACK-OK");
     assert.match(sandbox.results.find((result) => result.requestedModel === "bad-model")?.error ?? "", /HTTP 503|No healthy compatible/);
     assert.equal(sandbox.results.find((result) => result.requestedModel === "good-model")?.metrics?.route, "good-model");
+    assert.equal(sandbox.results.find((result) => result.requestedModel === "good-model")?.metrics?.endpoint, "/v1/chat/completions");
     assert((sandbox.results.find((result) => result.requestedModel === "good-model")?.metrics?.latencyMs ?? -1) >= 0);
     const sandboxModelsCalled = calls.slice(sandboxCallsBefore).map((call) => call.model);
     assert.equal(sandboxModelsCalled.filter((model) => model === "good-model").length, 1);
@@ -475,6 +501,19 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
     assert.equal(providerDefault.status, 200);
     await providerDefault.text();
     assert.equal(calls.at(-1)?.maxTokens, undefined, "provider-default mode must omit max_tokens upstream");
+
+    const duplicateLanes = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/sandbox`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ purpose: "chat", requests: [
+        { id: "sample-1", model: "good-model", messages: [{ role: "user", content: "Produce an independent sample" }] },
+        { id: "sample-2", model: "good-model", messages: [{ role: "user", content: "Produce an independent sample" }] }
+      ] })
+    });
+    assert.equal(duplicateLanes.status, 200);
+    const duplicatePayload = await duplicateLanes.json() as { results: Array<{ id: string; requestedModel: string }> };
+    assert.deepEqual(duplicatePayload.results.map((result) => result.id), ["sample-1", "sample-2"]);
+    assert(duplicatePayload.results.every((result) => result.requestedModel === "good-model"));
 
     const designResponse = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/sandbox`, {
       method: "POST",
@@ -498,11 +537,12 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
       body: JSON.stringify({ advisorModel: "good-model", request: "Run a design comparison for a compact status card", modeHint: "design" })
     });
     assert.equal(planned.status, 200);
-    const plannedPayload = await planned.json() as { plan: { mode: string; models: string[]; prompt: string; parameters: { maxTokens?: number; temperature?: number }; rationale: string } };
+    const plannedPayload = await planned.json() as { plan: { mode: string; models: string[]; prompt: string; parameters: { maxTokens?: number; temperature?: number }; rationale: string; providerDestinations: Array<{ lane: number; model: string; provider: string }> } };
     assert.equal(plannedPayload.plan.mode, "design");
-    assert.deepEqual(plannedPayload.plan.models, ["good-model"]);
+    assert.deepEqual(plannedPayload.plan.models, ["good-model", "good-model"]);
     assert.equal(plannedPayload.plan.parameters.maxTokens, 2048);
     assert.match(plannedPayload.plan.prompt, /status card/i);
+    assert.deepEqual(plannedPayload.plan.providerDestinations.map((destination) => destination.lane), [1, 2]);
 
     const diagnosisCallsBefore = calls.length;
     const diagnosed = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/sandbox`, {
@@ -513,10 +553,16 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
     await diagnosed.text();
     const diagnosisCalls = calls.slice(diagnosisCallsBefore);
     assert.equal(diagnosisCalls.length, 2);
-    assert.doesNotMatch(JSON.stringify(diagnosisCalls[0]?.messages), /dashboard_api_response_json|"totals"\s*:/);
-    assert.match(JSON.stringify(diagnosisCalls[1]?.messages), /dashboard_api_response_json/);
-    assert.match(JSON.stringify(diagnosisCalls[1]?.messages), /requestedResources.*totals.*health/);
-    assert.doesNotMatch(JSON.stringify(diagnosisCalls[1]?.messages), /"history"\s*:/);
+    const plannerMessages = JSON.stringify(diagnosisCalls[0]?.messages);
+    const diagnosisMessages = String((diagnosisCalls[1]?.messages[0] as { content?: unknown })?.content ?? "");
+    assert.doesNotMatch(plannerMessages, /dashboard_api_response_json|explain_and_propose_only|viableEligibleModelCounts|"totals"\s*:/);
+    assert.match(diagnosisMessages, /dashboard_api_response_json/);
+    assert.match(diagnosisMessages, /requestedResources.*capabilities.*readiness.*providers.*totals.*health/);
+    assert.match(diagnosisMessages, /explain_and_propose_only|OpenAI Responses/);
+    assert.match(diagnosisMessages, /viableEligibleModelCounts/);
+    assert.match(diagnosisMessages, /"providerId":"groq".*"errorPresent":true/);
+    assert.doesNotMatch(diagnosisMessages, /"baseUrl"|"credentials"|"source":"environment"|catalog returned HTTP 404|test-groq-key/);
+    assert.doesNotMatch(diagnosisMessages, /"history"\s*:/);
 
     const beforeProposal = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/status`).then((response) => response.json()) as {
       configRevision: string;

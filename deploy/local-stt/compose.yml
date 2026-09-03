@@ -1,0 +1,45 @@
+name: routetok-local-stt
+
+services:
+  speaches:
+    image: ghcr.io/speaches-ai/speaches@sha256:21e3df06d842fb7802ab470dd77c25f0e8c0d22950e8d8c6ae886e851af53ef8
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      ENABLE_UI: "false"
+      LOG_LEVEL: warning
+      STT_MODEL_TTL: "-1"
+      WHISPER__INFERENCE_DEVICE: cpu
+      WHISPER__COMPUTE_TYPE: int8
+      WHISPER__CPU_THREADS: "4"
+      WHISPER__NUM_WORKERS: "1"
+      HF_HUB_DISABLE_TELEMETRY: "1"
+    volumes:
+      - model-cache:/home/ubuntu/.cache/huggingface/hub
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 6g
+    cpus: "3.5"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10m
+
+  model-init:
+    image: ghcr.io/speaches-ai/speaches@sha256:21e3df06d842fb7802ab470dd77c25f0e8c0d22950e8d8c6ae886e851af53ef8
+    restart: "no"
+    depends_on:
+      speaches:
+        condition: service_healthy
+    entrypoint: ["sh", "-c"]
+    command: ["curl --fail --silent --show-error --request POST http://speaches:8000/v1/models/Systran/faster-whisper-small"]
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  model-cache:
