@@ -302,6 +302,11 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
     assert.match(dashboardHtml, /ROUTETOK<span>\/01<\/span>/);
     assert.match(dashboardHtml, /SUPPORT AGENT/);
     assert.match(dashboardHtml, /Connect Applications/);
+    assert.match(dashboardHtml, /id="open-api-access"/);
+    assert.match(dashboardHtml, /id="health-model-sort"/);
+    assert.match(dashboardHtml, /id="health-model-options"/);
+    assert.match(dashboardHtml, /id="reset-circuits"/);
+    assert.doesNotMatch(dashboardHtml, /class="panel system-panel"/);
     assert.doesNotMatch(dashboardHtml, /data-sandbox-mode="(?:chat|design)"/);
 
     for (const sandboxPath of ["/sandbox", "/sandbox/"]) {

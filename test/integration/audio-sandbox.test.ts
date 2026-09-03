@@ -161,6 +161,23 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
     assert.equal((await fetch(`${base}/admin/api/audio/capabilities`)).status, 401);
     assert.equal((await fetch(`${base}/admin/api/sandbox/catalog`)).status, 401);
     assert.equal((await fetch(`${base}/admin/api/images/capabilities`)).status, 401);
+    assert.equal((await fetch(`${base}/admin/api/client-keys`)).status, 401);
+
+    const initialClientKeys = await fetch(`${base}/admin/api/client-keys`, { headers: dashboardHeaders }).then((response) => response.json()) as { keys: unknown[]; environmentKeyConfigured: boolean };
+    assert.deepEqual(initialClientKeys, { keys: [], environmentKeyConfigured: false });
+    const createClientKey = await fetch(`${base}/admin/api/client-keys`, { method: "POST", headers: { ...dashboardHeaders, "content-type": "application/json" }, body: JSON.stringify({ label: "Integration client" }) });
+    assert.equal(createClientKey.status, 201);
+    const createdClientKey = await createClientKey.json() as { key: { id: string; label: string; createdAt: string }; secret: string };
+    assert.equal(createdClientKey.key.label, "Integration client");
+    assert.match(createdClientKey.secret, /^rtk_[A-Za-z0-9_-]{43}$/);
+    const listedClientKeys = await fetch(`${base}/admin/api/client-keys`, { headers: dashboardHeaders }).then((response) => response.json()) as { keys: Array<{ id: string; label: string }>; environmentKeyConfigured: boolean };
+    assert.deepEqual(listedClientKeys.keys.map(({ id, label }) => ({ id, label })), [{ id: createdClientKey.key.id, label: "Integration client" }]);
+    assert.doesNotMatch(JSON.stringify(listedClientKeys), new RegExp(createdClientKey.secret));
+    assert.equal((await fetch(`${base}/v1/models`)).status, 401);
+    assert.equal((await fetch(`${base}/v1/models`, { headers: { authorization: `Bearer ${createdClientKey.secret}` } })).status, 200);
+    const revokeClientKey = await fetch(`${base}/admin/api/client-keys/${createdClientKey.key.id}`, { method: "DELETE", headers: dashboardHeaders });
+    assert.equal(revokeClientKey.status, 200);
+    assert.equal((await fetch(`${base}/v1/models`)).status, 200);
 
     const sandboxCatalogResponse = await fetch(`${base}/admin/api/sandbox/catalog`, { headers: dashboardHeaders });
     assert.equal(sandboxCatalogResponse.status, 200);

@@ -66,7 +66,8 @@ const state = {
   liveLoadBusy: false,
   statusLoadBusy: false,
   customizeOpen: false,
-  customizeInerted: [],
+  apiAccessOpen: false,
+  modalInerted: [],
   commandOpen: false,
   commandIndex: 0,
   preferences: null,
@@ -146,18 +147,20 @@ for (const [storage, next, legacy] of [
 const LAYOUT_SECTIONS = [
   { key: "history", selector: ".history-panel", label: "Performance Trends" },
   { key: "models", selector: ".health-panel", label: "Model Fabric" },
-  { key: "runtime", selector: ".system-panel", label: "Runtime" },
   { key: "requests", selector: ".recent-panel", label: "Request Log" }
 ];
 const PREFERENCE_DEFAULTS = Object.freeze({
-  version: 4,
+  version: 5,
   theme: "router",
   accent: null,
   density: "comfortable",
   motion: "system",
   glow: 50,
   inflightPlacement: "left",
-  completedLingerSeconds: 4
+  completedLingerSeconds: 4,
+  dashboardModelSort: "catalog",
+  dashboardModelSortDirection: "asc",
+  hiddenDashboardModels: []
 });
 const PREFERENCE_BUTTONS = {
   theme: { "theme-router": "router", "theme-paper": "paper", "theme-system": "system" },
@@ -189,7 +192,10 @@ function normalizePreferences(value) {
   const completedLingerSeconds = Number.isFinite(Number(source.completedLingerSeconds))
     ? Math.max(0, Math.min(30, Math.round(Number(source.completedLingerSeconds))))
     : PREFERENCE_DEFAULTS.completedLingerSeconds;
-  return { version: 4, theme, accent, density, motion, glow, inflightPlacement, completedLingerSeconds };
+  const dashboardModelSort = ["catalog", "name", "state", "success", "latency", "attempts", "tokens", "cost"].includes(source.dashboardModelSort) ? source.dashboardModelSort : PREFERENCE_DEFAULTS.dashboardModelSort;
+  const dashboardModelSortDirection = source.dashboardModelSortDirection === "desc" ? "desc" : "asc";
+  const hiddenDashboardModels = [...new Set(Array.isArray(source.hiddenDashboardModels) ? source.hiddenDashboardModels.filter((id) => typeof id === "string" && id.length <= 512).slice(0, 500) : [])];
+  return { version: 5, theme, accent, density, motion, glow, inflightPlacement, completedLingerSeconds, dashboardModelSort, dashboardModelSortDirection, hiddenDashboardModels };
 }
 
 function readStoredJson(storage, key) {
@@ -210,7 +216,9 @@ function syncPreferenceControls() {
     motion: firstById("customize-motion", "motion-setting", "preference-motion", "motion-preference", "motion-select"),
     glow: firstById("customize-glow", "glow-setting", "preference-glow", "glow-range", "glow-slider"),
     inflightPlacement: byId("customize-rail-side"),
-    completedLingerSeconds: byId("inflight-linger")
+    completedLingerSeconds: byId("inflight-linger"),
+    dashboardModelSort: byId("health-model-sort"),
+    dashboardModelSortDirection: byId("health-model-sort-direction")
   };
   for (const [key, control] of Object.entries(controls)) {
     if (!control) continue;
@@ -653,31 +661,36 @@ function renderHealth(catalog, metrics, config) {
     ...(metrics.recent || []).flatMap((record) => record.attempts?.map((attempt) => attempt.model) || []),
     ...catalog.models.filter((model) => modelProvider(model) === "agentrouter" && !(config.disabledModels || []).includes(model.id)).map((model) => model.id)
   ]);
+  const candidates = catalog.models.filter((entry) => activeModels.has(entry.id));
+  renderHealthModelPicker(candidates);
+  const hidden = new Set(state.preferences.hiddenDashboardModels);
+  const rows = candidates.filter((model) => !hidden.has(model.id)).flatMap((model, modelIndex) => model.protocols.map((protocol, protocolIndex) => {
+    const health = healthMap.get(`${protocol}:${model.id}`);
+    const stats = aggregate[`${protocol}:${model.id}`] || { attempts: 0, successes: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, estimatedCostUsd: 0 };
+    const [stateLabel, stateClass] = healthState(health);
+    return { model, protocol, health, stats, stateLabel, stateClass, modelIndex, protocolIndex, successRate: stats.attempts ? stats.successes / stats.attempts : null, tokens: (stats.inputTokens || 0) + (stats.outputTokens || 0), cost: stats.estimatedCostUsd || 0 };
+  }));
+  const sort = state.preferences.dashboardModelSort;
+  const direction = state.preferences.dashboardModelSortDirection === "desc" ? -1 : 1;
+  const value = (row) => ({ catalog: row.modelIndex * 10 + row.protocolIndex, name: row.model.id, state: row.stateLabel, success: row.successRate, latency: row.health?.latencyEwmaMs ?? null, attempts: row.stats.attempts, tokens: row.tokens, cost: row.cost })[sort];
+  rows.sort((left, right) => {
+    const a = value(left); const b = value(right);
+    if (a == null && b != null) return 1;
+    if (b == null && a != null) return -1;
+    const compared = typeof a === "string" ? a.localeCompare(String(b)) : Number(a) - Number(b);
+    return compared ? compared * direction : left.model.id.localeCompare(right.model.id) || left.protocol.localeCompare(right.protocol);
+  });
 
-  for (const model of catalog.models.filter((entry) => activeModels.has(entry.id))) {
-    for (const protocol of model.protocols) {
+  for (const { model, protocol, health, stats, stateLabel, stateClass, successRate } of rows) {
       const row = document.createElement("tr");
-      const health = healthMap.get(`${protocol}:${model.id}`);
-      const stats = aggregate[`${protocol}:${model.id}`] || {
-        attempts: 0,
-        successes: 0,
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-        estimatedCostUsd: 0
-      };
-      const success = stats.attempts ? `${Math.round(stats.successes / stats.attempts * 100)}%` : "--";
-      const [label, className] = healthState(health);
-
       textCell(row, model.id, "model-name");
       textCell(row, protocol, "wire");
       const stateCell = textCell(row, "");
       const pill = document.createElement("span");
-      pill.className = `status-pill ${className}`;
-      pill.textContent = label;
+      pill.className = `status-pill ${stateClass}`;
+      pill.textContent = stateLabel;
       stateCell.append(pill);
-      textCell(row, success, stats.attempts && stats.successes === 0 ? "failed" : "");
+      textCell(row, successRate == null ? "--" : `${Math.round(successRate * 100)}%`, stats.attempts && stats.successes === 0 ? "failed" : "");
       textCell(row, duration(health?.latencyEwmaMs), "muted");
       textCell(row, String(health?.inflight || 0), health?.inflight ? "live-value" : "muted");
       textCell(row, String(stats.attempts || 0), "muted");
@@ -685,8 +698,31 @@ function renderHealth(catalog, metrics, config) {
       textCell(row, `${compactNumber(stats.cacheReadTokens || 0)} / ${compactNumber(stats.cacheWriteTokens || 0)}`, "muted");
       textCell(row, costUsd(stats.estimatedCostUsd || 0), "muted");
       body.append(row);
-    }
   }
+  if (!rows.length) {
+    const row = document.createElement("tr"); const cell = document.createElement("td");
+    cell.colSpan = 10; cell.className = "table-empty"; cell.textContent = candidates.length ? "NO DASHBOARD MODELS SELECTED" : "NO ACTIVE MODELS";
+    row.append(cell); body.append(row);
+  }
+}
+
+function renderHealthModelPicker(models) {
+  const options = byId("health-model-options");
+  if (!options) return;
+  const signature = models.map((model) => `${model.id}:${model.displayName || ""}`).join("|");
+  const hidden = new Set(state.preferences.hiddenDashboardModels);
+  if (state.healthPickerSignature !== signature) {
+    state.healthPickerSignature = signature;
+    options.replaceChildren();
+    for (const model of models) {
+      const label = document.createElement("label"); const checkbox = document.createElement("input");
+      checkbox.type = "checkbox"; checkbox.value = model.id; checkbox.checked = !hidden.has(model.id); checkbox.dataset.healthModel = model.id;
+      label.append(checkbox, document.createTextNode(model.displayName || model.id)); options.append(label);
+    }
+  } else {
+    options.querySelectorAll("[data-health-model]").forEach((checkbox) => { checkbox.checked = !hidden.has(checkbox.dataset.healthModel); });
+  }
+  byId("health-model-count").textContent = `${models.filter((model) => !hidden.has(model.id)).length} / ${models.length} MODELS`;
 }
 
 function renderRecent(records) {
@@ -1406,7 +1442,7 @@ function renderProviderCards() {
   const container = byId("provider-cards");
   if (!container) return;
   container.replaceChildren();
-  const providers = catalogProviders();
+  const providers = catalogProviders().filter((provider) => provider.configured !== false);
   for (const provider of providers) {
     const id = String(provider.id || provider.name || "unknown");
     const card = document.createElement("article");
@@ -1462,7 +1498,7 @@ function renderProviderCards() {
   if (!providers.length) {
     const empty = document.createElement("p");
     empty.className = "muted";
-    empty.textContent = "Provider status not reported by this backend.";
+    empty.textContent = "No configured provider status is available.";
     container.append(empty);
   }
 }
@@ -3343,19 +3379,20 @@ byId("auth-form").addEventListener("submit", async (event) => {
   localStorage.setItem("routetok-dashboard-token", state.token);
   byId("auth-dialog").close();
   await load();
+  if (state.apiAccessOpen) await loadClientKeys();
 });
 
-function setPageInert(overlay, inert) {
+function setPageInert(overlay, scrim, inert) {
   if (!overlay || overlay.parentElement !== document.body) return;
   if (!inert) {
-    for (const child of state.customizeInerted) child.inert = false;
-    state.customizeInerted = [];
+    for (const child of state.modalInerted) child.inert = false;
+    state.modalInerted = [];
     return;
   }
   for (const child of document.body.children) {
-    if (child === overlay || child === byId("customize-scrim") || child === byId("command-palette") || child.tagName === "SCRIPT" || child.tagName === "DIALOG" || child.inert) continue;
+    if (child === overlay || child === scrim || child === byId("command-palette") || child.tagName === "SCRIPT" || child.tagName === "DIALOG" || child.inert) continue;
     child.inert = true;
-    state.customizeInerted.push(child);
+    state.modalInerted.push(child);
   }
 }
 
@@ -3368,6 +3405,7 @@ function focusableElements(container) {
 function setChatOpen(open) {
   if (open) {
     setCustomizeOpen(false);
+    setApiAccessOpen(false);
     setConfigOpen(false);
   }
   state.chatOpen = open;
@@ -3404,6 +3442,7 @@ function setCustomizeOpen(open) {
   if (!drawer) return;
   if (open === state.customizeOpen) return;
   if (open) {
+    setApiAccessOpen(false);
     setConfigOpen(false);
     setChatOpen(false);
     state.customizeReturnFocus = document.activeElement;
@@ -3419,7 +3458,7 @@ function setCustomizeOpen(open) {
   scrim?.classList.toggle("open", open);
   scrim?.setAttribute("aria-hidden", String(!open));
   byId("open-customize")?.setAttribute("aria-expanded", String(open));
-  setPageInert(drawer, open);
+  setPageInert(drawer, scrim, open);
   if (open) {
     syncPreferenceControls();
     (focusableElements(drawer)[0] || drawer).focus();
@@ -3431,9 +3470,35 @@ function setCustomizeOpen(open) {
   }
 }
 
+function setApiAccessOpen(open) {
+  const drawer = byId("api-access"); const scrim = byId("api-access-scrim");
+  if (!drawer || open === state.apiAccessOpen) return;
+  if (open) {
+    setCustomizeOpen(false); setConfigOpen(false); setChatOpen(false);
+    state.apiAccessReturnFocus = document.activeElement;
+    state.apiAccessPreviousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+  }
+  state.apiAccessOpen = open;
+  drawer.inert = !open; drawer.classList.toggle("open", open); drawer.setAttribute("aria-hidden", String(!open));
+  scrim?.classList.toggle("open", open); scrim?.setAttribute("aria-hidden", String(!open));
+  byId("open-api-access")?.setAttribute("aria-expanded", String(open));
+  setPageInert(drawer, scrim, open);
+  if (open) {
+    void loadClientKeys();
+    byId("api-access-title").focus();
+  } else {
+    document.body.style.overflow = state.apiAccessPreviousOverflow || "";
+    state.apiAccessPreviousOverflow = null;
+    if (state.apiAccessReturnFocus?.isConnected) state.apiAccessReturnFocus.focus();
+    state.apiAccessReturnFocus = null;
+  }
+}
+
 function setConfigOpen(open) {
   if (open) {
     setCustomizeOpen(false);
+    setApiAccessOpen(false);
     setChatOpen(false);
   }
   state.configOpen = open;
@@ -3541,6 +3606,9 @@ byId("config-scrim").addEventListener("click", () => setConfigOpen(false));
 byId("open-customize")?.addEventListener("click", () => setCustomizeOpen(true));
 byId("close-customize")?.addEventListener("click", () => setCustomizeOpen(false));
 byId("customize-scrim")?.addEventListener("click", () => setCustomizeOpen(false));
+byId("open-api-access")?.addEventListener("click", () => setApiAccessOpen(true));
+byId("close-api-access")?.addEventListener("click", () => setApiAccessOpen(false));
+byId("api-access-scrim")?.addEventListener("click", () => setApiAccessOpen(false));
 
 const preferenceControls = [
   [["customize-theme", "theme-setting", "preference-theme", "theme-preference", "theme-select"], "theme"],
@@ -3548,7 +3616,9 @@ const preferenceControls = [
   [["customize-density", "density-setting", "preference-density", "density-preference", "density-select"], "density"],
   [["customize-motion", "motion-setting", "preference-motion", "motion-preference", "motion-select"], "motion"],
   [["customize-glow", "glow-setting", "preference-glow", "glow-range", "glow-slider"], "glow"],
-  [["customize-rail-side"], "inflightPlacement"]
+  [["customize-rail-side"], "inflightPlacement"],
+  [["health-model-sort"], "dashboardModelSort"],
+  [["health-model-sort-direction"], "dashboardModelSortDirection"]
 ];
 for (const [ids, key] of preferenceControls) {
   const control = firstById(...ids);
@@ -3562,6 +3632,19 @@ for (const [key, entries] of Object.entries(PREFERENCE_BUTTONS)) {
     if (!entries[button.id]) button.addEventListener("click", () => updatePreference(key, button.dataset.value));
   }
 }
+byId("health-model-options")?.addEventListener("change", (event) => {
+  const checkbox = event.target.closest("[data-health-model]");
+  if (!checkbox) return;
+  const hidden = new Set(state.preferences.hiddenDashboardModels);
+  if (checkbox.checked) hidden.delete(checkbox.dataset.healthModel); else hidden.add(checkbox.dataset.healthModel);
+  updatePreference("hiddenDashboardModels", [...hidden]);
+});
+byId("health-model-picker")?.addEventListener("click", (event) => {
+  const action = event.target.closest("[data-health-models]")?.dataset.healthModels;
+  if (!action) return;
+  const ids = [...byId("health-model-options").querySelectorAll("[data-health-model]")].map((checkbox) => checkbox.dataset.healthModel);
+  updatePreference("hiddenDashboardModels", action === "all" ? [] : ids);
+});
 firstById("reset-preferences", "reset-customize", "reset-customization", "customize-reset")?.addEventListener("click", () => {
   localStorage.removeItem(PREFERENCES_KEY);
   applyPreferences(PREFERENCE_DEFAULTS);
@@ -3917,6 +4000,52 @@ byId("open-assistant").addEventListener("click", () => {
   setChatOpen(true);
 });
 for (const id of ["open-help", "sandbox-help"]) byId(id)?.addEventListener("click", () => byId("help-dialog").showModal());
+
+async function loadClientKeys() {
+  const list = byId("client-key-list");
+  list.replaceChildren();
+  const loading = document.createElement("p"); loading.className = "muted"; loading.textContent = "Loading managed client keys…"; list.append(loading);
+  try {
+    const payload = await api("/admin/api/client-keys");
+    list.replaceChildren();
+    byId("client-key-environment").textContent = payload.environmentKeyConfigured ? "Environment PROXY_API_KEY: configured and still accepted" : "Environment PROXY_API_KEY: not configured";
+    for (const key of payload.keys || []) {
+      const row = document.createElement("article"); row.className = "client-key-row";
+      const identity = document.createElement("div"); const title = document.createElement("strong"); const created = document.createElement("small");
+      title.textContent = key.label; created.textContent = `Created ${new Date(key.createdAt).toLocaleString()} · ${key.id}`; identity.append(title, created);
+      const revoke = document.createElement("button"); revoke.type = "button"; revoke.className = "button danger"; revoke.textContent = "REVOKE"; revoke.dataset.revokeClientKey = key.id; revoke.dataset.clientKeyLabel = key.label;
+      row.append(identity, revoke); list.append(row);
+    }
+    if (!payload.keys?.length) { const empty = document.createElement("p"); empty.className = "muted"; empty.textContent = "No managed client keys. Existing environment authentication is unchanged."; list.append(empty); }
+  } catch (error) {
+    loading.textContent = error.message;
+  }
+}
+
+byId("create-client-key").addEventListener("submit", async (event) => {
+  event.preventDefault(); const label = byId("client-key-label").value.trim(); const button = event.submitter;
+  if (!label) return;
+  button.disabled = true;
+  try {
+    const payload = await api("/admin/api/client-keys", { method: "POST", body: JSON.stringify({ label }) });
+    state.clientKeySecret = payload.secret; byId("client-key-secret-value").textContent = payload.secret; byId("client-key-secret").hidden = false; byId("client-key-label").value = "";
+    await loadClientKeys(); byId("copy-client-key").focus(); notify("Client API key created. Copy it now; it will not be shown again.", true);
+  } catch (error) { notify(error.message); }
+  finally { button.disabled = false; }
+});
+byId("client-key-list").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-revoke-client-key]"); if (!button) return;
+  if (!confirm(`Revoke client key “${button.dataset.clientKeyLabel}”? Applications using it will immediately lose access.`)) return;
+  button.disabled = true;
+  try { await api(`/admin/api/client-keys/${encodeURIComponent(button.dataset.revokeClientKey)}`, { method: "DELETE" }); await loadClientKeys(); notify("Client API key revoked.", true); }
+  catch (error) { notify(error.message); button.disabled = false; }
+});
+byId("copy-client-key").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(state.clientKeySecret || ""); notify("Client API key copied.", true); }
+  catch { notify("Clipboard access was unavailable. Select the key manually."); }
+});
+byId("dismiss-client-key").addEventListener("click", () => { state.clientKeySecret = ""; byId("client-key-secret-value").textContent = ""; byId("client-key-secret").hidden = true; });
+
 byId("open-api-keys").addEventListener("click", () => {
   renderApiKeyManager();
   byId("api-keys-dialog").showModal();
@@ -4183,13 +4312,14 @@ function isTyping() {
 }
 
 document.addEventListener("keydown", (event) => {
+  if (document.querySelector("dialog[open]")) return;
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
     event.preventDefault();
     setCommandOpen(!state.commandOpen);
     return;
   }
-  if (event.key === "Tab" && state.customizeOpen) {
-    const focusable = focusableElements(byId("customize-drawer"));
+  if (event.key === "Tab" && (state.customizeOpen || state.apiAccessOpen)) {
+    const focusable = focusableElements(byId(state.apiAccessOpen ? "api-access" : "customize-drawer"));
     if (!focusable.length) return;
     const first = focusable[0];
     const last = focusable.at(-1);
@@ -4208,6 +4338,7 @@ document.addEventListener("keydown", (event) => {
       focusedResult.classList.remove("focused-result");
       focusedResult.querySelector('[data-result-action="focus-result"]')?.setAttribute("aria-pressed", "false");
     } else if (state.commandOpen) setCommandOpen(false);
+    else if (state.apiAccessOpen) setApiAccessOpen(false);
     else if (state.customizeOpen) setCustomizeOpen(false);
     else if (state.configOpen) setConfigOpen(false);
     else if (state.chatOpen) setChatOpen(false);
@@ -4234,7 +4365,10 @@ motionMedia.addEventListener("change", () => {
   if (state.preferences.motion === "system") applyPreferences(state.preferences);
 });
 document.addEventListener("routetok:preferenceschange", () => {
-  if (state.status && byId("history-range")) renderHistory();
+  if (state.status && byId("history-range")) {
+    renderHistory();
+    renderHealth(state.status.catalog, state.status.metrics, state.status.config);
+  }
 });
 
 if (document.documentElement.classList.contains("focus-mode")) {

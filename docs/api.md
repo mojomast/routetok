@@ -21,6 +21,14 @@ Response metadata includes `x-request-id`, `x-router-model`, `x-router-route`, `
 
 Admin endpoints under `/admin/api/` require `DASHBOARD_TOKEN` when configured. They cover status, deterministic readiness, history, live requests, catalogs, credits, configuration, proposals, sandbox inference, retained request inspection, credentials, and circuit reset.
 
+Managed proxy client keys require a configured `DASHBOARD_TOKEN`:
+
+- `GET /admin/api/client-keys` lists key IDs, labels, creation times, and whether the environment key is configured.
+- `POST /admin/api/client-keys` accepts `{ "label": "..." }`, creates a high-entropy client key, and returns its secret exactly once.
+- `DELETE /admin/api/client-keys/:id` immediately revokes one managed key.
+
+Only SHA-256 digests are persisted. Managed keys and the environment `PROXY_API_KEY` are both accepted by OpenAI and Anthropic-compatible inference endpoints.
+
 `POST /admin/api/sandbox` accepts an optional `parameters.maxOutputMiB` integer from 1 to 64. The default remains 4 MiB. This changes only the bounded response bytes accepted by the authenticated sandbox runner; it is not forwarded to providers and does not change `max_tokens`.
 
 Arena speech endpoints are also protected by dashboard authentication:

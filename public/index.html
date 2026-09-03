@@ -12,7 +12,7 @@
         try {
           const key = "routetok-dashboard-preferences";
           const parsed = JSON.parse(localStorage.getItem(key) || localStorage.getItem("agentrouter-dashboard-preferences") || "null");
-          if (parsed && [1, 2, 3].includes(parsed.version)) saved = { ...defaults, ...parsed };
+          if (parsed && [1, 2, 3, 4, 5].includes(parsed.version)) saved = { ...defaults, ...parsed };
         } catch (_) {}
         try {
           const oneOf = (value, values, fallback) => values.includes(value) ? value : fallback;
@@ -44,7 +44,7 @@
         } catch (_) {}
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20260903-support1">
+    <link rel="stylesheet" href="/styles.css?v=20260903-support2">
   </head>
   <body>
     <a class="skip-link" href="#dashboard-main">SKIP TO MAIN CONTENT</a>
@@ -64,7 +64,7 @@
         </div>
         <div class="masthead-actions" aria-label="Dashboard actions">
           <button id="open-assistant" class="button primary-button" type="button" aria-controls="chat-drawer" aria-expanded="false">SUPPORT AGENT</button>
-          <a class="button secondary" href="#api-access">API SETUP</a>
+          <button id="open-api-access" class="button secondary" type="button" aria-controls="api-access" aria-expanded="false" aria-haspopup="dialog">API SETUP</button>
           <button id="open-help" class="button secondary" type="button">HELP</button>
           <button id="open-api-keys" class="button secondary" type="button">API KEYS</button>
           <button id="open-config" class="button secondary" type="button" aria-controls="config-drawer" aria-expanded="false">SETTINGS</button>
@@ -93,6 +93,15 @@
 
     <main id="dashboard-main">
       <section id="notice" class="notice hidden" role="alert"></section>
+
+      <section class="telemetry-strip runtime-telemetry" aria-label="Runtime telemetry">
+        <article><span>UPTIME</span><strong id="uptime">--</strong></article>
+        <article><span>NODE</span><strong id="node-version">--</strong></article>
+        <article><span>PROVIDERS</span><strong id="upstream">--</strong></article>
+        <article><span>CLIENT AUTH</span><strong id="client-auth">--</strong></article>
+        <article><span>CATALOG</span><strong><b id="model-count">0</b> models / <b id="catalog-source">fallback data</b></strong></article>
+        <article><span>CATALOG SYNC</span><strong id="catalog-sync">--</strong></article>
+      </section>
 
       <section class="overview" aria-label="Router totals">
         <article class="metric-card primary">
@@ -139,18 +148,6 @@
         <article><span>ATTEMPTS / REQUEST</span><strong id="attempts-per-request">--</strong></article>
         <article><span>FALLBACK RATE</span><strong id="fallback-rate">--</strong></article>
         <article><span>FAILURES</span><strong id="failure-count">0</strong></article>
-      </section>
-
-      <section id="api-access" class="panel api-access-panel" aria-labelledby="api-access-title">
-        <div class="panel-heading compact">
-          <div><p class="section-index">API / CLIENT ACCESS</p><h2 id="api-access-title">Connect Applications</h2></div>
-          <button id="manage-api-keys" class="button primary-button" type="button">MANAGE PROVIDER KEYS</button>
-        </div>
-        <div class="api-access-grid">
-          <article class="api-access-card api-access-summary"><span>OPENAI-COMPATIBLE BASE URL</span><strong id="api-base-url">/v1</strong><p>Use RouteTok as the base URL in OpenAI-compatible clients. Choose <code>best</code>, <code>auto</code>, <code>free</code>, a custom cascade, or a namespaced physical model.</p><div class="api-auth-state"><span>CLIENT AUTH</span><strong id="api-client-auth">CHECKING</strong></div></article>
-          <article class="api-access-card"><span>ENDPOINTS</span><ul><li><code>GET /v1/models</code></li><li><code>POST /v1/chat/completions</code></li><li><code>POST /v1/responses</code></li><li><code>POST /v1/messages</code></li></ul><p><code>PROXY_API_KEY</code> authenticates client inference. Provider keys are separate, write-only upstream credentials.</p></article>
-          <article class="api-access-card api-example-card"><div><span>QUICK START</span><button class="button secondary" type="button" data-copy-api="curl">COPY</button></div><pre id="api-curl-example"></pre></article>
-        </div>
       </section>
 
       <div id="inflight-main-slot" class="inflight-main-slot"></div>
@@ -213,14 +210,19 @@
         </div>
       </section>
 
-      <div class="layout">
-        <section class="panel health-panel">
+      <section class="panel health-panel">
           <div class="panel-heading">
             <div>
               <p class="section-index">02 / MODEL FABRIC</p>
               <h2>Route Health</h2>
             </div>
-            <button id="refresh-catalog" class="button secondary" type="button">REFRESH CATALOG</button>
+            <div class="health-actions">
+              <label><span>SORT</span><select id="health-model-sort"><option value="catalog">Catalog order</option><option value="name">Model name</option><option value="state">State</option><option value="success">Success rate</option><option value="latency">Latency</option><option value="attempts">Attempts</option><option value="tokens">Tokens</option><option value="cost">Cost</option></select></label>
+              <label><span>DIRECTION</span><select id="health-model-sort-direction"><option value="asc">Ascending</option><option value="desc">Descending</option></select></label>
+              <details id="health-model-picker" class="health-model-picker"><summary><span id="health-model-count">MODELS</span></summary><fieldset id="health-model-options"><legend class="sr-only">Models displayed in Route Health</legend></fieldset><div><button class="button secondary" type="button" data-health-models="all">SHOW ALL</button><button class="button secondary" type="button" data-health-models="none">HIDE ALL</button></div></details>
+              <button id="refresh-catalog" class="button secondary" type="button">REFRESH CATALOG</button>
+              <button id="reset-circuits" class="button danger" type="button">RESET HEALTH STATE</button>
+            </div>
           </div>
           <div class="table-wrap">
             <table>
@@ -241,26 +243,7 @@
               <tbody id="health-table"></tbody>
             </table>
           </div>
-        </section>
-
-        <aside class="panel system-panel">
-          <div class="panel-heading compact">
-            <div>
-              <p class="section-index">02 / SYSTEM</p>
-              <h2>Runtime</h2>
-            </div>
-          </div>
-          <dl class="system-list">
-            <div><dt>UPTIME</dt><dd id="uptime">--</dd></div>
-            <div><dt>NODE</dt><dd id="node-version">--</dd></div>
-            <div><dt>PROVIDERS</dt><dd id="upstream">--</dd></div>
-            <div><dt>CLIENT AUTH</dt><dd id="client-auth">--</dd></div>
-            <div><dt>CATALOG</dt><dd><span id="model-count">0</span> models / <span id="catalog-source">fallback data</span></dd></div>
-            <div><dt>CATALOG SYNC</dt><dd id="catalog-sync">--</dd></div>
-          </dl>
-          <button id="reset-circuits" class="button danger" type="button">RESET HEALTH STATE</button>
-        </aside>
-      </div>
+      </section>
 
       <section id="config-drawer" class="panel config-panel config-drawer" aria-hidden="true">
         <div id="config-resize-handle" class="config-resize-handle" aria-hidden="true"></div>
@@ -401,6 +384,19 @@
         <div id="request-list" class="request-list"></div>
       </section>
     </main>
+
+    <aside id="api-access" class="api-access-drawer" role="dialog" aria-modal="true" aria-labelledby="api-access-title" aria-hidden="true" inert>
+      <header class="api-access-header"><div><p class="section-index">API / CLIENT ACCESS</p><h2 id="api-access-title" tabindex="-1">Connect Applications</h2></div><div class="api-access-actions"><button id="manage-api-keys" class="button primary-button" type="button">MANAGE PROVIDER KEYS</button><button id="close-api-access" class="button secondary" type="button">CLOSE</button></div></header>
+      <div class="api-access-drawer-body">
+        <section class="client-key-manager" aria-labelledby="client-key-title"><div><p class="section-index">ROUTETOK CLIENT AUTH</p><h3 id="client-key-title">Proxy API Keys</h3><p>Generated keys authenticate applications calling RouteTok. Secrets are shown once and stored only as hashes.</p></div><form id="create-client-key"><label for="client-key-label">KEY LABEL<input id="client-key-label" maxlength="80" placeholder="Laptop, CI, coding agent…" required></label><button class="button primary-button" type="submit">CREATE KEY</button></form><p id="client-key-environment" class="client-key-environment"></p><div id="client-key-list" class="client-key-list"></div><div id="client-key-secret" class="client-key-secret" hidden><strong>NEW KEY / COPY IT NOW</strong><code id="client-key-secret-value"></code><div><button id="copy-client-key" class="button primary-button" type="button">COPY KEY</button><button id="dismiss-client-key" class="button secondary" type="button">I SAVED IT</button></div></div></section>
+        <div class="api-access-grid">
+        <article class="api-access-card api-access-summary"><span>OPENAI-COMPATIBLE BASE URL</span><strong id="api-base-url">/v1</strong><p>Use RouteTok as the base URL in OpenAI-compatible clients. Choose <code>best</code>, <code>auto</code>, <code>free</code>, a custom cascade, or a namespaced physical model.</p><div class="api-auth-state"><span>CLIENT AUTH</span><strong id="api-client-auth">CHECKING</strong></div></article>
+        <article class="api-access-card"><span>ENDPOINTS</span><ul><li><code>GET /v1/models</code></li><li><code>POST /v1/chat/completions</code></li><li><code>POST /v1/responses</code></li><li><code>POST /v1/messages</code></li></ul><p><code>PROXY_API_KEY</code> authenticates client inference. Provider keys are separate, write-only upstream credentials.</p></article>
+        <article class="api-access-card api-example-card"><div><span>QUICK START</span><button class="button secondary" type="button" data-copy-api="curl">COPY</button></div><pre id="api-curl-example"></pre></article>
+        </div>
+      </div>
+    </aside>
+    <div id="api-access-scrim" class="api-access-scrim" aria-hidden="true"></div>
 
     <aside id="customize-drawer" class="customize-drawer" role="dialog" aria-modal="true" aria-labelledby="customize-title" aria-hidden="true" inert>
       <header class="customize-header">
@@ -643,6 +639,6 @@
       <form method="dialog"><p class="section-index">SECURE CREDENTIAL INGRESS</p><h2 id="api-keys-title">Provider API Keys</h2><p>Values are write-only and never displayed again. Stored overrides use <code>DATA_DIR/secrets</code> with owner-only permissions.</p><div id="api-key-manager" class="api-key-manager"></div><button class="button secondary" value="close">CLOSE</button></form>
     </dialog>
 
-    <script type="module" src="/app.js?v=20260903-support1"></script>
+    <script type="module" src="/app.js?v=20260903-support2"></script>
   </body>
 </html>

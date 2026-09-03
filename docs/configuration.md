@@ -12,6 +12,8 @@ Copy `.env.example` to `.env`. RouteTok uses Node's environment-file support and
 | `DASHBOARD_TOKEN` | empty | Dashboard/admin authentication |
 | `DATA_DIR` | `./data` | Runtime state directory |
 
+`PROXY_API_KEY` remains the baseline client credential and is useful for bootstrap and recovery. Once `DASHBOARD_TOKEN` is configured, API Setup can create additional labelled client keys without changing the environment or restarting RouteTok. Managed keys are additive and individually revocable.
+
 Every provider has an `*_API_KEY` and optional `*_BASE_URL`; see `.env.example`. Dashboard-managed keys override environment values. Deleting a stored key creates a tombstone that suppresses environment fallback, except OpenCode which returns to `public`.
 
 ## Local Transcription

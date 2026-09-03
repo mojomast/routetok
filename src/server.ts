@@ -5,6 +5,7 @@ import path from "node:path";
 import { AdminAudioService } from "./admin-audio.js";
 import { AdminImageService } from "./admin-images.js";
 import { CatalogService, isFreeExternalCatalogModel, isTextGenerationModel } from "./catalog.js";
+import { ClientApiKeyStore } from "./client-api-keys.js";
 import { ConfigStore } from "./config.js";
 import { CreditsService } from "./credits.js";
 import { MetricsStore } from "./metrics.js";
@@ -45,6 +46,8 @@ const dashboardToken = process.env.DASHBOARD_TOKEN?.trim() || "";
 const dataDir = path.resolve(process.env.DATA_DIR?.trim() || "./data");
 const publicDir = path.resolve("./public");
 const internalSandboxToken = randomUUID();
+const clientApiKeys = new ClientApiKeyStore(dataDir);
+await clientApiKeys.load();
 
 function genericBaseUrl(value: string): string {
   if (!value) return "";
@@ -60,8 +63,8 @@ if (!Number.isInteger(port) || port < 1 || port > 65_535) {
   console.error("PORT must be an integer between 1 and 65535.");
   process.exit(1);
 }
-if (!["127.0.0.1", "localhost", "::1"].includes(host) && !proxyApiKey) {
-  console.error("PROXY_API_KEY is required when HOST is not loopback-only.");
+if (!["127.0.0.1", "localhost", "::1"].includes(host) && !proxyApiKey && !clientApiKeys.hasKeys()) {
+  console.error("A PROXY_API_KEY or managed client API key is required when HOST is not loopback-only.");
   process.exit(1);
 }
 
@@ -113,9 +116,11 @@ function bearerToken(request: IncomingMessage): string {
 }
 
 function inferenceAuthorized(request: IncomingMessage): boolean {
-  if (!proxyApiKey) return isLoopback(request.socket.remoteAddress);
+  if (!proxyApiKey && !clientApiKeys.hasKeys()) return isLoopback(request.socket.remoteAddress);
   const anthropicKey = request.headers["x-api-key"];
-  return bearerToken(request) === proxyApiKey || anthropicKey === proxyApiKey;
+  const bearer = bearerToken(request);
+  const anthropic = typeof anthropicKey === "string" ? anthropicKey : "";
+  return Boolean(proxyApiKey && (bearer === proxyApiKey || anthropic === proxyApiKey)) || clientApiKeys.matches(bearer) || clientApiKeys.matches(anthropic);
 }
 
 function dashboardAuthorized(request: IncomingMessage): boolean {
@@ -428,7 +433,7 @@ function readinessProjection(): object {
   if (credits.get().some((entry) => entry.supported && (entry.error || !entry.fetchedAt))) recommendedNextActions.push("review_credit_status");
   if (!recommendedNextActions.length) recommendedNextActions.push("ready");
   return {
-    authentication: { proxyEnabled: Boolean(proxyApiKey), dashboardEnabled: Boolean(dashboardToken) },
+    authentication: { proxyEnabled: Boolean(proxyApiKey) || clientApiKeys.hasKeys(), dashboardEnabled: Boolean(dashboardToken) },
     catalog: {
       state: catalogStatus.source,
       ageSeconds: catalogAgeSeconds,
@@ -472,7 +477,7 @@ function dashboardAssistantContext(needs: DiagnosticNeed[], historyLimit = 75): 
   if (needs.includes("runtime")) context.runtime = {
       uptimeSeconds: Math.round(process.uptime()),
       node: process.version,
-      proxyAuthenticationEnabled: Boolean(proxyApiKey),
+      proxyAuthenticationEnabled: Boolean(proxyApiKey) || clientApiKeys.hasKeys(),
       dashboardAuthenticationEnabled: Boolean(dashboardToken)
     };
   if (needs.includes("config")) context.config = config.get();
@@ -1067,7 +1072,7 @@ const server = createServer(async (request, response) => {
         ? "openai"
         : null;
     if (request.method === "POST" && protocol) {
-      if (!proxyApiKey && !browserOriginAllowed(request)) {
+      if (!proxyApiKey && !clientApiKeys.hasKeys() && !browserOriginAllowed(request)) {
         return json(response, 403, { error: "Cross-origin inference is not allowed" });
       }
       if (!inferenceAuthorized(request)) return unauthorized(response, protocol);
@@ -1162,7 +1167,8 @@ const server = createServer(async (request, response) => {
             node: process.version,
             baseUrl,
             providers: providerStatus(),
-            proxyAuthenticationEnabled: Boolean(proxyApiKey),
+            proxyAuthenticationEnabled: Boolean(proxyApiKey) || clientApiKeys.hasKeys(),
+            managedProxyKeyCount: clientApiKeys.list().length,
             dashboardAuthenticationEnabled: Boolean(dashboardToken),
             historyAvailable: true,
             liveUpdatesAvailable: true
@@ -1181,6 +1187,28 @@ const server = createServer(async (request, response) => {
 
       if (request.method === "GET" && pathname === "/admin/api/readiness") {
         json(response, 200, readinessProjection());
+        return;
+      }
+
+      if (pathname === "/admin/api/client-keys" && (request.method === "GET" || request.method === "POST")) {
+        if (!dashboardToken) return json(response, 503, { error: "Client API key management requires DASHBOARD_TOKEN" });
+        try {
+          if (request.method === "GET") json(response, 200, { keys: clientApiKeys.list(), environmentKeyConfigured: Boolean(proxyApiKey) });
+          else json(response, 201, await clientApiKeys.create(await readJson(request)));
+        } catch (error) {
+          json(response, 400, { error: (error as Error).message });
+        }
+        return;
+      }
+
+      const clientKeyMatch = pathname.match(/^\/admin\/api\/client-keys\/([0-9a-f-]{36})$/i);
+      if (request.method === "DELETE" && clientKeyMatch) {
+        if (!dashboardToken) return json(response, 503, { error: "Client API key management requires DASHBOARD_TOKEN" });
+        try {
+          json(response, 200, { revoked: await clientApiKeys.revoke(clientKeyMatch[1]!) });
+        } catch (error) {
+          json(response, (error as Error).message.includes("not found") ? 404 : 400, { error: (error as Error).message });
+        }
         return;
       }
 

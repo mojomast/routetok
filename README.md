@@ -98,7 +98,13 @@ Ready-to-adapt client examples are in [`examples/`](examples/).
 
 ## Dashboard
 
-The dashboard is the control plane for provider readiness, write-only credentials, enabled models, route order, custom cascades, circuit state, live requests, usage history, and costs. Its sole conversational workspace is RouteTok Support, which retrieves only bounded, allowlisted operational resources and cannot access secrets, files, shell commands, or raw retained request bodies. The Connect Applications section documents client endpoints, proxy authentication, and provider-key management; general Chat, Compare, Room, Images, Evaluate, and Studio work remain in the standalone Fieldbook.
+The dashboard is the control plane for provider readiness, write-only credentials, enabled models, route order, custom cascades, circuit state, live requests, usage history, and costs. Runtime status sits above the main telemetry, and the full-width Route Health table has browser-local model visibility and sorting controls. Configuration status cards show only configured providers.
+
+![Customizable RouteTok model health table](docs/images/dashboard-models.png)
+
+Its sole conversational workspace is RouteTok Support, which retrieves only bounded, allowlisted operational resources and cannot access secrets, files, shell commands, or raw retained request bodies. API Setup opens as a dismissible drawer with client endpoints, generated revocable proxy API keys, environment-key status, and separate write-only provider credential management. General Chat, Compare, Room, Images, Evaluate, and Studio work remain in the standalone Fieldbook.
+
+![RouteTok API setup and proxy key management drawer](docs/images/dashboard-api-setup.png)
 
 [Read the Dashboard guide](docs/dashboard.md) for configuration and operational workflow details.
 
@@ -106,6 +112,7 @@ The dashboard is the control plane for provider readiness, write-only credential
 
 - RouteTok binds to `127.0.0.1` by default.
 - Provider credentials stay server-side and stored overrides use owner-only filesystem permissions.
+- Managed client API keys are shown once and persisted only as hashes; the environment `PROXY_API_KEY` remains supported.
 - Metrics persist routing metadata and usage, not prompt or response bodies.
 - Authenticated request inspection is bounded and memory-only.
 - Fieldbook content remains in the current browser's IndexedDB until deleted or site data is cleared.

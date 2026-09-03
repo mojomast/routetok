@@ -24,6 +24,7 @@ Provider catalogs, credits, routing configuration, metrics, dashboard content, a
 - `DATA_DIR/config.json`: routing policy, mode `0600`
 - `DATA_DIR/metrics.json`: bounded usage metadata/history, mode `0600`
 - `DATA_DIR/secrets/provider-credentials.json`: optional write-only overrides, directory `0700`, file `0600`
+- `DATA_DIR/secrets/client-api-keys.json`: hashes and metadata for managed proxy client keys, mode `0600`
 - Dashboard IndexedDB: saved arena runs and designs
 - Fieldbook IndexedDB: notes, text results, evaluations, Room state, scratchpad revisions, and virtual Studio projects
 - Process memory: health circuits, catalogs, credits cache, in-flight requests, bounded request-content inspection

@@ -17,8 +17,14 @@ The dashboard exposes:
 - Active requests, route attempts, circuit state, failures, and bounded request inspection
 - Historical request counts, latency, TTFT, throughput, token/cache usage, and provider-reported cost
 - Theme, layout, chart, and workspace controls stored in the browser
+- Top-level runtime, provider, authentication, and catalog status without a separate System card
+- Browser-local Route Health sorting and per-model visibility controls
+
+Configuration provider cards omit providers that are explicitly unconfigured, keeping the Model Manager focused on active integrations. Model catalog filtering and API-key setup still expose every supported provider so a hidden status card never blocks onboarding.
 
 Provider credentials entered through the dashboard are write-only. RouteTok stores them under `DATA_DIR/secrets/provider-credentials.json` with an owner-only directory and file permissions and never returns key material to the browser.
+
+![Customizable Route Health table](images/dashboard-models.png)
 
 ## Support Agent
 
@@ -28,15 +34,18 @@ Support retrieves only the bounded operational resources required for the curren
 
 ## API Setup
 
-The Connect Applications panel keeps client setup visible beside operational telemetry. It provides:
+The masthead API Setup button opens a dismissible, focus-contained Connect Applications drawer. It provides:
 
 - The origin-derived OpenAI-compatible `/v1` base URL
 - Chat Completions, Responses, Anthropic Messages, and model-list endpoint references
 - A copyable curl example that reads `ROUTETOK_PROXY_KEY` from the caller's environment
 - Current client-authentication status without exposing `PROXY_API_KEY`
 - Direct access to write-only upstream provider credential management
+- Generated, labelled, individually revocable RouteTok client keys
 
-Client authentication and provider credentials are separate. `PROXY_API_KEY` protects inference calls and remains startup-managed through the server environment. Provider credentials authorize RouteTok to call upstream services and can be replaced or disabled through the dashboard without ever being returned to the browser.
+![API Setup and proxy key management](images/dashboard-api-setup.png)
+
+Client authentication and provider credentials are separate. The environment `PROXY_API_KEY` remains accepted for existing clients. Managed client keys are generated with high entropy, displayed once, and stored only as SHA-256 hashes under `DATA_DIR/secrets/client-api-keys.json`; revocation takes effect immediately. Provider credentials authorize RouteTok to call upstream services and can be replaced or disabled through the dashboard without ever being returned to the browser.
 
 ## Dashboard And Fieldbook
 

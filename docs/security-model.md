@@ -6,6 +6,7 @@ RouteTok is designed for a trusted single-user host and defaults to loopback.
 
 - Set both `PROXY_API_KEY` and `DASHBOARD_TOKEN` before network exposure.
 - Provider keys are replaced server-side and never accepted from inference callers.
+- Managed proxy client keys are generated with high entropy, shown once, and persisted only as SHA-256 digests. Individual revocation is immediate.
 - Dashboard key ingress is write-only and persists plaintext under owner-only permissions.
 - Base URL environment overrides are trusted operator configuration and can exfiltrate provider credentials if malicious.
 - The generic endpoint remains startup-only; private HTTP access requires explicit opt-in.
