@@ -64,6 +64,11 @@ function plainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function transcriptionBody(bytes: Buffer): ArrayBufferView<ArrayBuffer> {
+  if (bytes.buffer instanceof SharedArrayBuffer) return new Uint8Array(bytes);
+  return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+}
+
 async function readIncoming(request: IncomingMessage, maximum: number, signal?: AbortSignal): Promise<Buffer> {
   const declared = Number(request.headers["content-length"]);
   if (Number.isFinite(declared) && declared > maximum) throw new AudioHttpError(413, "Request body is too large");
@@ -359,7 +364,7 @@ export class AdminAudioService {
       const bytes = await readIncoming(request, MAX_TRANSCRIPTION_BODY_BYTES, lifecycle.controller.signal);
       let form: FormData;
       try {
-        form = await new Request("http://localhost/", { method: "POST", headers: { "content-type": contentType }, body: Uint8Array.from(bytes).buffer }).formData();
+        form = await new Request("http://localhost/", { method: "POST", headers: { "content-type": contentType }, body: transcriptionBody(bytes) }).formData();
       } catch {
         throw new AudioHttpError(400, "Transcription body must be valid multipart form data");
       }
