@@ -250,7 +250,7 @@ function diagnosticHeaders(
   };
 }
 
-function extractUsage(value: Record<string, unknown>): TokenUsage {
+export function extractUsage(value: Record<string, unknown>): TokenUsage {
   const usage = value.usage && typeof value.usage === "object"
     ? (value.usage as Record<string, unknown>)
     : {};
@@ -269,7 +269,7 @@ function extractUsage(value: Record<string, unknown>): TokenUsage {
   const inputDetails = usage.input_tokens_details && typeof usage.input_tokens_details === "object"
     ? usage.input_tokens_details as Record<string, unknown>
     : {};
-  const reportedCostUsd = usage.cost === undefined ? null : decimalValue(usage.cost);
+  const reportedCostUsd = decimalCostUsd(usage.cost);
   return {
     input: numberValue(usage.prompt_tokens) || numberValue(usage.input_tokens),
     output: numberValue(usage.completion_tokens) || numberValue(usage.output_tokens),
@@ -309,6 +309,15 @@ function numberValue(value: unknown): number {
 function decimalValue(value: unknown): number {
   const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : 0;
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function decimalCostUsd(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
 }
 
 function parseSuccessfulJson(bytes: Buffer): JsonPayload {
