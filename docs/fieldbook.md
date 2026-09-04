@@ -48,7 +48,7 @@ Attachments are frozen at dispatch, labelled with provenance and revision, displ
 
 ![Fieldbook Room workspace](images/fieldbook-room.png)
 
-Room supports two to four collaborators with independent names, models, personalities, and private system prompts. Automatic replies alternate under a visible 0-30 turn budget and 10-300 second per-turn deadline. User interjections consume no automatic turns. Escape, leaving Room, changing notes, or reloading pauses active work.
+Room supports two to four collaborators with independent names, models, personalities, and private system prompts. Automatic replies alternate under a visible 0-30 turn budget and 10-300 second per-turn deadline. A turn is refunded when the provider or deadline fails (transport errors, exhausted fallback chains, and per-turn duration timeouts), while a user-caused pause or stop consumes the in-flight turn. User interjections consume no automatic turns. Escape, leaving Room, changing notes, or reloading pauses active work.
 
 The shared scratchpad is a separate revisioned browser-local document. Scratchpad, Code, and Canvas use the same presentation model: pin as a column, open as a modeless drawer, or minimize to the utility rail. Clicking a minimized utility opens its drawer, where it can be pinned or minimized again. Multiple drawers may remain open together. Valid fenced unified diffs can be reviewed and applied manually; Room may auto-apply them when explicitly enabled. No scratchpad operation writes to the filesystem.
 
