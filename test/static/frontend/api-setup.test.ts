@@ -3,12 +3,22 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const files = {
-  apiSetup: "public/api-setup.js"
+  apiSetup: "public/api-setup.js",
+  dashboardHtml: "public/index.html",
+  dashboard: "public/app.js"
 } as const;
 
 async function loadApiSetup(): Promise<string> {
   return readFile(files.apiSetup, "utf8");
 }
+
+test("dashboard loads and mounts the ApiSetup module from the guide dialog", async () => {
+  const [html, script] = await Promise.all([readFile(files.dashboardHtml, "utf8"), readFile(files.dashboard, "utf8")]);
+  assert.match(html, /<script defer src="\/api-setup\.js/);
+  assert.match(html, /id="api-setup-root"/);
+  assert.match(script, /mountDashboardModule\("ApiSetup", "api-setup-root"/);
+  assert.match(script, /window\[globalName\]\.mount\(root, options\)/);
+});
 
 test("api setup exposes a mountable drawer module", async () => {
   const script = await loadApiSetup();

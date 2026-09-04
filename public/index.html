@@ -594,7 +594,19 @@
           <section><h3>Saved</h3><p>Support runs are stored in IndexedDB. Older Chat and Design records remain available as legacy archives, but those workspaces are no longer provided by this dashboard.</p></section>
           <section><h3>Live Flow</h3><p>Shows model, route phase, attempts, elapsed time, TTFT, estimated tokens, and tokens per second. The hold slider controls how long finished rows remain.</p></section>
           <section><h3>API Keys</h3><p>Keys are write-only. They are sent to this router, stored under owner-only filesystem permissions, never returned to the browser, and take effect for future requests.</p></section>
-        </div><button class="button primary-button" value="close">CLOSE GUIDE</button>
+        </div>
+        <section class="help-tools" aria-label="Onboarding, API reference, and diagnostics">
+          <div class="help-tool" id="help-onboarding-host">
+            <div id="onboarding-root" class="help-tool-body"></div>
+          </div>
+          <div class="help-tool" id="help-api-setup-host">
+            <div id="api-setup-root" class="help-tool-body"></div>
+          </div>
+          <div class="help-tool" id="help-attempt-inspector-host">
+            <div id="attempt-inspector-root" class="help-tool-body"></div>
+          </div>
+        </section>
+        <button class="button primary-button" value="close">CLOSE GUIDE</button>
       </form>
     </dialog>
 

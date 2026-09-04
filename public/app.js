@@ -4047,6 +4047,34 @@ byId("open-assistant").addEventListener("click", () => {
 });
 for (const id of ["open-help", "sandbox-help"]) byId(id)?.addEventListener("click", () => byId("help-dialog").showModal());
 
+function moduleFetch(path, options = {}) {
+  return fetch(path, {
+    ...options,
+    headers: { ...headers(Boolean(options.body)), ...(options.headers || {}) }
+  }).then((response) => {
+    if (response.status === 401) byId("auth-dialog").showModal();
+    return response;
+  });
+}
+function mountDashboardModule(globalName, rootId, options = {}) {
+  const root = byId(rootId);
+  if (!root || !window[globalName] || typeof window[globalName].mount !== "function") return;
+  window[globalName].mount(root, options);
+}
+mountDashboardModule("Onboarding", "onboarding-root", {
+  fetchWithAuth: (path) => moduleFetch(path).then((response) => {
+    if (!response.ok) throw new Error(response.status === 401 ? "Dashboard authentication required" : `HTTP ${response.status}`);
+    return response.json();
+  })
+});
+mountDashboardModule("ApiSetup", "api-setup-root", {
+  fetchWithAuth: moduleFetch,
+  onManageProviderCredentials: () => byId("open-api-keys")?.click()
+});
+mountDashboardModule("AttemptInspector", "attempt-inspector-root", {
+  fetchWithAuth: moduleFetch
+});
+
 async function loadClientKeys() {
   const list = byId("client-key-list");
   list.replaceChildren();

@@ -56,11 +56,15 @@ Client authentication and provider credentials are separate. The environment `PR
 
 ## Attempt Inspector
 
-The dashboard loads `window.AttemptInspector` from `/attempt-inspector.js`. Paste an `x-router-attempt-summary` value to decode it locally, or pick a retained request via `GET /admin/api/live` and `GET /admin/api/history?limit=100`. Generated curl replay commands redact secret headers before display or copy.
+The dashboard loads `window.AttemptInspector` from `/attempt-inspector.js` and mounts it in the Guide dialog (the Help button). Paste an `x-router-attempt-summary` value to decode it locally, or pick a retained request via `GET /admin/api/live` and `GET /admin/api/history?limit=100`. Generated curl replay commands redact secret headers before display or copy.
 
 ## API Setup Test Request
 
-The dashboard loads `window.ApiSetup` from `/api-setup.js`. The Connect Applications drawer pastes a client key once, sends a `GET /v1/models` test request with `Authorization: Bearer <key>`, and reports the advertised model count. An HTTP 401 shows key-remediation guidance without ever displaying secret values.
+The dashboard loads `window.ApiSetup` from `/api-setup.js` and mounts it in the Guide dialog. The Connect Applications drawer pastes a client key once, sends a `GET /v1/models` test request with `Authorization: Bearer <key>`, and reports the advertised model count. An HTTP 401 shows key-remediation guidance without ever displaying secret values.
+
+## Onboarding Wizard
+
+The dashboard loads `window.Onboarding` from `/onboarding.js` and mounts the read-only wizard in the Guide dialog. See [Onboarding](onboarding.md) for the five-step flow.
 
 ## Model Visibility Reasons
 

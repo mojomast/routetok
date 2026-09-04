@@ -139,3 +139,10 @@ test("curl builder redacts Authorization and secret headers", async () => {
   assert.doesNotMatch(command, /dashboard-secret/);
   assert.match(command, /content-type/);
 });
+
+test("dashboard loads and mounts the Attempt Inspector from the guide dialog", async () => {
+  const [html, script] = await Promise.all([readFile("public/index.html", "utf8"), readFile("public/app.js", "utf8")]);
+  assert.match(html, /<script defer src="\/attempt-inspector\.js/);
+  assert.match(html, /id="attempt-inspector-root"/);
+  assert.match(script, /mountDashboardModule\("AttemptInspector", "attempt-inspector-root"/);
+});

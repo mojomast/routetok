@@ -8,6 +8,13 @@ const files = {
   fieldbook: "public/sandbox.js"
 } as const;
 
+test("dashboard loads and mounts the Onboarding wizard from the guide dialog", async () => {
+  const [html, script] = await Promise.all([readFile("public/index.html", "utf8"), readFile("public/app.js", "utf8")]);
+  assert.match(html, /<script defer src="\/onboarding\.js/);
+  assert.match(html, /id="onboarding-root"/);
+  assert.match(script, /mountDashboardModule\("Onboarding", "onboarding-root"/);
+});
+
 test("onboarding wizard exposes the mount API with injected auth fetch", async () => {
   const script = await readFile(files.onboarding, "utf8");
   assert.match(script, /window\.Onboarding/);
