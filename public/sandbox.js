@@ -1094,7 +1094,14 @@ async function runStudio() {
 
 function exportFile(name, type, content) { const url=URL.createObjectURL(new Blob([content],{type}));const a=document.createElement("a");a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),0); }
 function safeName(value){return value.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,60)||"fieldbook";}
-function exportJson(){exportFile(`${safeName(state.conversation.title)}.json`,"application/json",JSON.stringify({format:"routetok-fieldbook",version:1,exportedAt:now(),conversations:[state.conversation],evalSuites:state.suite?[state.suite]:[],evalRuns:state.runs.filter(r=>r.status!=="running")},null,2));}
+function exportJson() {
+  const backup = typeof window !== "undefined" && window ? window.FieldbookBackup : null;
+  const source = { conversations: [state.conversation], evalSuites: state.suite ? [state.suite] : [], evalRuns: state.runs.filter((r) => r.status !== "running") };
+  const bundle = backup && typeof backup.exportBundle === "function"
+    ? backup.exportBundle(source)
+    : { format: "routetok-fieldbook", version: 1, exportedAt: now(), conversations: clone(source.conversations), evalSuites: clone(source.evalSuites), evalRuns: clone(source.evalRuns) };
+  exportFile(`${safeName(state.conversation.title)}.json`, "application/json", JSON.stringify(bundle, null, 2));
+}
 function exportMarkdown(){const c=state.conversation;let text=`# ${c.title}\n\n`;c.turns.forEach((t)=>{text+=`## Prompt\n\n${t.prompt}\n\n`;t.lanes.forEach((l)=>{const r=t.results[l.id];text+=`### ${r.requestedModel}\n\n${r.error?`Error: ${r.error}`:r.content}\n\n_Metrics: ${metricText(r.metrics)}_\n\n`;if(r.toolRun&&Array.isArray(r.trajectory)&&r.trajectory.length){text+=`_Tool activity:_\n\n`;r.trajectory.forEach((entry)=>{if(entry.step==="result")text+=`- \`${entry.call?.name||"tool"}\` ${entry.isError?"failed":"ran"}: ${toolPreview(entry.content,500)}\n`;else if(entry.step==="approval")text+=`- ${entry.automatic?`\`${entry.call?.name}\` read auto-approved`:`\`${entry.call?.name}\` ${entry.approved?"approved":"rejected"}`}\n`;else if(entry.step==="model"&&entry.error)text+=`- model error: ${entry.error}\n`;});text+=`\n`;}});});exportFile(`${safeName(c.title)}.md`,"text/markdown",text);}
 function csvCell(value){let text=String(value??"");if(/^[\s\u0000-\u001f]*[=+\-@]/.test(text))text=`'${text}`;return `"${text.replaceAll('"','""')}"`;}
 function exportCsv(){const run=state.runs.find(r=>r.status!=="running");if(!run)return toast("Run an evaluation first");const rows=[["suite","case","model","sample","status","latency_ms","ttft_ms","throughput","input_tokens","output_tokens","cost_usd","output"]];run.samples.forEach(s=>rows.push([run.suiteSnapshot.name,s.item.name,s.model,s.sample,s.error?"error":s.passed?"pass":"fail",s.metrics?.latencyMs,s.metrics?.ttftMs,s.metrics?.outputTokensPerSecond,s.metrics?.tokens?.input,s.metrics?.tokens?.output,s.metrics?.costUsd,s.content||s.error]));exportFile(`${safeName(run.suiteSnapshot.name)}.csv`,"text/csv",rows.map(r=>r.map(csvCell).join(",")).join("\r\n"));}
@@ -1124,7 +1131,41 @@ function validEvalRun(record) {
   const maximum = record.suiteSnapshot.cases.length * record.suiteSnapshot.models.length * record.suiteSnapshot.samples;
   return record.samples.length <= maximum && record.samples.every((sample) => sample && boundedString(sample.model, 512, false) && boundedString(sample.content || "", 4 * 1024 * 1024) && boundedString(sample.error || "", 10000) && boundedJson(sample.metrics??null) && boundedJson(sample.item));
 }
-async function importData(file){if(state.conversation?.studio?.running)pauseStudio();if(!file||file.size>10*1024*1024)throw new Error("Import must be JSON under 10 MiB");const data=JSON.parse(await file.text());if(data?.format!=="routetok-fieldbook"||data.version!==1)throw new Error("Not a supported Fieldbook export");if(!Array.isArray(data.conversations)||!Array.isArray(data.evalSuites)||!Array.isArray(data.evalRuns))throw new Error("Import collections are invalid");const source=[...data.conversations,...data.evalSuites,...data.evalRuns];if(source.length>200)throw new Error("Import contains too many records");if(!source.every((record)=>validConversation(record)||validSuite(record)||validEvalRun(record)))throw new Error("Import contains malformed or unbounded records");const records=source.map((record)=>({...clone(record),id:uid(record.type),createdAt:now(),updatedAt:now()}));await dbPutAll(records);await enforceCaps();await loadRecords();toast("Import complete");}
+async function importData(file) {
+  if (state.conversation?.studio?.running) pauseStudio();
+  if (!file || file.size > 10 * 1024 * 1024) throw new Error("Import must be JSON under 10 MiB");
+  const data = JSON.parse(await file.text());
+  if (data?.format !== "routetok-fieldbook" || data.version !== 1) throw new Error("Not a supported Fieldbook export");
+  if (!Array.isArray(data.conversations) || !Array.isArray(data.evalSuites) || !Array.isArray(data.evalRuns)) throw new Error("Import collections are invalid");
+  const source = [...data.conversations, ...data.evalSuites, ...data.evalRuns];
+  if (source.length > 200) throw new Error("Import contains too many records");
+  if (!source.every((record) => validConversation(record) || validSuite(record) || validEvalRun(record))) throw new Error("Import contains malformed or unbounded records");
+  const backup = typeof window !== "undefined" && window ? window.FieldbookBackup : null;
+  if (!backup || typeof backup.mergeBundle !== "function") {
+    const records = source.map((record) => ({ ...clone(record), id: uid(record.type), createdAt: now(), updatedAt: now() }));
+    await dbPutAll(records);
+    await enforceCaps();
+    await loadRecords();
+    toast("Import complete");
+    return;
+  }
+  if (data.exportedOrigin && data.exportedOrigin !== location.origin && source.length && typeof backup.originWarningText === "function") {
+    const origin = String(data.exportedOrigin || "");
+    if (!confirm(backup.originWarningText({ storedOrigin: origin || "another origin", currentOrigin: location.origin, noteCount: source.length }))) return toast("Import cancelled");
+  }
+  const result = await backup.mergeBundle(data, {
+    existing: await dbAll(),
+    putAll: async (records) => { await dbPutAll(records); }
+  });
+  if (result.errors?.length) throw new Error(`Import skipped records: ${result.errors.join("; ")}`);
+  await enforceCaps();
+  await loadRecords();
+  const tallies = [];
+  if (result.added) tallies.push(`${result.added} imported`);
+  if (result.skippedOlder) tallies.push(`${result.skippedOlder} older copies kept`);
+  if (result.skipped) tallies.push(`${result.skipped} unchanged duplicates skipped`);
+  toast(`Import complete${tallies.length ? `: ${tallies.join(", ")}` : ""}`);
+}
 
 function setMode(mode){if(!["chat","compare","room","evaluate","images","studio"].includes(mode))return;if(state.mode==="room"&&mode!=="room")pauseRoom();if(state.mode==="studio"&&mode!=="studio")pauseStudio();if(mode==="chat"&&isImageModel(state.conversation?.lineup[0]?.model)){const textIndex=state.conversation.lineup.findIndex((lane)=>!isImageModel(lane.model));if(textIndex>0)[state.conversation.lineup[0],state.conversation.lineup[textIndex]]=[state.conversation.lineup[textIndex],state.conversation.lineup[0]];else if(textIndex<0&&state.catalog[0])state.conversation.lineup[0]={id:uid("lane"),model:state.catalog[0].id};saveConversation();}state.mode=mode;document.querySelectorAll("[data-mode]").forEach((button)=>{const current=button.dataset.mode===mode;button.classList.toggle("active",current);if(current)button.setAttribute("aria-current","page");else button.removeAttribute("aria-current");});$("chat-view").hidden=["evaluate","images","room","studio"].includes(mode);$("room-view").hidden=mode!=="room";$("eval-view").hidden=mode!=="evaluate";$("image-view").hidden=mode!=="images";$("studio-view").hidden=mode!=="studio";panelManager?.refresh();$("mode-kicker").textContent=mode==="chat"?"First lineup model · continuous context":"Up to four independent model lanes";$("image-only").checked=mode==="images";if(mode==="images")renderImageCatalog();renderLineup();renderCatalog();renderBudget();renderToolSettings();if(mode==="evaluate")renderSuite();if(mode==="room")renderRoom();if(mode==="studio")renderStudio();}
 function setScratchpadWidth(width){state.scratchpadWidth=Math.max(240,Math.min(520,Math.round(width)));document.querySelector(".shell").style.setProperty("--scratchpad-width",`${state.scratchpadWidth}px`);$("scratchpad-resizer").setAttribute("aria-valuenow",String(state.scratchpadWidth));localStorage.setItem(SCRATCHPAD_WIDTH_KEY,String(state.scratchpadWidth));}

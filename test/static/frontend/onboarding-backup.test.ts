@@ -4,7 +4,8 @@ import test from "node:test";
 
 const files = {
   onboarding: "public/onboarding.js",
-  backup: "public/fieldbook/backup.js"
+  backup: "public/fieldbook/backup.js",
+  fieldbook: "public/sandbox.js"
 } as const;
 
 test("onboarding wizard exposes the mount API with injected auth fetch", async () => {
@@ -86,18 +87,35 @@ test("fieldbook export reuses the bundle shape and excludes secrets", async () =
   assert.doesNotMatch(script, /agentrouter-dashboard-token/);
 });
 
-test("fieldbook merge skips duplicates by id and revision with counts", async () => {
+test("fieldbook merge skips duplicates by id and revision and keeps strictly older copies with counts", async () => {
   const script = await readFile(files.backup, "utf8");
   assert.match(script, /function isDuplicate\(existing,\s*incoming\)/);
   assert.match(script, /existing\.id === incoming\.id/);
   assert.match(script, /revisionOf\(existing\) === revisionOf\(incoming\)/);
+  assert.match(script, /function isOlderThan\(existing,\s*incoming\)/);
+  assert.match(script, /incomingNumber < existingNumber/);
+  assert.match(script, /incomingTime < existingTime/);
   assert.match(script, /function revisionOf\(record\)/);
+  assert.match(script, /skippedOlder \+= 1/);
   assert.match(script, /skipped \+= 1/);
   assert.match(script, /added \+= 1/);
-  assert.match(script, /return \{ added, skipped, errors \}/);
+  assert.match(script, /return \{ added, skipped, skippedOlder, errors \};/);
   assert.match(script, /\{\s*\.\.\.backupClone\(record\)\s*\}/);
   assert.match(script, /validateBundle/);
   assert.match(script, /FIELDBOOK_BACKUP_MAX_RECORDS/);
+});
+
+test("fieldbook export and import are wired through the backup module", async () => {
+  const script = await readFile(files.fieldbook, "utf8");
+  assert.match(script, /window\.FieldbookBackup/);
+  assert.match(script, /backup\.exportBundle\(source\)/, "live JSON export must route through exportBundle");
+  assert.match(script, /backup\.mergeBundle\(data,\s*\{/);
+  assert.match(script, /existing:\s*await dbAll\(\)/);
+  assert.match(script, /putAll:\s*async \(records\) => \{ await dbPutAll\(records\); \}/);
+  assert.match(script, /skippedOlder/);
+  assert.match(script, /originWarningText/);
+  assert.match(script, /data\.exportedOrigin !== location\.origin/, "cross-origin imports must warn before merge");
+  assert.doesNotMatch(script, /format:\s*"routetok-fieldbook",\s*version:\s*1,\s*exportedAt:\s*now\(\), conversations:\s*\[state\.conversation\]/, "the live export must no longer inline the bundle shape");
 });
 
 test("fieldbook backup warns about origin-bound storage with namespaced keys", async () => {

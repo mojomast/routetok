@@ -73,6 +73,22 @@ function isDuplicate(existing, incoming) {
   return existing.id === incoming.id && revisionOf(existing) === revisionOf(incoming);
 }
 
+function isOlderThan(existing, incoming) {
+  if (!existing || !incoming || typeof existing !== "object" || typeof incoming !== "object") return false;
+  if (typeof existing.id !== "string" || typeof incoming.id !== "string") return false;
+  if (existing.id !== incoming.id) return false;
+  const existingRevision = revisionOf(existing);
+  const incomingRevision = revisionOf(incoming);
+  if (existingRevision === "" || incomingRevision === "" || existingRevision === incomingRevision) return false;
+  const existingNumber = Number(existingRevision);
+  const incomingNumber = Number(incomingRevision);
+  if (Number.isFinite(existingNumber) && Number.isFinite(incomingNumber)) return incomingNumber < existingNumber;
+  const existingTime = Date.parse(existingRevision);
+  const incomingTime = Date.parse(incomingRevision);
+  if (Number.isFinite(existingTime) && Number.isFinite(incomingTime)) return incomingTime < existingTime;
+  return incomingRevision < existingRevision;
+}
+
 function validateBundle(bundle) {
   const errors = [];
   if (!bundle || typeof bundle !== "object") return ["Bundle is not an object"];
@@ -133,17 +149,17 @@ function rememberMergeOrigin() {
 async function mergeBundle(bundle, options) {
   const hooks = options && typeof options === "object" ? options : {};
   const shapeErrors = validateBundle(bundle);
-  if (shapeErrors.length) return { added: 0, skipped: 0, errors: shapeErrors };
+  if (shapeErrors.length) return { added: 0, skipped: 0, skippedOlder: 0, errors: shapeErrors };
   const incoming = [...bundle.conversations, ...bundle.evalSuites, ...bundle.evalRuns];
   if (incoming.length > FIELDBOOK_BACKUP_MAX_RECORDS) {
-    return { added: 0, skipped: 0, errors: ["Bundle contains too many records"] };
+    return { added: 0, skipped: 0, skippedOlder: 0, errors: ["Bundle contains too many records"] };
   }
   let existing = Array.isArray(hooks.existing) ? hooks.existing : null;
   if (!existing) {
     try {
       existing = await readAllRecords();
     } catch (error) {
-      return { added: 0, skipped: 0, errors: [error instanceof Error ? error.message : String(error)] };
+      return { added: 0, skipped: 0, skippedOlder: 0, errors: [error instanceof Error ? error.message : String(error)] };
     }
   }
   const known = new Map();
@@ -152,6 +168,7 @@ async function mergeBundle(bundle, options) {
   });
   let added = 0;
   let skipped = 0;
+  let skippedOlder = 0;
   const errors = [];
   const pending = [];
   for (const record of incoming) {
@@ -162,6 +179,10 @@ async function mergeBundle(bundle, options) {
     const prior = known.get(record.id) || null;
     if (prior && isDuplicate(prior, record)) {
       skipped += 1;
+      continue;
+    }
+    if (prior && isOlderThan(prior, record)) {
+      skippedOlder += 1;
       continue;
     }
     const preserved = { ...backupClone(record) };
@@ -176,11 +197,11 @@ async function mergeBundle(bundle, options) {
         for (const record of pending) await hooks.put(record);
       } else await writeRecords(pending);
     } catch (error) {
-      return { added: 0, skipped, errors: [...errors, error instanceof Error ? error.message : String(error)] };
+      return { added: 0, skipped, skippedOlder, errors: [...errors, error instanceof Error ? error.message : String(error)] };
     }
   }
   rememberMergeOrigin();
-  return { added, skipped, errors };
+  return { added, skipped, skippedOlder, errors };
 }
 
 async function estimateQuota() {
