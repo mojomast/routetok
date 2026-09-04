@@ -1478,7 +1478,7 @@ export class ProxyHandler {
             if (!internalSandbox) this.options.router.recordTransientFailure(protocol, model, config);
           } else {
             attempts.push(attempt(model, 200, Date.now() - started, "success", undefined, firstOutputMs, providerId));
-            if (!internalSandbox) this.options.router.recordSuccess(protocol, model, Date.now() - started, config);
+            if (!internalSandbox) this.options.router.recordSuccess(protocol, model, firstOutputMs ?? Date.now() - started, config);
           }
           break;
         }

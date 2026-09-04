@@ -295,6 +295,14 @@ test("committed streams emit truthful terminal frames and detach the overall dea
       assert.match(text, /chunk-20/);
       assert.match(text, /data: \[DONE\]\n\n$/);
       assert.doesNotMatch(text, /stream_interrupted/);
+      const status = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/status`).then((result) => result.json()) as {
+        metrics: { health: Array<{ model: string; protocol: string; latencyEwmaMs: number | null }> };
+      };
+      const goodHealth = status.metrics.health.find((entry) => entry.model === GOOD && entry.protocol === "openai");
+      assert(goodHealth, "health must track the streamed model");
+      assert(goodHealth.latencyEwmaMs !== null && goodHealth.latencyEwmaMs < 3_000,
+        `streaming latency must track first output (${goodHealth.latencyEwmaMs} ms), not the whole generation`);
+      await patchConfig({ requestTimeoutMs: 600_000 });
     });
 
     await suite.test("content-type sniffing is case-insensitive for SSE and the HTML-challenge check", async () => {
