@@ -130,5 +130,5 @@ Credential mutation is write-only:
 - `DELETE /admin/api/providers/:provider/credentials/apiKey`
 - OpenRouter also supports `managementKey`.
 
-No credential endpoint returns key material or key-derived fragments.
+No credential endpoint returns key material or key-derived fragments. A successful credential mutation clears model health only for the affected provider (circuits, rate-limit windows, entitlement blocks, and latency state on that provider's models), so a rotated key takes effect immediately without resetting unrelated routes; the intentional full reset remains available at `POST /admin/api/circuits/reset`.
 Committed-stream failures keep the already-sent HTTP `200` on the wire but are recorded with attempt outcome `committed_failure` (distinct from pre-commit `transient_error`) so metrics, history, and dashboard attempt rows distinguish provider truncation from fallback-eligible errors.

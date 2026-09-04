@@ -104,6 +104,24 @@ function seededRouter(health: Array<{ model: string; protocol: "openai" | "anthr
   return router;
 }
 
+test("resetWhere clears health only for entries matching the predicate", () => {
+  const router = seededRouter([
+    { model: "openrouter:a", protocol: "openai", circuitState: "open", circuitOpenUntil: Date.now() + 60_000, consecutiveFailures: 3, failures: 3 },
+    { model: "openrouter:b", protocol: "anthropic", circuitState: "open", circuitOpenUntil: Date.now() + 60_000 },
+    { model: "requesty:c", protocol: "openai", circuitState: "open", circuitOpenUntil: Date.now() + 60_000 }
+  ]);
+  router.resetWhere((_protocol, model) => model.startsWith("openrouter:"));
+  const remaining = router.snapshot();
+  assert.deepEqual(remaining.map((entry) => entry.model), ["requesty:c"], "only the scoped provider's entries are dropped");
+  assert.equal(router.candidates("openai", "auto", catalog, config).includes("openrouter:a"), false);
+  const untouched = remaining[0];
+  assert.equal(untouched?.circuitState, "open");
+  assert.equal(untouched?.consecutiveFailures, 0);
+
+  router.resetWhere(() => true);
+  assert.deepEqual(router.snapshot(), [], "a full-match resetWhere behaves like reset");
+});
+
 test("an expired open circuit admits exactly one half-open probe and reopens on its failure", () => {
   const router = seededRouter([{
     model: "best-model", protocol: "openai", circuitState: "open", circuitOpenUntil: Date.now() - 1,

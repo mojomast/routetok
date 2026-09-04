@@ -207,6 +207,12 @@ export class HealthRouter {
     this.health.clear();
   }
 
+  resetWhere(matches: (protocol: Protocol, model: string) => boolean): void {
+    for (const state of this.health.values()) {
+      if (matches(state.protocol, state.model)) this.health.delete(key(state.protocol, state.model));
+    }
+  }
+
   private reopen(state: ModelHealth, config: RouterConfig): void {
     state.circuitState = "open";
     state.circuitOpenUntil = Date.now() + config.circuitOpenMs;

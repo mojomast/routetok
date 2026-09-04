@@ -38,6 +38,7 @@ async function ready(child: ChildProcess): Promise<void> {
 test("multi-provider inference and credits keep credentials and model IDs separated", async () => {
   const inference: Array<{ url: string; authorization: string | undefined; apiKey: string | undefined; anthropicVersion: string | undefined; model: unknown }> = [];
   const openRouterArenaUserAgents: string[] = [];
+  const keyUsageAuthorizations: string[] = [];
   const upstream = createServer(async (request, response) => {
     if (request.url === "/agent/api/pricing") {
       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{
@@ -65,7 +66,7 @@ test("multi-provider inference and credits keep credentials and model IDs separa
       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{ id: "vendor/rq-model", type: "chat" }] })); return;
     }
     if (request.url === "/openrouter/v1/key") {
-      assert.equal(request.headers.authorization, "Bearer openrouter-secret");
+      keyUsageAuthorizations.push(String(request.headers.authorization || ""));
       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: { usage: 2, limit: 10 } })); return;
     }
     if (request.url === "/openrouter/v1/credits") {
@@ -81,7 +82,7 @@ test("multi-provider inference and credits keep credentials and model IDs separa
     if (request.url === "/openrouter/v1/chat/completions" || request.url === "/requesty/v1/messages" || request.url === "/generic/v1/chat/completions") {
       const payload = await requestBody(request);
       if (request.url === "/openrouter/v1/chat/completions" && payload.model === "vendor/or-model" && JSON.stringify(payload).includes("trigger paid fallback")) {
-        response.writeHead(429, { "content-type": "application/json", "retry-after": "1" }).end(JSON.stringify({ error: { message: "rate limited" } }));
+        response.writeHead(429, { "content-type": "application/json", "retry-after": "30" }).end(JSON.stringify({ error: { message: "rate limited" } }));
         return;
       }
       if (request.url === "/openrouter/v1/chat/completions" && payload.stream === true) {
@@ -106,9 +107,11 @@ test("multi-provider inference and credits keep credentials and model IDs separa
   const root = `http://127.0.0.1:${address.port}`;
   const proxyPort = await freePort();
   const dataDir = await mkdtemp(path.join(tmpdir(), "router-providers-"));
+  const dashboardHeaders = { "x-dashboard-token": "dashboard-secret" };
   const child = spawn(process.execPath, ["--import", "tsx", "src/server.ts"], {
     cwd: path.resolve("."), stdio: ["ignore", "pipe", "pipe"], env: isolatedTestEnv({
       HOST: "127.0.0.1", PORT: String(proxyPort), DATA_DIR: dataDir, PROXY_API_KEY: "local",
+      DASHBOARD_TOKEN: "dashboard-secret",
       AGENTROUTER_API_KEY: "agent-secret", AGENTROUTER_BASE_URL: `${root}/agent`,
       OPENROUTER_API_KEY: "openrouter-secret", OPENROUTER_MANAGEMENT_KEY: "management-secret", OPENROUTER_BASE_URL: `${root}/openrouter/v1`,
       REQUESTY_API_KEY: "requesty-secret", REQUESTY_BASE_URL: `${root}/requesty/v1`, REQUESTY_MANAGEMENT_BASE_URL: `${root}/management`
@@ -127,7 +130,7 @@ test("multi-provider inference and credits keep credentials and model IDs separa
 
     const enabled = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/config`, {
       method: "PATCH",
-      headers: { "content-type": "application/json" },
+      headers: { ...dashboardHeaders, "content-type": "application/json" },
       body: JSON.stringify({ enabledExternalModels: ["openrouter:vendor/or-model", "openrouter:vendor/or-backup", "requesty:vendor/rq-model", "generic:local-model"], paidOpenRouterFallbackOrder: ["openrouter:vendor/or-backup"], fallbackExplicitModels: false, openaiOrder: ["agent-model"] })
     });
     assert.equal(enabled.status, 200);
@@ -145,7 +148,7 @@ test("multi-provider inference and credits keep credentials and model IDs separa
 
     const openRouterArena = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/sandbox`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { ...dashboardHeaders, "content-type": "application/json" },
       body: JSON.stringify({ purpose: "chat", requests: [{ id: "openrouter-arena", model: "openrouter:vendor/or-model", messages: [{ role: "user", content: "Use the OpenCode harness identity" }] }] })
     });
     assert.equal(openRouterArena.status, 200);
@@ -173,21 +176,52 @@ test("multi-provider inference and credits keep credentials and model IDs separa
       body: JSON.stringify({ model: "generic:local-model", messages: [{ role: "user", content: "hi" }] }) });
     assert.equal(generic.headers.get("x-router-provider"), "generic");
     await generic.text();
+
+    const suppressed = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, { method: "POST",
+      headers: { authorization: "Bearer local", "content-type": "application/json" },
+      body: JSON.stringify({ model: "openrouter:vendor/or-model", messages: [{ role: "user", content: "still blocked by the 429 rate limit" }] }) });
+    assert.equal(suppressed.status, 200);
+    assert.equal(suppressed.headers.get("x-router-route"), "openrouter:vendor/or-backup", "the rate-limited model must stay suppressed before the credential change");
+    assert.equal(suppressed.headers.get("x-router-attempts"), "1", "the suppressed model must not be attempted at all");
+    await suppressed.text();
+
+    const rotated = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/providers/openrouter/credentials/apiKey`, {
+      method: "PUT", headers: { ...dashboardHeaders, "content-type": "application/json" }, body: JSON.stringify({ value: "rotated-secret" })
+    });
+    assert.equal(rotated.status, 200);
+    const rotatedPayload = await rotated.json() as { committed: boolean; refresh: { ok: boolean; errors: string[] } };
+    assert.equal(rotatedPayload.committed, true);
+    assert.equal(rotatedPayload.refresh.ok, true, `credential refresh must succeed: ${JSON.stringify(rotatedPayload.refresh.errors)}`);
+
+    const afterRotation = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, { method: "POST",
+      headers: { authorization: "Bearer local", "content-type": "application/json" },
+      body: JSON.stringify({ model: "openrouter:vendor/or-model", messages: [{ role: "user", content: "new key clears scoped health" }] }) });
+    assert.equal(afterRotation.status, 200);
+    assert.equal(afterRotation.headers.get("x-router-provider"), "openrouter");
+    assert.equal(afterRotation.headers.get("x-router-route"), "openrouter:vendor/or-model", "the credential change must clear the provider-scoped circuit");
+    assert.equal(afterRotation.headers.get("x-router-attempts"), "1");
+    await afterRotation.text();
+
     assert.deepEqual(inference, [
       { url: "/openrouter/v1/chat/completions", authorization: "Bearer openrouter-secret", apiKey: undefined, anthropicVersion: undefined, model: "vendor/or-model" },
       { url: "/openrouter/v1/chat/completions", authorization: "Bearer openrouter-secret", apiKey: undefined, anthropicVersion: undefined, model: "vendor/or-backup" },
       { url: "/requesty/v1/messages", authorization: undefined, apiKey: "requesty-secret", anthropicVersion: "2023-06-01", model: "vendor/rq-model" },
-      { url: "/generic/v1/chat/completions", authorization: undefined, apiKey: undefined, anthropicVersion: undefined, model: "local-model" }
+      { url: "/generic/v1/chat/completions", authorization: undefined, apiKey: undefined, anthropicVersion: undefined, model: "local-model" },
+      { url: "/openrouter/v1/chat/completions", authorization: "Bearer openrouter-secret", apiKey: undefined, anthropicVersion: undefined, model: "vendor/or-backup" },
+      { url: "/openrouter/v1/chat/completions", authorization: "Bearer rotated-secret", apiKey: undefined, anthropicVersion: undefined, model: "vendor/or-model" }
     ]);
 
     const credits = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/providers/credits/refresh`, {
-      method: "POST", headers: { "content-type": "application/json" }, body: "{}"
+      method: "POST", headers: { ...dashboardHeaders, "content-type": "application/json" }, body: "{}"
     }).then((r) => r.json()) as { providers: Array<{ providerId: string; remainingUsd: number | null }> };
     assert.equal(credits.providers.find((item) => item.providerId === "openrouter")?.remainingUsd, 17);
     assert.equal(credits.providers.find((item) => item.providerId === "requesty")?.remainingUsd, 7);
     assert.doesNotMatch(JSON.stringify(credits), /secret/);
+    assert(keyUsageAuthorizations.length > 0, "the key-usage endpoint must have been consulted");
+    assert(keyUsageAuthorizations.every((auth) => ["Bearer openrouter-secret", "Bearer rotated-secret"].includes(auth)), "no stale or empty credential may reach the key-usage endpoint");
+    assert(keyUsageAuthorizations.includes("Bearer rotated-secret"), "post-rotation refreshes must use the stored key");
 
-    const status = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/status`).then((r) => r.json()) as { catalog: { providers: unknown[] }; providers: unknown[]; metrics: { recent: Array<{ provider: string; usage: { reportedCostUsd: number; costUsd: number } }> } };
+    const status = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/status`, { headers: dashboardHeaders }).then((r) => r.json()) as { catalog: { providers: unknown[] }; providers: unknown[]; metrics: { recent: Array<{ provider: string; usage: { reportedCostUsd: number; costUsd: number } }> } };
     assert.equal(status.catalog.providers.length, 12);
     assert.equal(status.providers.length, 12);
     assert(status.metrics.recent.some((record) => record.provider === "requesty" && record.usage.costUsd === 0.004));

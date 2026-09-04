@@ -1431,7 +1431,7 @@ const server = createServer(async (request, response) => {
           const provider = request.method === "PUT"
             ? await credentialStore.update(providerId, field, await readJson(request))
             : await credentialStore.remove(providerId, field);
-          router.reset();
+          router.resetWhere((_protocol, model) => catalog.resolve(model)?.providerId === providerId);
           adminAudio.invalidate(providerId);
           const refreshed = await Promise.allSettled([catalog.providerChanged(providerId), credits.providerChanged(providerId)]);
           const refreshErrors = refreshed.flatMap((result) => result.status === "rejected" ? [(result.reason as Error).message] : []);
