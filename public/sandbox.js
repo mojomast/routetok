@@ -2,6 +2,9 @@ import { createPanelManager } from "/fieldbook/panels.js?v=20260903-fieldbook25"
 import { createContextBroker, formatFrozenContext } from "/fieldbook/context-broker.js";
 import { createStudioChat } from "/fieldbook/studio-chat.js";
 import { createImageApprovals, normalizeLogicalImagePath, validateImageRequest } from "/fieldbook/image-approvals.js";
+import { TOOL_DEFINITIONS, normalizeToolPolicy, declarationsFor, classifyTool } from "/fieldbook/tools.js";
+import { createToolAgent, DEFAULT_MAX_TOOL_TURNS } from "/fieldbook/agent-loop.js";
+import { createApprovalGate, createApprovalCard } from "/fieldbook/tool-approvals.js";
 
 const $ = (id) => document.getElementById(id);
 const laneColors = ["#c47750", "#7f9b82", "#c3a45d", "#7195a8"];
@@ -17,6 +20,7 @@ let panelManager;
 let contextBroker;
 let studioChat;
 let imageApprovals;
+let toolsGate;
 
 const STUDIO_MAX_PROJECT = 300000;
 const STUDIO_MAX_DIFF = 100000;
@@ -33,6 +37,29 @@ const now = () => new Date().toISOString();
 const clone = (value) => structuredClone(value);
 function toast(message) { const node = $("toast"); node.textContent = message; node.classList.add("show"); clearTimeout(toast.timer); toast.timer = setTimeout(() => node.classList.remove("show"), 2400); }
 function errorMessage(payload, fallback) { return typeof payload?.error === "string" ? payload.error : payload?.error?.message || fallback; }
+function conversationTools(conversation = state.conversation) {
+  if (!conversation) return { enabled: false, perTool: {} };
+  if (!conversation.tools || typeof conversation.tools !== "object") conversation.tools = { enabled: false, perTool: {} };
+  conversation.tools = normalizeToolPolicy(conversation.tools);
+  return conversation.tools;
+}
+function activeChatTools() {
+  const c = state.conversation;
+  if (!c || state.mode !== "chat" || !c.lineup.length) return null;
+  const policy = conversationTools(c);
+  if (!policy.enabled) return null;
+  const model = state.catalog.find((entry) => entry.id === c.lineup[0]?.model);
+  if (!model || model.capabilities?.tools === false) return null;
+  const names = TOOL_DEFINITIONS.filter((tool) => policy.perTool[tool.name] !== false).map((tool) => tool.name);
+  if (!names.length) return null;
+  return { conversation: c, lane: c.lineup[0], model, policy, names, tools: declarationsFor(names) };
+}
+let loopRenderScheduled = false;
+function scheduleLoopRender() {
+  if (loopRenderScheduled) return;
+  loopRenderScheduled = true;
+  setTimeout(() => { loopRenderScheduled = false; if (state.mode === "chat" && state.conversation) renderConversation(); }, 0);
+}
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -76,7 +103,7 @@ async function jsonFetch(url, options = {}) {
 
 function defaultConversation() {
   const model = state.catalog[0]?.id || "";
-  return { id: uid("conversation"), type: "conversation", title: "Untitled field note", titleMode: "local", createdAt: now(), updatedAt: now(), draft: "", chatPersonality: "", systemPrompt: "", parameters: { providerDefault: true, maxTokens: 4096, maxOutputMiB: 4, temperature: "", topP: "" }, lineup: model ? [{ id: uid("lane"), model }] : [], turns: [], scratchpad: { text: "", revision: 0, autoApplyRoom: false }, room: { participants: [{ name: "Atlas", model, personality: "Curious, rigorous, and constructive.", systemPrompt: "" }, { name: "Mira", model: state.catalog[1]?.id || model, personality: "Pragmatic, skeptical, and concise.", systemPrompt: "" }], messages: [], remaining: 6, maxSeconds: 60, nextParticipant: 0, running: false }, studio: defaultStudio() };
+  return { id: uid("conversation"), type: "conversation", title: "Untitled field note", titleMode: "local", createdAt: now(), updatedAt: now(), draft: "", chatPersonality: "", systemPrompt: "", parameters: { providerDefault: true, maxTokens: 4096, maxOutputMiB: 0, temperature: "", topP: "" }, lineup: model ? [{ id: uid("lane"), model }] : [], turns: [], tools: { enabled: false, perTool: {} }, scratchpad: { text: "", revision: 0, autoApplyRoom: false }, room: { participants: [{ name: "Atlas", model, personality: "Curious, rigorous, and constructive.", systemPrompt: "" }, { name: "Mira", model: state.catalog[1]?.id || model, personality: "Pragmatic, skeptical, and concise.", systemPrompt: "" }], messages: [], remaining: 6, maxSeconds: 60, nextParticipant: 0, running: false }, studio: defaultStudio() };
 }
 function defaultStudio() {
   const model = state.catalog[0]?.id || "";
@@ -144,7 +171,7 @@ function syncControls() {
   $("prompt").value = c.draft || ""; $("chat-personality").value=c.chatPersonality||"";$("system-prompt").value = c.systemPrompt || "";
   $("provider-default").checked = c.parameters?.providerDefault !== false; $("max-tokens").disabled = $("provider-default").checked;
   $("max-tokens").value = c.parameters?.maxTokens || 4096; $("temperature").value = c.parameters?.temperature ?? ""; $("top-p").value = c.parameters?.topP ?? "";
-  $("max-output-mib").value = Math.max(1,Math.min(64,Number(c.parameters?.maxOutputMiB)||4));
+  $("max-output-mib").value = Math.min(64, Math.max(0, Number(c.parameters?.maxOutputMiB) || 0));
   const scratchpad = scratchpadState(c); $("scratchpad").value = scratchpad.text; $("scratchpad-auto-apply").checked = Boolean(scratchpad.autoApplyRoom); renderScratchpadStatus();
   renderRoom();
   renderStudio();
@@ -158,7 +185,37 @@ function renderLibrary() {
     button.append(title, meta); button.onclick = () => selectConversation(c.id); list.append(button);
   }
 }
-function renderAll() { renderLibrary(); renderLineup(); renderCatalog(); renderConversation(); renderBudget(); renderRoom(); renderStudio(); contextBroker?.render(); }
+function renderAll() { renderLibrary(); renderLineup(); renderCatalog(); renderConversation(); renderBudget(); renderRoom(); renderStudio(); renderToolSettings(); contextBroker?.render(); }
+function renderToolSettings() {
+  const panel = $("tools-settings"); const c = state.conversation; if (!panel || !c) return;
+  const active = state.mode === "chat" && c.lineup.length > 0;
+  panel.hidden = !active;
+  if (!active) return;
+  const policy = conversationTools(c);
+  const model = c.lineup[0] ? state.catalog.find((entry) => entry.id === c.lineup[0].model) : null;
+  const supportsTools = Boolean(model) && model.capabilities?.tools !== false;
+  const enabled = $("tools-enabled"); const list = $("tools-list"); const status = $("tools-status");
+  enabled.checked = policy.enabled;
+  enabled.disabled = !supportsTools;
+  list.replaceChildren();
+  for (const tool of TOOL_DEFINITIONS) {
+    const label = document.createElement("label");
+    label.title = tool.description;
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = policy.perTool[tool.name] !== false;
+    box.disabled = !policy.enabled || !supportsTools;
+    box.onchange = () => { policy.perTool[tool.name] = box.checked; renderToolSettings(); saveConversation(); };
+    const name = document.createElement("span");
+    name.textContent = tool.name;
+    const gate = document.createElement("span");
+    gate.className = "tool-gate";
+    gate.textContent = tool.gate === "approve" ? "approval" : "auto";
+    label.append(box, name, gate);
+    list.append(label);
+  }
+  status.textContent = !model ? "Choose a text model first." : !supportsTools ? `${model.displayName || model.id} does not advertise tool support.` : "Reads run automatically; scratchpad, Studio, and image writes pause for approval.";
+}
 function isImageModel(id) { return state.imageCatalog.some((model) => model.id === id); }
 function supportsImageParameter(model, parameter) { return !Array.isArray(model?.supportedParameters) || model.supportedParameters.includes(parameter); }
 function imageRequestOptions(model, values) { return { ...(supportsImageParameter(model,"aspect_ratio") ? { aspectRatio: values.aspectRatio } : {}), ...(supportsImageParameter(model,"quality") ? { quality: values.quality } : {}), ...(supportsImageParameter(model,"output_format") && values.outputFormat !== "auto" ? { outputFormat: values.outputFormat } : {}) }; }
@@ -319,10 +376,75 @@ function renderBudget() {
     $("cost-estimate").textContent = `≤ ${usd(inputCost + outputCost)} configured ceiling${laneSuffix}`;
   }
 }
+function toolPreview(value, maximum = 2000) {
+  let text = typeof value === "string" ? value : JSON.stringify(value ?? null, null, 2);
+  return text.length > maximum ? `${text.slice(0, maximum)}\n… (${text.length.toLocaleString()} characters)` : text;
+}
+function toolTimelineEntry(entry) {
+  const article = document.createElement("article");
+  article.className = "tool-entry";
+  const labelMap = {
+    model: (entry) => entry.error ? "Model error" : entry.toolCalls?.length ? `Called ${entry.toolCalls.length} tool${entry.toolCalls.length === 1 ? "" : "s"}` : entry.content ? "Answered" : "Model",
+    approval: (entry) => entry.automatic ? "Read tool ran automatically" : entry.approved ? "Approved by you" : "Rejected by you",
+    result: (entry) => `${entry.isError ? "Failed" : "Ran"} ${entry.call?.name || ""}`.trim(),
+    end: (entry) => String(entry.status || "Ended")
+  };
+  const label = labelMap[entry.step]?.(entry) || entry.step;
+  if (["model", "approval", "end"].includes(entry.step) && entry.step !== "result") article.classList.add("model");
+  if (entry.isError) article.classList.add("error");
+  const header = document.createElement("header");
+  const name = document.createElement("strong");
+  name.textContent = label;
+  header.append(name);
+  const body = document.createElement("p");
+  if (entry.step === "approval" && entry.call) body.textContent = `${entry.call.name}${entry.automatic ? " (read tool)" : ""}`;
+  else if (entry.step === "model" && !entry.error && entry.content && !entry.toolCalls?.length) body.textContent = toolPreview(entry.content, 600);
+  else if (entry.step === "result") body.textContent = toolPreview(entry.content, 1200);
+  article.append(header);
+  if (entry.step === "call" || entry.step === "result" || (entry.step === "model" && entry.toolCalls?.length) || (entry.step === "model" && entry.error)) {
+    const details = document.createElement("details");
+    const disclosure = document.createElement("summary");
+    disclosure.textContent = entry.step === "call" ? "Arguments" : "Details";
+    const pre = document.createElement("pre");
+    pre.textContent = toolPreview(entry.step === "call" ? entry.call?.args : entry.error || entry.content || entry.call?.args, 3000);
+    details.append(disclosure, pre);
+    article.append(details);
+  }
+  if (body.textContent) article.append(body);
+  for (const item of entry.media || []) {
+    const image = document.createElement("img");
+    image.src = item.url;
+    image.alt = "Generated image preview";
+    image.decoding = "async";
+    article.append(image);
+  }
+  return article;
+}
+function pendingApprovalNode(result) {
+  const pending = result.pendingToolCall;
+  if (!pending) return null;
+  if (typeof pending.approve === "function") return createApprovalCard({ document, call: pending.call, onApprove: () => pending.approve(), onReject: () => pending.reject() });
+  const article = document.createElement("article");
+  article.className = "tool-approval";
+  article.textContent = "Waiting for approval…";
+  return article;
+}
+function renderToolTimeline(container, result) {
+  const pending = pendingApprovalNode(result);
+  if (pending) container.append(pending);
+  for (const entry of result.trajectory || []) container.append(toolTimelineEntry(entry));
+}
 function resultCard(result, lane, index, turnIndex) {
   const article = document.createElement("article"); article.className = `result${index === state.mobileLane ? " mobile-active" : ""}`; article.style.setProperty("--lane", laneColors[index]); article.dataset.lane = lane.id;
-  const head = document.createElement("header"); const title = document.createElement("strong"); title.textContent = result?.requestedModel || lane.model; const status = document.createElement("span"); status.className = `state ${result?.status || (result?.error ? "error" : "complete")}`; status.textContent = result?.status || (result?.error ? "error" : "complete"); head.append(title, status);
-  const body = document.createElement("div"); body.className = "response"; renderSafeText(body, result?.error || result?.content || (result?.status === "pending" ? "Waiting for this lane…" : "No response content."));
+  let statusText = result?.status || (result?.error ? "error" : "complete");
+  if (result?.toolRun && ["pending", "running"].includes(result?.status)) statusText = "tools";
+  const head = document.createElement("header"); const title = document.createElement("strong"); title.textContent = result?.requestedModel || lane.model; const status = document.createElement("span"); status.className = `state ${result?.status || (result?.error ? "error" : "complete")}`; status.textContent = statusText; head.append(title, status);
+  const body = document.createElement("div"); body.className = "response";
+  const answerText = document.createElement("div"); answerText.className = "tool-answer";
+  if (result?.toolRun) { const timeline = document.createElement("div"); timeline.className = "tool-timeline"; renderToolTimeline(timeline, result); body.append(timeline); }
+  const fallback = result?.toolRun && result?.status === "running" ? "Running browser tools…" : result?.toolRun && ["pending", "running"].includes(result?.status) ? "Running browser tools…" : "";
+  renderSafeText(answerText, fallback || result?.error || result?.content || (result?.status === "pending" ? "Waiting for this lane…" : "No response content."));
+  body.append(answerText);
     const turn = state.conversation?.turns[turnIndex]; const media = turn ? state.comparisonMedia.get(`${state.conversation.id}:${turn.id}:${lane.id}`) : null;
   if (media?.length) { const gallery = document.createElement("div"); gallery.className = "comparison-media"; for (const item of media) { const figure = document.createElement("figure"); let visual; if (item.srcdoc) { visual = document.createElement("iframe"); visual.title = `Generated image from ${lane.model}`; visual.setAttribute("sandbox", ""); visual.referrerPolicy = "no-referrer"; visual.srcdoc = item.srcdoc; } else { visual = document.createElement("img"); visual.src = item.url; visual.alt = `Generated image from ${lane.model}`; visual.decoding = "async"; } const caption = document.createElement("figcaption"); const download = document.createElement("a"); download.href = item.url; download.download = `routetok-${lane.model.replace(/[^a-z0-9]+/gi,"-")}.${item.mediaType === "image/svg+xml" ? "svg" : item.mediaType.split("/")[1]}`; download.textContent = "Download image"; caption.append(`${item.mediaType} · ${compactNumber(item.bytes)} bytes · ephemeral · `, download); figure.append(visual, caption); gallery.append(figure); } body.prepend(gallery); }
   const foot = document.createElement("footer"); const metrics = document.createElement("span"); metrics.className = "metrics"; metrics.textContent = metricText(result?.metrics); foot.append(metrics);
@@ -345,19 +467,232 @@ function renderConversation() {
   transcript.scrollTop = follow ? transcript.scrollHeight : previousTop;
 }
 
-function parameters(conversation = state.conversation) { const p = conversation.parameters; return { ...(p.providerDefault ? {} : { maxTokens: Number(p.maxTokens) }), maxOutputMiB: Math.max(1,Math.min(64,Number(p.maxOutputMiB)||4)), ...(p.temperature === "" ? {} : { temperature: Number(p.temperature) }), ...(p.topP === "" ? {} : { topP: Number(p.topP) }) }; }
+function parameters(conversation = state.conversation) { const p = conversation.parameters; const outputLimit = Math.min(64, Math.max(0, Number(p.maxOutputMiB) || 0)); return { ...(p.providerDefault ? {} : { maxTokens: Number(p.maxTokens) }), ...(outputLimit > 0 ? { maxOutputMiB: outputLimit } : {}), ...(p.temperature === "" ? {} : { temperature: Number(p.temperature) }), ...(p.topP === "" ? {} : { topP: Number(p.topP) }) }; }
 function messagesFor(laneId, throughIndex, newPrompt = null, attached = []) {
-  const messages = []; const c = state.conversation;
-  c.turns.slice(0, throughIndex + 1).filter((turn) => turn.lanes.some((lane) => lane.id === laneId)).forEach((turn) => { messages.push({ role: "user", content: turn.prompt + formatFrozenContext(turn.context) }); const result = turn.results[laneId]; if (result?.content && !result.error) messages.push({ role: "assistant", content: result.content }); });
-  if (newPrompt !== null) messages.push({ role: "user", content: newPrompt + formatFrozenContext(attached) });
-  const studioCapability=attached.some((item)=>item.id.startsWith("studio-"))?`The user explicitly attached Studio context at revision ${studioState(c).revision}. If they ask for project changes, you may return a complete Iteration Tool v1 apply_patch envelope or a fenced unified diff using safe Studio project paths. This is only a proposal; never claim it was applied.`:"";const system = [c.chatPersonality?`Behavior and personality: ${c.chatPersonality}`:"",c.systemPrompt,studioCapability].filter(Boolean).join("\n\n"); const maximum = system ? 39 : 40;
-  while (messages.length > maximum) {
-    messages.shift();
-    if (messages[0]?.role === "assistant") messages.shift();
-  }
-  if (system) messages.unshift({ role: "system", content: system });
-  return messages;
+  const c = state.conversation;
+  const history = chatHistoryForSend(laneId, throughIndex, newPrompt, attached);
+  const system = chatSystemPrompt(c, attached);
+  if (system && history[0]?.role !== "system") history.unshift({ role: "system", content: system });
+  return history;
 }
+function boundTranscript(messages, maximum = 34, maximumCharacters = 450000) {
+  const out = [...messages];
+  const contentSize = (list) => list.reduce((total, message) => {
+    let size = String(message.content || "").length;
+    if (Array.isArray(message.tool_calls)) size += JSON.stringify(message.tool_calls).length;
+    return total + size;
+  }, 0);
+  while (out.length > maximum || contentSize(out) > maximumCharacters) {
+    const boundary = out.findIndex((message, index) => index > 0 && message.role === "user");
+    if (boundary <= 0) break;
+    out.splice(0, boundary);
+  }
+  return out;
+}
+function chatHistoryForSend(laneId, throughIndex, newPrompt = null, attached = []) {
+  const history = [];
+  const turns = state.conversation.turns.slice(0, throughIndex + 1).filter((turn) => turn.lanes.some((lane) => lane.id === laneId));
+  for (const turn of turns) {
+    const result = turn.results[laneId];
+    if (Array.isArray(result?.transcript) && result.transcript.length) {
+      history.push(...structuredClone(result.transcript));
+      continue;
+    }
+    history.push({ role: "user", content: turn.prompt + formatFrozenContext(turn.context) });
+    if (result?.content && !result.error) history.push({ role: "assistant", content: result.content });
+  }
+  if (newPrompt !== null) history.push({ role: "user", content: newPrompt + formatFrozenContext(attached) });
+  return boundTranscript(history);
+}
+function chatSystemPrompt(c, attached) {
+  const studioCapability = attached.some((item) => item.id.startsWith("studio-")) ? `The user explicitly attached Studio context at revision ${studioState(c).revision}. If they ask for project changes, you may return a complete Iteration Tool v1 apply_patch envelope or a fenced unified diff using safe Studio project paths. This is only a proposal; never claim it was applied.` : "";
+  return [c.chatPersonality ? `Behavior and personality: ${c.chatPersonality}` : "", c.systemPrompt, studioCapability].filter(Boolean).join("\n\n");
+}
+function catalogModelForTool(model) {
+  return { id: model.id, displayName: model.displayName || model.id, provider: model.provider, free: model.free, contextTokens: model.contextTokens, maxOutputTokens: model.maxOutputTokens, capabilities: Object.entries(model.capabilities || {}).filter(([, value]) => value === true).map(([key]) => key), pricing: model.pricing || null };
+}
+function toolCatalogLookup(args) {
+  const requestedId = typeof args.id === "string" ? args.id.trim() : "";
+  if (requestedId) {
+    const exact = state.catalog.find((model) => model.id === requestedId);
+    if (!exact) throw new Error(`No catalog model with id ${requestedId}`);
+    return catalogModelForTool(exact);
+  }
+  const query = String(args.query || "").toLowerCase().trim();
+  if (!query) throw new Error("Provide a query or an exact model id");
+  const matches = state.catalog.filter((model) => searchable(model).includes(query)).slice(0, 8).map(catalogModelForTool);
+  if (!matches.length) throw new Error(`No catalog model matched “${args.query}”`);
+  return matches;
+}
+function toolCostEstimate(args, conversation) {
+  const text = String(args.text || "");
+  if (!text.trim() || text.length > 200_000) throw new Error("cost_estimate requires text of at most 200,000 characters");
+  const laneModel = conversation?.lineup?.[0] ? state.catalog.find((model) => model.id === conversation.lineup[0].model) : null;
+  const model = laneModel || state.catalog[0] || null;
+  const inputTokens = approximateTokens([{ role: "user", content: text }]);
+  const outputTokens = Number.isInteger(args.outputTokens) && Number(args.outputTokens) > 0 ? Math.min(Number(args.outputTokens), 262_144) : Math.min(model?.maxOutputTokens || 4096, 262_144);
+  const pricing = model?.pricing || {};
+  const estimatedInputUsd = typeof pricing.input === "number" ? inputTokens * pricing.input / 1_000_000 : null;
+  const estimatedOutputUsd = typeof pricing.output === "number" ? outputTokens * pricing.output / 1_000_000 : null;
+  return { model: model?.id || null, inputTokens, outputTokens, estimatedInputUsd, estimatedOutputUsd, free: model?.free === true, note: "Rough estimate from catalog pricing; provider usage may differ" };
+}
+function toolNoteSearch(args) {
+  const query = String(args.query || "").trim().toLowerCase();
+  if (!query) throw new Error("note_search requires a query");
+  const results = [];
+  for (const conversation of state.conversations) {
+    const haystack = [conversation.title, ...conversation.turns.map((turn) => `${turn.prompt}\n${Object.values(turn.results || {}).map((result) => result?.content || "").join("\n")}`)].join(" ");
+    if (!haystack.toLowerCase().includes(query)) continue;
+    const sample = conversation.turns.find((turn) => (turn.prompt || "").toLowerCase().includes(query) || Object.values(turn.results || {}).some((result) => String(result?.content || "").toLowerCase().includes(query)));
+    results.push({ id: conversation.id, title: conversation.title, updatedAt: conversation.updatedAt, turns: conversation.turns.length, snippet: sample ? (sample.prompt || conversation.title).slice(0, 300) : conversation.title.slice(0, 300) });
+    if (results.length >= 6) break;
+  }
+  if (!results.length) throw new Error(`No saved notes matched “${query}”`);
+  return results;
+}
+function toolNoteRead(args) {
+  const id = String(args.id || "");
+  const conversation = state.conversations.find((entry) => entry.id === id);
+  if (!conversation) throw new Error(`Note not found: ${id}`);
+  const lines = [`# ${conversation.title}`];
+  let remaining = 80_000;
+  for (const turn of conversation.turns) {
+    if (remaining <= 0) break;
+    const block = `\n\n## Prompt\n\n${turn.prompt}\n${turn.lanes.map((lane) => {
+      const result = turn.results[lane.id];
+      return result && result.content && !result.error ? `\n[${result.requestedModel}]\n${result.content}` : "";
+    }).filter(Boolean).join("\n")}`;
+    lines.push(block.slice(0, remaining));
+    remaining -= block.length;
+  }
+  return { id: conversation.id, content: lines.join("").slice(0, 80_000) };
+}
+function toolScratchpadWrite(args, conversation) {
+  const scratchpad = scratchpadState(conversation);
+  if (!Number.isInteger(args.baseRevision) || args.baseRevision !== scratchpad.revision) throw new Error(`Stale scratchpad revision: expected ${scratchpad.revision}`);
+  const diff = String(args.diff || "");
+  if (!diff.trim() || diff.length > 100_000) throw new Error("Scratchpad diff must be between 1 and 100,000 characters");
+  const next = applyUnifiedDiff(scratchpad.text, diff);
+  scratchpad.text = next;
+  scratchpad.revision += 1;
+  if (conversation === state.conversation) { $("scratchpad").value = next; renderScratchpadStatus(); renderBudget(); }
+  saveConversation(false, conversation);
+  return { applied: true, revision: scratchpad.revision, summary: String(args.summary || "Scratchpad edit").slice(0, 200) };
+}
+function toolStudioPatch(args, conversation) {
+  const studio = studioState(conversation);
+  if (!Number.isInteger(args.baseRevision) || args.baseRevision !== studio.revision) throw new Error(`Stale Studio revision: expected ${studio.revision}`);
+  const diff = String(args.diff || "");
+  if (!diff.trim()) throw new Error("Studio diff is empty");
+  const files = applyStudioDiffOutput(diff, studio, null);
+  studio.revision += 1;
+  studio.failedTurn = null;
+  studio.ledger.push({ id: uid("studioLedger"), createdAt: now(), agent: "Chat tools", tool: "apply_patch", status: "applied", baseRevision: args.baseRevision, resultRevision: studio.revision, files, summary: String(args.summary || "Chat tool patch").slice(0, 1200) });
+  studio.ledger = studio.ledger.slice(-100);
+  if (conversation === state.conversation) { renderStudio(); scheduleStudioPreview(); }
+  saveConversation(false, conversation);
+  return { applied: true, files, revision: studio.revision, summary: String(args.summary || "Chat tool patch").slice(0, 1200) };
+}
+async function toolImageRequest(args) {
+  const model = state.imageCatalog.find((entry) => entry.id === args.model);
+  if (!model) throw new Error(`Image model is not enabled: ${String(args.model)}`);
+  const prompt = String(args.prompt || "").trim();
+  if (!prompt || prompt.length > 16_000) throw new Error("Image prompt is required and must be at most 16,000 characters");
+  for (const [key, allowed] of [["aspectRatio", ["auto", "1:1", "16:9", "9:16", "4:3", "3:4"]], ["quality", ["auto", "low", "medium", "high"]], ["outputFormat", ["auto", "png", "jpeg", "webp", "svg"]]]) {
+    const value = args[key] ?? "auto";
+    if (!allowed.includes(value)) throw new Error(`Image ${key} is invalid`);
+  }
+  const payload = await jsonFetch("/admin/api/images/generations", {
+    method: "POST",
+    body: JSON.stringify({ model: model.id, prompt, ...imageRequestOptions(model, { aspectRatio: args.aspectRatio || "auto", quality: args.quality || "auto", outputFormat: args.outputFormat || "auto" }) })
+  });
+  const media = [];
+  for (const image of payload.images || []) {
+    const blob = dataUrlBlob(image.dataUrl, image.mediaType);
+    const url = URL.createObjectURL(blob);
+    state.imageUrls.add(url);
+    media.push({ url, mediaType: image.mediaType, bytes: image.bytes });
+  }
+  if (!media.length) throw new Error("Image generation returned no preview");
+  const usage = payload.usage || {};
+  const cost = typeof usage.cost === "number" ? ` · ${detailedUsd(usage.cost)} reported` : "";
+  return { content: `Generated image (${media[0].mediaType}); preview is ephemeral and disappears on reload${cost}.`, media };
+}
+async function executeChatTool(name, args, conversation) {
+  switch (name) {
+    case "time_now": return JSON.stringify({ now: now() });
+    case "catalog_lookup": return JSON.stringify(toolCatalogLookup(args));
+    case "cost_estimate": return JSON.stringify(toolCostEstimate(args, conversation));
+    case "note_search": return JSON.stringify(toolNoteSearch(args));
+    case "note_read": return JSON.stringify(toolNoteRead(args));
+    case "scratchpad_read": { const scratchpad = scratchpadState(conversation); return JSON.stringify({ revision: scratchpad.revision, text: scratchpad.text }); }
+    case "scratchpad_write": return JSON.stringify(toolScratchpadWrite(args, conversation));
+    case "studio_apply_patch": return JSON.stringify(toolStudioPatch(args, conversation));
+    case "image_request": return toolImageRequest(args);
+    default: throw new Error(`${name} is not a supported browser tool`);
+  }
+}
+function authorizeChatTool(call, conversation) {
+  const kind = classifyTool(call.name);
+  if (!kind.known) return { allowed: false, reason: `${call.name} is not a supported browser tool` };
+  const policy = conversationTools(conversation);
+  if (!policy.enabled || policy.perTool[call.name] === false) return { allowed: false, reason: `${call.name} is disabled for this note` };
+  return { allowed: true, approval: kind.gate === "approve" };
+}
+async function runChatToolPrompt(conversation, turn, lane, chatTools, prompt, attached, signal) {
+  const result = turn.results[lane.id];
+  result.toolRun = true;
+  result.status = "running";
+  result.trajectory = [];
+  result.transcript = [];
+  if (state.conversation === conversation) renderConversation();
+  const history = chatHistoryForSend(lane.id, conversation.turns.length - 2, prompt, attached);
+  const system = chatSystemPrompt(conversation, attached);
+  if (system) history.unshift({ role: "system", content: system });
+  const runParameters = { ...parameters(conversation), ...turn.parameters };
+  const dispatch = async (req) => {
+    const payload = await jsonFetch("/admin/api/sandbox", {
+      method: "POST",
+      signal: req.signal,
+      body: JSON.stringify({
+        purpose: "chat",
+        ...(req.tools.length ? { tools: req.tools } : {}),
+        requests: [{ id: uid("toolLane").replace(/[^a-zA-Z0-9_-]/g, ""), model: lane.model, messages: req.messages, parameters: runParameters }]
+      })
+    });
+    const entry = payload.results?.[0] || { requestedModel: lane.model, content: "", error: "No result returned", metrics: null };
+    return { content: entry.content || "", reasoning: entry.reasoning, error: entry.error || null, metrics: entry.metrics || null, toolCalls: Array.isArray(entry.toolCalls) ? entry.toolCalls : [] };
+  };
+  const agent = createToolAgent({
+    dispatch,
+    authorize: (call) => authorizeChatTool(call, conversation),
+    execute: (name, args, context) => executeChatTool(name, args, context),
+    requestApproval: (call) => {
+      result.pendingToolCall = { call, note: conversation.id };
+      scheduleLoopRender();
+      return toolsGate.ask(call, conversation, ({ approve, reject }) => {
+        result.pendingToolCall = { call, note: conversation.id, approve, reject };
+        scheduleLoopRender();
+      }).then((approved) => {
+        result.pendingToolCall = null;
+        scheduleLoopRender();
+        return approved;
+      });
+    },
+    log: () => scheduleLoopRender()
+  });
+  const run = await agent.run({ messages: history, tools: chatTools.tools, parameters: runParameters, signal, context: conversation });
+  result.pendingToolCall = null;
+  result.trajectory = run.trajectory;
+  result.transcript = run.transcript.filter((message, index) => !(index === 0 && message.role === "system"));
+  result.metrics = run.metrics;
+  result.content = run.content;
+  result.error = run.error;
+  result.status = run.status === "error" ? "error" : "complete";
+  if (run.status === "aborted") { result.status = "cancelled"; if (!result.content) result.error = result.error || "Cancelled"; }
+  return result;
+}
+
 async function requestLane(lane, messages, params, signal) {
   const studioRequest = /^(?:studioLane|steeringLane)_/.test(lane.id);
   const studioConversation = lane.id.startsWith("studioLane_") ? state.conversations.find((conversation) => conversation.studio?.running && conversation.studio.activeAgent !== undefined) : state.conversation;
@@ -403,16 +738,16 @@ function renderBusyState() {
   $("transcript").setAttribute("aria-busy", String(busy));
 }
 async function sendPrompt(prompt) {
-  const c = state.conversation; if (!c?.lineup.length || state.controllers.size) return;let attached;try{attached=contextBroker.consume("chat");}catch(error){return toast(error.message);} const lanes = clone(state.mode === "chat" ? c.lineup.slice(0, 1) : c.lineup.slice(0, 4)); const turn = { id: uid("turn"), prompt, context: attached, createdAt: now(), parameters: parameters(), imageParameters: { aspectRatio: $("image-aspect").value, quality: $("image-quality").value, outputFormat: $("image-format").value }, lanes, results: {} }; lanes.forEach((l) => turn.results[l.id] = { requestedModel: l.model, content: "", error: null, metrics: null, status: "pending" });ensureConversationTitle(c,prompt); c.turns.push(turn); c.draft = ""; $("prompt").value = ""; renderConversation(); saveConversation();
-  const run = async (lane) => { const controller = new AbortController(); state.controllers.add(controller); renderBusyState(); try { const result=isImageModel(lane.model) ? await requestImageLane(c, turn, lane, prompt, controller.signal) : await requestLane(lane, messagesFor(lane.id, c.turns.length - 2, prompt, attached), turn.parameters, controller.signal);if(!result.error&&!isImageModel(lane.model)&&attached.some((item)=>item.id.startsWith("studio-")))result.studioProposal=studioProposalFromOutput(result.content||result.reasoning,studioState(c));turn.results[lane.id]=result; } catch (error) { turn.results[lane.id] = { requestedModel: lane.model, content: "", error: error.name === "AbortError" ? "Cancelled" : error.message, metrics: null, status: "error" }; } finally { state.controllers.delete(controller); renderBusyState(); if (state.conversation === c) renderConversation(); await saveConversation(true, c); } };
+  const c = state.conversation; if (!c?.lineup.length || state.controllers.size) return;let attached;try{attached=contextBroker.consume("chat");}catch(error){return toast(error.message);} const toolRun = activeChatTools(); const lanes = clone(state.mode === "chat" ? c.lineup.slice(0, 1) : c.lineup.slice(0, 4)); const turn = { id: uid("turn"), prompt, context: attached, createdAt: now(), parameters: parameters(), imageParameters: { aspectRatio: $("image-aspect").value, quality: $("image-quality").value, outputFormat: $("image-format").value }, lanes, results: {} }; lanes.forEach((l) => turn.results[l.id] = { requestedModel: l.model, content: "", error: null, metrics: null, status: "pending" });ensureConversationTitle(c,prompt); c.turns.push(turn); c.draft = ""; $("prompt").value = ""; renderConversation(); saveConversation();
+  const run = async (lane) => { const controller = new AbortController(); state.controllers.add(controller); renderBusyState(); try { let result; if (isImageModel(lane.model)) result = await requestImageLane(c, turn, lane, prompt, controller.signal); else if (toolRun && lane.id === toolRun.lane.id) result = await runChatToolPrompt(c, turn, lane, toolRun, prompt, attached, controller.signal); else result = await requestLane(lane, messagesFor(lane.id, c.turns.length - 2, prompt, attached), turn.parameters, controller.signal); if(!result.error&&!isImageModel(lane.model)&&attached.some((item)=>item.id.startsWith("studio-")))result.studioProposal=studioProposalFromOutput(result.content||result.reasoning,studioState(c));turn.results[lane.id]=result; } catch (error) { turn.results[lane.id] = { requestedModel: lane.model, content: "", error: error.name === "AbortError" ? "Cancelled" : error.message, metrics: null, status: "error" }; } finally { state.controllers.delete(controller); renderBusyState(); if (state.conversation === c) renderConversation(); await saveConversation(true, c); } };
   const textRuns = lanes.filter((lane) => !isImageModel(lane.model)).map(run); const imageRun = (async () => { for (const lane of lanes.filter((entry) => isImageModel(entry.model))) await run(lane); })(); await Promise.allSettled([...textRuns, imageRun]);
 }
 async function retryLane(turnIndex, laneId) {
   if (state.controllers.size) return toast("Wait for active requests to finish"); const turn = state.conversation.turns[turnIndex]; const lane = turn?.lanes.find((x) => x.id === laneId); if (!lane) return;
-  const c = state.conversation; turn.results[laneId] = { requestedModel: lane.model, status: "pending", content: "", error: null, metrics: null }; renderConversation(); const controller = new AbortController(); state.controllers.add(controller); renderBusyState();
-  try { const result = isImageModel(lane.model) ? await requestImageLane(c, turn, lane, turn.prompt, controller.signal) : await requestLane(lane, messagesFor(laneId, turnIndex - 1, turn.prompt, turn.context || []), turn.parameters, controller.signal); if(!result.error&&!isImageModel(lane.model)&&(turn.context||[]).some((item)=>item.id.startsWith("studio-")))result.studioProposal=studioProposalFromOutput(result.content||result.reasoning,studioState(c));turn.results[laneId]=result; } catch (error) { turn.results[laneId] = { requestedModel: lane.model, content: "", error: error.name === "AbortError" ? "Cancelled" : error.message, metrics: null, status: "error" }; } finally { state.controllers.delete(controller); renderBusyState(); if (state.conversation === c) renderConversation(); await saveConversation(true, c); }
+  const c = state.conversation; turn.results[laneId] = { requestedModel: lane.model, status: "pending", content: "", error: null, metrics: null }; renderConversation(); const controller = new AbortController(); state.controllers.add(controller); renderBusyState(); const toolRun = activeChatTools();
+  try { let result; if (isImageModel(lane.model)) result = await requestImageLane(c, turn, lane, turn.prompt, controller.signal); else if (toolRun && lane.id === toolRun.lane.id) result = await runChatToolPrompt(c, turn, lane, toolRun, turn.prompt, turn.context || [], controller.signal); else result = await requestLane(lane, messagesFor(laneId, turnIndex - 1, turn.prompt, turn.context || []), turn.parameters, controller.signal); if(!result.error&&!isImageModel(lane.model)&&(turn.context||[]).some((item)=>item.id.startsWith("studio-")))result.studioProposal=studioProposalFromOutput(result.content||result.reasoning,studioState(c));turn.results[laneId]=result; } catch (error) { turn.results[laneId] = { requestedModel: lane.model, content: "", error: error.name === "AbortError" ? "Cancelled" : error.message, metrics: null, status: "error" }; } finally { state.controllers.delete(controller); renderBusyState(); if (state.conversation === c) renderConversation(); await saveConversation(true, c); }
 }
-function stopAll() { state.evalCancelled = true; state.controllers.forEach((controller) => controller.abort()); if (state.roomController) pauseRoom(); renderBusyState(); toast("Stopping active work"); }
+function stopAll() { state.evalCancelled = true; state.controllers.forEach((controller) => controller.abort()); toolsGate?.rejectAll(); if (state.roomController) pauseRoom(); renderBusyState(); toast("Stopping active work"); }
 
 function roomRequestMessages(room, participantIndex) {
   const participant = room.participants[participantIndex]; const others=room.participants.filter((_,index)=>index!==participantIndex).map((entry)=>entry.name);
@@ -695,7 +1030,7 @@ function renderStudio() {
   const studio = studioState(); if (!studio || !$('studio-agents')) return;
   if (document.activeElement !== $("studio-brief")) $("studio-brief").value = studio.brief;
   const agents = $("studio-agents"); agents.replaceChildren(); studio.agents.forEach((agent, index) => { const card = document.createElement("article"); card.className = "studio-agent"; card.style.setProperty("--lane", laneColors[index]); const field = (labelText, kind, value, className = "") => { const label = document.createElement("label"); label.className = className; label.append(document.createTextNode(labelText)); const input = document.createElement(kind); input.value = value || ""; label.append(input); return [label, input]; }; const [nameLabel, name] = field("Name", "input", agent.name); name.maxLength = 40; const modelLabel = document.createElement("label"); modelLabel.append(document.createTextNode("Text model")); const model = document.createElement("select"); state.catalog.forEach((entry) => model.append(new Option(entry.displayName || entry.id, entry.id, false, entry.id === agent.model))); modelLabel.append(model); const remove = document.createElement("button"); remove.type = "button"; remove.className = "studio-agent-remove"; remove.textContent = "Remove"; remove.disabled = studio.agents.length === 1 || studio.running; const [roleLabel, role] = field("Role", "input", agent.role, "wide"); role.maxLength = 120; const [scopeLabel, scope] = field("Owned files (comma-separated, * for all)", "input", agent.scope, "wide"); scope.maxLength = 1000; const [personalityLabel, personality] = field("Personality", "textarea", agent.personality, "wide"); personality.rows = 2; personality.maxLength = 2000; const [systemLabel, system] = field("Private system prompt", "textarea", agent.systemPrompt, "wide"); system.rows = 3; system.maxLength = 10000; for(const control of [name,model,role,scope,personality,system])control.disabled=studio.running; name.oninput = () => { agent.name = name.value.slice(0, 40) || `Agent ${index + 1}`; saveConversation(); }; model.onchange = () => { agent.model = model.value; saveConversation(); }; role.oninput = () => { agent.role = role.value; saveConversation(); }; scope.oninput=()=>{agent.scope=scope.value;saveConversation();}; personality.oninput = () => { agent.personality = personality.value; saveConversation(); }; system.oninput = () => { agent.systemPrompt = system.value; saveConversation(); }; remove.onclick = () => { pauseStudio(); studio.agents.splice(index, 1); studio.nextAgent %= studio.agents.length; renderStudio(); saveConversation(); }; card.append(nameLabel, modelLabel, remove, roleLabel, scopeLabel, personalityLabel, systemLabel); agents.append(card); });
-  $("studio-add-agent").disabled = studio.agents.length >= 4 || studio.running; $("studio-brief").disabled=studio.running; $("studio-editor").disabled=studio.running; $("studio-iterations").value = String(studio.remaining); $("studio-iterations-value").textContent = String(studio.remaining); $("studio-duration").value = String(studio.maxSeconds); $("studio-duration-value").textContent = `${studio.maxSeconds} seconds`; $("studio-output-mib").value=String(parameters().maxOutputMiB);$("studio-output-mib-value").textContent=String(parameters().maxOutputMiB);$("studio-pause").hidden = !studio.running; $("studio-retry").hidden=!studio.failedTurn||studio.running;$("studio-skip").hidden=!studio.failedTurn||studio.running;$("studio-resume").hidden = studio.running||Boolean(studio.failedTurn); $("studio-status").textContent = studio.running ? `Revision ${studio.revision} · ${studio.agents[studio.activeAgent ?? studio.nextAgent]?.name || "Agent"} is working · ${studio.remaining} iteration${studio.remaining === 1 ? "" : "s"} remain` : studio.failedTurn?`Paused at revision ${studio.revision} · ${studio.failedTurn.error} · retry or skip ${studio.agents[studio.failedTurn.agentIndex]?.name || "agent"}`:studio.remaining ? `Revision ${studio.revision} · ${studio.remaining} iteration${studio.remaining === 1 ? "" : "s"} available · next: ${studio.agents[studio.nextAgent]?.name || "agent"}` : `Revision ${studio.revision} · iteration budget exhausted. Top up to continue.`;if(["pending","generating"].includes(studio.pendingImage?.status)){$("studio-resume").hidden=true;$("studio-status").textContent=`Paused at revision ${studio.revision} · image request awaits explicit approval or rejection`;} $("studio-javascript").checked = studio.javascriptEnabled;
+  $("studio-add-agent").disabled = studio.agents.length >= 4 || studio.running; $("studio-brief").disabled=studio.running; $("studio-editor").disabled=studio.running; $("studio-iterations").value = String(studio.remaining); $("studio-iterations-value").textContent = String(studio.remaining); $("studio-duration").value = String(studio.maxSeconds); $("studio-duration-value").textContent = `${studio.maxSeconds} seconds`;   $("studio-output-mib").value = String(parameters().maxOutputMiB || 0); const studioLimit = parameters().maxOutputMiB || 0; $("studio-output-mib-value").textContent = studioLimit ? `${studioLimit} MiB` : "Unlimited";$("studio-pause").hidden = !studio.running; $("studio-retry").hidden=!studio.failedTurn||studio.running;$("studio-skip").hidden=!studio.failedTurn||studio.running;$("studio-resume").hidden = studio.running||Boolean(studio.failedTurn); $("studio-status").textContent = studio.running ? `Revision ${studio.revision} · ${studio.agents[studio.activeAgent ?? studio.nextAgent]?.name || "Agent"} is working · ${studio.remaining} iteration${studio.remaining === 1 ? "" : "s"} remain` : studio.failedTurn?`Paused at revision ${studio.revision} · ${studio.failedTurn.error} · retry or skip ${studio.agents[studio.failedTurn.agentIndex]?.name || "agent"}`:studio.remaining ? `Revision ${studio.revision} · ${studio.remaining} iteration${studio.remaining === 1 ? "" : "s"} available · next: ${studio.agents[studio.nextAgent]?.name || "agent"}` : `Revision ${studio.revision} · iteration budget exhausted. Top up to continue.`;if(["pending","generating"].includes(studio.pendingImage?.status)){$("studio-resume").hidden=true;$("studio-status").textContent=`Paused at revision ${studio.revision} · image request awaits explicit approval or rejection`;} $("studio-javascript").checked = studio.javascriptEnabled;
   const tabs = $("studio-file-tabs"); tabs.replaceChildren(); Object.keys(studio.files).sort((a, b) => a === "index.html" ? -1 : b === "index.html" ? 1 : a.localeCompare(b)).forEach((name) => { const button = document.createElement("button"); button.type = "button"; button.textContent = name; button.classList.toggle("active", name === studio.activeFile); button.setAttribute("aria-pressed", String(name === studio.activeFile)); button.onclick = () => { studio.activeFile = name; renderStudio(); saveConversation(); }; tabs.append(button); }); if (document.activeElement !== $("studio-editor")) $("studio-editor").value = studio.files[studio.activeFile] || ""; $("studio-project-status").textContent = `Revision ${studio.revision} · ${Object.keys(studio.files).length}/${STUDIO_MAX_FILES} files · ${studioProjectSize(studio.files).toLocaleString()}/${STUDIO_MAX_PROJECT.toLocaleString()} characters · browser-local only`; $("studio-project-status").classList.remove("error"); $("studio-snapshot-count").textContent = `${studio.snapshots.length}/30 snapshots`; renderStudioLog(studio,state.conversation);studioChat?.render(); if (!$("studio-view").hidden) setStudioCanvasWidth(state.studioCanvasWidth); scheduleStudioPreview();
 }
 function pauseStudio(refund = true) { const studio = state.conversation?.studio; if (!studio) return; const wasRunning = studio.running; studio.running = false; if (state.studioController) { if (refund && wasRunning) studio.remaining = Math.min(20, studio.remaining + 1); state.studioController.abort(); state.studioController = null; } delete studio.activeAgent; renderStudio(); saveConversation(); }
@@ -760,7 +1095,7 @@ async function runStudio() {
 function exportFile(name, type, content) { const url=URL.createObjectURL(new Blob([content],{type}));const a=document.createElement("a");a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),0); }
 function safeName(value){return value.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,60)||"fieldbook";}
 function exportJson(){exportFile(`${safeName(state.conversation.title)}.json`,"application/json",JSON.stringify({format:"routetok-fieldbook",version:1,exportedAt:now(),conversations:[state.conversation],evalSuites:state.suite?[state.suite]:[],evalRuns:state.runs.filter(r=>r.status!=="running")},null,2));}
-function exportMarkdown(){const c=state.conversation;let text=`# ${c.title}\n\n`;c.turns.forEach((t)=>{text+=`## Prompt\n\n${t.prompt}\n\n`;t.lanes.forEach((l)=>{const r=t.results[l.id];text+=`### ${r.requestedModel}\n\n${r.error?`Error: ${r.error}`:r.content}\n\n_Metrics: ${metricText(r.metrics)}_\n\n`;});});exportFile(`${safeName(c.title)}.md`,"text/markdown",text);}
+function exportMarkdown(){const c=state.conversation;let text=`# ${c.title}\n\n`;c.turns.forEach((t)=>{text+=`## Prompt\n\n${t.prompt}\n\n`;t.lanes.forEach((l)=>{const r=t.results[l.id];text+=`### ${r.requestedModel}\n\n${r.error?`Error: ${r.error}`:r.content}\n\n_Metrics: ${metricText(r.metrics)}_\n\n`;if(r.toolRun&&Array.isArray(r.trajectory)&&r.trajectory.length){text+=`_Tool activity:_\n\n`;r.trajectory.forEach((entry)=>{if(entry.step==="result")text+=`- \`${entry.call?.name||"tool"}\` ${entry.isError?"failed":"ran"}: ${toolPreview(entry.content,500)}\n`;else if(entry.step==="approval")text+=`- ${entry.automatic?`\`${entry.call?.name}\` read auto-approved`:`\`${entry.call?.name}\` ${entry.approved?"approved":"rejected"}`}\n`;else if(entry.step==="model"&&entry.error)text+=`- model error: ${entry.error}\n`;});text+=`\n`;}});});exportFile(`${safeName(c.title)}.md`,"text/markdown",text);}
 function csvCell(value){let text=String(value??"");if(/^[\s\u0000-\u001f]*[=+\-@]/.test(text))text=`'${text}`;return `"${text.replaceAll('"','""')}"`;}
 function exportCsv(){const run=state.runs.find(r=>r.status!=="running");if(!run)return toast("Run an evaluation first");const rows=[["suite","case","model","sample","status","latency_ms","ttft_ms","throughput","input_tokens","output_tokens","cost_usd","output"]];run.samples.forEach(s=>rows.push([run.suiteSnapshot.name,s.item.name,s.model,s.sample,s.error?"error":s.passed?"pass":"fail",s.metrics?.latencyMs,s.metrics?.ttftMs,s.metrics?.outputTokensPerSecond,s.metrics?.tokens?.input,s.metrics?.tokens?.output,s.metrics?.costUsd,s.content||s.error]));exportFile(`${safeName(run.suiteSnapshot.name)}.csv`,"text/csv",rows.map(r=>r.map(csvCell).join(",")).join("\r\n"));}
 function boundedString(value, maximum, allowEmpty = true) { return typeof value === "string" && value.length <= maximum && (allowEmpty || Boolean(value.trim())); }
@@ -791,7 +1126,7 @@ function validEvalRun(record) {
 }
 async function importData(file){if(state.conversation?.studio?.running)pauseStudio();if(!file||file.size>10*1024*1024)throw new Error("Import must be JSON under 10 MiB");const data=JSON.parse(await file.text());if(data?.format!=="routetok-fieldbook"||data.version!==1)throw new Error("Not a supported Fieldbook export");if(!Array.isArray(data.conversations)||!Array.isArray(data.evalSuites)||!Array.isArray(data.evalRuns))throw new Error("Import collections are invalid");const source=[...data.conversations,...data.evalSuites,...data.evalRuns];if(source.length>200)throw new Error("Import contains too many records");if(!source.every((record)=>validConversation(record)||validSuite(record)||validEvalRun(record)))throw new Error("Import contains malformed or unbounded records");const records=source.map((record)=>({...clone(record),id:uid(record.type),createdAt:now(),updatedAt:now()}));await dbPutAll(records);await enforceCaps();await loadRecords();toast("Import complete");}
 
-function setMode(mode){if(!["chat","compare","room","evaluate","images","studio"].includes(mode))return;if(state.mode==="room"&&mode!=="room")pauseRoom();if(state.mode==="studio"&&mode!=="studio")pauseStudio();if(mode==="chat"&&isImageModel(state.conversation?.lineup[0]?.model)){const textIndex=state.conversation.lineup.findIndex((lane)=>!isImageModel(lane.model));if(textIndex>0)[state.conversation.lineup[0],state.conversation.lineup[textIndex]]=[state.conversation.lineup[textIndex],state.conversation.lineup[0]];else if(textIndex<0&&state.catalog[0])state.conversation.lineup[0]={id:uid("lane"),model:state.catalog[0].id};saveConversation();}state.mode=mode;document.querySelectorAll("[data-mode]").forEach((button)=>{const current=button.dataset.mode===mode;button.classList.toggle("active",current);if(current)button.setAttribute("aria-current","page");else button.removeAttribute("aria-current");});$("chat-view").hidden=["evaluate","images","room","studio"].includes(mode);$("room-view").hidden=mode!=="room";$("eval-view").hidden=mode!=="evaluate";$("image-view").hidden=mode!=="images";$("studio-view").hidden=mode!=="studio";panelManager?.refresh();$("mode-kicker").textContent=mode==="chat"?"First lineup model · continuous context":"Up to four independent model lanes";$("image-only").checked=mode==="images";if(mode==="images")renderImageCatalog();renderLineup();renderCatalog();renderBudget();if(mode==="evaluate")renderSuite();if(mode==="room")renderRoom();if(mode==="studio")renderStudio();}
+function setMode(mode){if(!["chat","compare","room","evaluate","images","studio"].includes(mode))return;if(state.mode==="room"&&mode!=="room")pauseRoom();if(state.mode==="studio"&&mode!=="studio")pauseStudio();if(mode==="chat"&&isImageModel(state.conversation?.lineup[0]?.model)){const textIndex=state.conversation.lineup.findIndex((lane)=>!isImageModel(lane.model));if(textIndex>0)[state.conversation.lineup[0],state.conversation.lineup[textIndex]]=[state.conversation.lineup[textIndex],state.conversation.lineup[0]];else if(textIndex<0&&state.catalog[0])state.conversation.lineup[0]={id:uid("lane"),model:state.catalog[0].id};saveConversation();}state.mode=mode;document.querySelectorAll("[data-mode]").forEach((button)=>{const current=button.dataset.mode===mode;button.classList.toggle("active",current);if(current)button.setAttribute("aria-current","page");else button.removeAttribute("aria-current");});$("chat-view").hidden=["evaluate","images","room","studio"].includes(mode);$("room-view").hidden=mode!=="room";$("eval-view").hidden=mode!=="evaluate";$("image-view").hidden=mode!=="images";$("studio-view").hidden=mode!=="studio";panelManager?.refresh();$("mode-kicker").textContent=mode==="chat"?"First lineup model · continuous context":"Up to four independent model lanes";$("image-only").checked=mode==="images";if(mode==="images")renderImageCatalog();renderLineup();renderCatalog();renderBudget();renderToolSettings();if(mode==="evaluate")renderSuite();if(mode==="room")renderRoom();if(mode==="studio")renderStudio();}
 function setScratchpadWidth(width){state.scratchpadWidth=Math.max(240,Math.min(520,Math.round(width)));document.querySelector(".shell").style.setProperty("--scratchpad-width",`${state.scratchpadWidth}px`);$("scratchpad-resizer").setAttribute("aria-valuenow",String(state.scratchpadWidth));localStorage.setItem(SCRATCHPAD_WIDTH_KEY,String(state.scratchpadWidth));}
 function setStudioCanvasWidth(width){const available=$("studio-workbench")?.clientWidth;const maximum=available>0?Math.max(320,Math.min(1000,available-265)):1000;state.studioCanvasWidth=Math.max(320,Math.min(maximum,Math.round(width)));document.querySelector(".shell").style.setProperty("--studio-canvas-width",`${state.studioCanvasWidth}px`);$("studio-canvas-resizer").setAttribute("aria-valuemax",String(maximum));$("studio-canvas-resizer").setAttribute("aria-valuenow",String(state.studioCanvasWidth));localStorage.setItem(STUDIO_CANVAS_WIDTH_KEY,String(state.studioCanvasWidth));}
 function popoutStudioSnapshot(){const preset=state.studioCanvasSize;const frameNode=$("studio-preview");const ratios={"390":390/844,"768":768/1024,"1440":1440/900};const ratio=ratios[preset]||Math.max(.25,Math.min(4,(frameNode.clientWidth||1100)/(frameNode.clientHeight||800)));const ideal=preset==="390"?[430,900]:preset==="768"?[820,1100]:preset==="1440"?[1400,940]:[1100,Math.round(1100/ratio)+50];const popup=window.open("","_blank",`width=${Math.min(screen.availWidth||ideal[0],ideal[0])},height=${Math.min(screen.availHeight||ideal[1],ideal[1])}`);if(!popup)return toast("Allow popups to open the canvas snapshot");popup.opener=null;const doc=popup.document;doc.title="Iteration Studio canvas snapshot";doc.documentElement.style.cssText="height:100%;background:#171817;color:#eee;color-scheme:dark";doc.body.replaceChildren();doc.body.style.cssText="height:100%;margin:0;display:grid;grid-template-rows:auto 1fr;font:14px system-ui,sans-serif";const bar=doc.createElement("p");bar.textContent=`Iteration Studio · safe snapshot (not live-synced) · ${preset} preset · aspect preserved`;bar.style.cssText="margin:0;padding:12px 16px;background:#222;border-bottom:1px solid #444";const stage=doc.createElement("div");stage.style.cssText="min-height:0;display:grid;place-items:center;overflow:auto;padding:12px";const frame=doc.createElement("iframe");frame.title="Opaque browser-local project snapshot";frame.referrerPolicy="no-referrer";frame.setAttribute("sandbox",studioState().javascriptEnabled?"allow-scripts":"");frame.style.cssText=`display:block;width:min(100%,${preset==="fit"?1440:preset}px);aspect-ratio:${ratio};border:0;background:white;flex:none`;frame.srcdoc=studioPreviewDocument();stage.append(frame);doc.body.append(bar,stage);}
@@ -819,6 +1154,7 @@ function steeringMessages(studio,agent,message,attached){const owned=[...studioA
 function steeringResponse(raw,studio,agent){const proposal=studioProposalFromOutput(raw,studio);if(proposal){proposal.agentId=agent.id;return{advisory:`Patch proposal: ${proposal.summary}. Review and explicitly accept or reject it below.`,proposal};}return{advisory:String(raw||"(No visible response)").slice(0,STUDIO_MAX_DIFF),proposal:null};}
 function acceptSteeringProposal(proposal,conversation=state.conversation){const agent=studioState(conversation).agents.find((item)=>item.id===proposal.agentId);if(!agent)throw new Error("The proposing agent no longer exists; reject this proposal");return acceptStudioProposal(proposal,agent,conversation);}
 function setupFieldbookModules(){
+  toolsGate = createApprovalGate();
   panelManager=createPanelManager({document,storage:localStorage,panels:[{id:"code",label:"Code editor",elementId:"studio-editor-pane",available:()=>state.mode==="studio"},{id:"canvas",label:"Canvas",elementId:"studio-canvas-pane",available:()=>state.mode==="studio"},{id:"scratchpad",label:"Scratchpad",elementId:"scratchpad-workspace"}],onPopout:(id)=>{if(id==="canvas")popoutStudioSnapshot();},onChange:(id,presentation)=>{if(id==="scratchpad"){document.querySelector(".shell").classList.toggle("scratchpad-closed",presentation!=="column");$("toggle-scratchpad").setAttribute("aria-expanded",String(presentation!=="minimized"));}}});
   contextBroker=createContextBroker({document,getResources:currentContextResources,getIdentity:()=>state.conversation?.id,onStatus:toast});
   imageApprovals=createImageApprovals({
@@ -837,7 +1173,7 @@ $("composer").onsubmit=(e)=>{e.preventDefault();const prompt=$("prompt").value.t
 $("new-conversation").onclick=()=>createConversation();$("duplicate-conversation").onclick=()=>createConversation(state.conversation);$("rename-conversation").onclick=()=>{const value=prompt("Conversation name",state.conversation.title);if(value?.trim()){state.conversation.title=value.trim().slice(0,120);state.conversation.titleMode="manual";saveConversation();renderAll();}};$("delete-conversation").onclick=async()=>{if(!confirm(`Delete “${state.conversation.title}”?`))return;if(state.conversation?.studio?.running)pauseStudio();const id=state.conversation.id;state.deletedIds.add(id);clearTimeout(state.saving.get(id));state.saving.delete(id);state.conversations=state.conversations.filter(c=>c.id!==id);await dbDelete(id);state.conversation=state.conversations[0]||null;if(!state.conversation)await createConversation();else{localStorage.setItem(ACTIVE_CONVERSATION_KEY,state.conversation.id);syncControls();renderAll();}};
 $("conversation-search").oninput=renderLibrary;$("model-search").oninput=renderCatalog;$("free-only").onchange=renderCatalog;$("image-only").onchange=renderCatalog;$("add-lane").onclick=()=>{const c=state.conversation;if(c.lineup.length<state.maxLanes){c.lineup.push({id:uid("lane"),model:c.lineup.at(-1)?.model||state.catalog[0]?.id});saveConversation();renderLineup();renderConversation();}};
 $("scratchpad").oninput=()=>{const scratchpad=scratchpadState();scratchpad.text=$("scratchpad").value;scratchpad.revision+=1;renderScratchpadStatus();renderBudget();saveConversation();};$("scratchpad-auto-apply").onchange=()=>{scratchpadState().autoApplyRoom=$("scratchpad-auto-apply").checked;saveConversation();};$("copy-scratchpad").onclick=()=>navigator.clipboard.writeText(scratchpadState().text).then(()=>toast("Scratchpad copied"));$("download-scratchpad").onclick=()=>exportFile(`${safeName(state.conversation.title)}-scratchpad.txt`,"text/plain",scratchpadState().text);$("clear-scratchpad").onclick=()=>{if(!scratchpadState().text||confirm("Clear the shared scratchpad?")){scratchpadState().text="";scratchpadState().revision+=1;$("scratchpad").value="";renderScratchpadStatus();renderBudget();saveConversation();}};
-[["chat-personality","chatPersonality"],["system-prompt","systemPrompt"],["max-tokens","maxTokens"],["max-output-mib","maxOutputMiB"],["temperature","temperature"],["top-p","topP"]].forEach(([id,key])=>$(id).oninput=()=>{if(key==="systemPrompt"||key==="chatPersonality")state.conversation[key]=$(id).value;else state.conversation.parameters[key]=$(id).value;renderBudget();saveConversation();});$("provider-default").onchange=()=>{state.conversation.parameters.providerDefault=$("provider-default").checked;$("max-tokens").disabled=$("provider-default").checked;renderBudget();saveConversation();};
+[["chat-personality","chatPersonality"],["system-prompt","systemPrompt"],["max-tokens","maxTokens"],["max-output-mib","maxOutputMiB"],["temperature","temperature"],["top-p","topP"]].forEach(([id,key])=>$(id).oninput=()=>{if(key==="systemPrompt"||key==="chatPersonality")state.conversation[key]=$(id).value;else state.conversation.parameters[key]=$(id).value;renderBudget();saveConversation();});$("provider-default").onchange=()=>{state.conversation.parameters.providerDefault=$("provider-default").checked;$("max-tokens").disabled=$("provider-default").checked;renderBudget();saveConversation();};$("tools-enabled").onchange=()=>{conversationTools().enabled=$("tools-enabled").checked;renderToolSettings();saveConversation();};
 document.querySelectorAll("[data-mode]").forEach(b=>b.onclick=()=>setMode(b.dataset.mode));$("stop").onclick=stopAll;$("open-help").onclick=()=>$("help-dialog").showModal();$("toggle-library").onclick=()=>togglePanel("library","toggle-library");$("toggle-settings").onclick=()=>togglePanel("settings","toggle-settings");$("close-settings").onclick=closePanels;
 $("toggle-scratchpad").onclick=(event)=>panelManager.openDrawer("scratchpad",event.currentTarget);
 document.querySelectorAll(".roster-architect").forEach((details)=>{const kind=details.dataset.rosterKind;details.querySelector(".roster-generate").onclick=()=>draftRoster(kind,details);details.querySelector(".roster-apply").onclick=()=>applyRoster(kind,details);});

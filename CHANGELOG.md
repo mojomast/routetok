@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Sandbox model output is unlimited by default; an optional 1-64 MiB per-note cap can still be set.
 - Added read-only admin endpoints `GET /admin/api/attempts/decode`, `GET /admin/api/route/simulate`, and `GET /admin/api/models/visibility` with dashboard authentication.
 - Added dashboard Attempt Inspector, API Setup test request, onboarding wizard, and Fieldbook backup modules with script-tag mounts and static serving.
 - Added docs/onboarding.md plus dashboard, API, README, and changelog pointers for the new operational workflows.

@@ -25,10 +25,14 @@ Notes persist drafts, lineups, instructions, generation settings, text results, 
 - Continue any successful result as a new single-model note.
 - Fork before a selected response while preserving earlier branch context.
 - Estimate context utilization and input/output cost from current catalog metadata.
-- Use an output-byte limit from 1 to 64 MiB independently of provider `max_tokens`.
+- Use an optional output-byte cap from 1 to 64 MiB; the sandbox sends no cap unless you set one, so output is unlimited by default.
 - Recognize raw or fenced SVG and self-contained HTML as passive preview artifacts.
 
 Titles receive an immediate deterministic fallback from the first activity and may be improved once by a catalog-confirmed free text model. Manual titles are never replaced. Selecting a note does not alter its modification time or library order.
+
+## Native Tool Use
+
+Chat notes can enable browser-local tool use per note under Chat settings → Tools. Tool declarations travel with each sandbox request and the server returns normalized tool calls; the browser executes each call locally against its own state and feeds the result back as a tool turn until the model answers, the 8-tool-turn budget ends, or you stop the run. Read tools (`time_now`, `catalog_lookup`, `cost_estimate`, `note_search`, `note_read`, and `scratchpad_read`) run automatically. Write tools (`scratchpad_write`, `studio_apply_patch`, and `image_request`) pause on an inline approval card and run only after explicit approval, reusing the existing revision, unified-diff, and image checks. Unknown tool names and per-note disabled tools are denied. Activity appears on an inline tool timeline with collapsed arguments and results, and the per-run neutral transcript plus tool activity stay in the note and are included in JSON and Markdown exports. No tool writes to the filesystem or leaves the browser except the existing approval-gated image generation endpoint.
 
 ## Explicit Context
 
@@ -94,5 +98,5 @@ Chat, Room, and Studio each provide a setup-only Roster Architect. A catalog-con
 - Studio files: safe virtual paths and bounded file count/project size
 - Studio snapshots: latest 30
 - Steering messages: latest 80
-- Output bytes: 4 MiB by default, configurable from 1 to 64 MiB
+- Output bytes: unlimited by default; an optional cap from 1 to 64 MiB can be set per note.
 - Audio and image bytes: ephemeral and excluded from IndexedDB

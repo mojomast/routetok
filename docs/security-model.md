@@ -16,6 +16,8 @@ RouteTok is designed for a trusted single-user host and defaults to loopback.
 - Studio JavaScript is opt-in and runs without same-origin access; virtual projects cannot read repository or filesystem files.
 - Fieldbook context is explicit, one-shot, size-bounded, provenance-labelled, and treated as untrusted model data.
 - Studio patches and image requests are scope/revision checked. Image generation requires approval before the provider call.
+- Native Chat tools execute only in the browser: reads act on catalog state and note-local IndexedDB content, and writes are approval-gated and never touch the filesystem or the network beyond the existing approval-gated image endpoint. The server never executes tools; it only validates bounded declarations and relays normalized tool calls back to the client.
+- Fieldbook Chat tool declarations are capped at 16 validated tools with bounded schemas, transcripts are capped at 40 messages and 500,000 characters, and tool loops stop at 8 tool turns, a final answer, or user abort.
 
 ## Retention
 

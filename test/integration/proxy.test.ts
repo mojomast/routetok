@@ -649,8 +649,12 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
     const invalidOutputLimit = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/sandbox`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ purpose: "chat", requests: [{ id: "oversized-limit", model: "good-model", parameters: { maxOutputMiB: 65 }, messages: [{ role: "user", content: "Reject the limit" }] }] }) });
     assert.equal(invalidOutputLimit.status, 400);
     const defaultOutputLimit = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/sandbox`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ purpose: "chat", requests: [{ id: "default-output-limit", model: "good-model", messages: [{ role: "user", content: "sandbox output cap probe" }] }] }) });
-    const defaultOutputPayload = await defaultOutputLimit.json() as { results: Array<{ error: string | null }> };
-    assert.match(defaultOutputPayload.results[0]?.error ?? "", /exceeded 4 MiB/);
+    const defaultOutputPayload = await defaultOutputLimit.json() as { results: Array<{ content: string; error: string | null }> };
+    assert.equal(defaultOutputPayload.results[0]?.error, null);
+    assert.equal(defaultOutputPayload.results[0]?.content.length, 5 * 1024 * 1024);
+    const cappedOutputLimit = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/sandbox`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ purpose: "chat", requests: [{ id: "capped-output-limit", model: "good-model", parameters: { maxOutputMiB: 1 }, messages: [{ role: "user", content: "sandbox output cap probe" }] }] }) });
+    const cappedOutputPayload = await cappedOutputLimit.json() as { results: Array<{ error: string | null }> };
+    assert.match(cappedOutputPayload.results[0]?.error ?? "", /exceeded 1 MiB/);
     const expandedOutputLimit = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/sandbox`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ purpose: "chat", requests: [{ id: "expanded-output-limit", model: "good-model", parameters: { maxOutputMiB: 6 }, messages: [{ role: "user", content: "sandbox output cap probe" }] }] }) });
     const expandedOutputPayload = await expandedOutputLimit.json() as { results: Array<{ content: string; error: string | null }> };
     assert.equal(expandedOutputPayload.results[0]?.error, null);

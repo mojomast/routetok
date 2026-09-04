@@ -152,3 +152,33 @@ export interface ProviderCredits {
   limitUsd: number | null;
   remainingUsd: number | null;
 }
+
+export interface SandboxTool {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
+
+export interface SandboxToolCall {
+  id: string;
+  name: string;
+  args: Record<string, unknown>;
+}
+
+export interface SandboxToolCallTurn {
+  role: "assistant";
+  content: string;
+  tool_calls: SandboxToolCall[];
+}
+
+export interface SandboxToolResultTurn {
+  role: "tool";
+  tool_call_id: string;
+  content: string;
+  is_error?: boolean;
+}
+
+export type SandboxTranscriptTurn =
+  | { role: "system" | "user" | "assistant"; content: string }
+  | SandboxToolCallTurn
+  | SandboxToolResultTurn;

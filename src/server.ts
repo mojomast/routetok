@@ -16,7 +16,19 @@ import { serializeModelMetadata } from "./model-metadata.js";
 import { ProxyHandler } from "./proxy.js";
 import { ProviderCredentialStore } from "./provider-credentials.js";
 import { HealthRouter } from "./router.js";
-import type { CatalogModel, ModelHealth, Protocol, ProviderId, ProviderRuntime, RequestRecord, RouterConfig } from "./types.js";
+import type { CatalogModel, ModelHealth, Protocol, ProviderId, ProviderRuntime, RequestRecord, RouterConfig, SandboxTool, SandboxTranscriptTurn } from "./types.js";
+import {
+  anthropicWirePayload,
+  anthropicWireTools,
+  createAnthropicToolUseAccumulator,
+  createOpenAiToolCallAccumulator,
+  normalizeProtocol,
+  openAiWireMessages,
+  openAiWireTools,
+  parseSandboxTools,
+  parseSandboxTranscript,
+  transcriptHasTools
+} from "./sandbox-tools.js";
 
 const host = process.env.HOST?.trim() || "127.0.0.1";
 const port = Number(process.env.PORT || 8787);
@@ -175,10 +187,9 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 type SandboxPurpose = "chat" | "design" | "diagnose";
 type SandboxParameters = { maxTokens?: number; maxOutputMiB?: number; temperature?: number; topP?: number };
-type SandboxBranch = { id: string; model: string; messages: ChatMessage[]; parameters: SandboxParameters };
+type SandboxBranch = { id: string; model: string; messages: SandboxTranscriptTurn[]; parameters: SandboxParameters; protocol: Protocol };
 
 interface ConfigProposal {
   id: string;
@@ -195,28 +206,6 @@ interface ConfigProposal {
 const configProposals = new Map<string, ConfigProposal>();
 let activeSandboxRequests = 0;
 
-function dashboardChatMessages(messages: unknown): ChatMessage[] {
-  if (!Array.isArray(messages) || messages.length === 0 || messages.length > 40) {
-    throw new Error("Chat requires between 1 and 40 messages");
-  }
-  let totalCharacters = 0;
-  return messages.map((message) => {
-    if (!message || typeof message !== "object" || Array.isArray(message)) {
-      throw new Error("Every chat message must be an object");
-    }
-    const value = message as Record<string, unknown>;
-    if (value.role !== "system" && value.role !== "user" && value.role !== "assistant") {
-      throw new Error("Chat message role must be system, user, or assistant");
-    }
-    if (typeof value.content !== "string" || !value.content.trim()) {
-      throw new Error("Chat message content must be a non-empty string");
-    }
-    totalCharacters += value.content.length;
-    if (totalCharacters > 500_000) throw new Error("Chat history exceeds 500,000 characters");
-    return { role: value.role, content: value.content };
-  });
-}
-
 function sandboxEligible(modelId: string): boolean {
   const model = catalog.resolve(modelId);
   if (!model || !isTextGenerationModel(model)) return false;
@@ -229,11 +218,13 @@ function sandboxEligible(modelId: string): boolean {
   return free || current.enabledExternalModels.includes(modelId);
 }
 
-function sandboxRequest(input: unknown): { branches: SandboxBranch[]; purpose: SandboxPurpose } {
+function sandboxRequest(input: unknown): { branches: SandboxBranch[]; purpose: SandboxPurpose; tools: SandboxTool[]; protocol: Protocol } {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Sandbox body must be an object");
   const body = input as Record<string, unknown>;
   const purpose = body.purpose === undefined ? "chat" : body.purpose;
   if (purpose !== "chat" && purpose !== "design" && purpose !== "diagnose") throw new Error("Sandbox purpose must be chat, design, or diagnose");
+  const tools = parseSandboxTools(body.tools);
+  const protocol = normalizeProtocol(body.protocol, undefined, "");
   const requests = body.requests;
   if (!Array.isArray(requests) || requests.length === 0 || requests.length > 4) {
     throw new Error("Sandbox requires between 1 and 4 models");
@@ -249,6 +240,8 @@ function sandboxRequest(input: unknown): { branches: SandboxBranch[]; purpose: S
     if (typeof value.model !== "string" || !sandboxEligible(value.model)) {
       throw new Error(`Model is disabled, unavailable, or incompatible: ${String(value.model)}`);
     }
+    const resolvedModel = catalog.resolve(value.model);
+    normalizeProtocol(protocol, resolvedModel?.protocols, value.model);
     if (value.parameters !== undefined && (!value.parameters || typeof value.parameters !== "object" || Array.isArray(value.parameters))) throw new Error("parameters must be an object");
     const rawParameters = (value.parameters ?? {}) as Record<string, unknown>;
     const maxTokens = rawParameters.maxTokens;
@@ -257,16 +250,24 @@ function sandboxRequest(input: unknown): { branches: SandboxBranch[]; purpose: S
     if (maxOutputMiB !== undefined && (!Number.isInteger(maxOutputMiB) || Number(maxOutputMiB) < 1 || Number(maxOutputMiB) > 64)) throw new Error("maxOutputMiB must be an integer between 1 and 64");
     if (rawParameters.temperature !== undefined && (typeof rawParameters.temperature !== "number" || rawParameters.temperature < 0 || rawParameters.temperature > 2)) throw new Error("temperature must be between 0 and 2");
     if (rawParameters.topP !== undefined && (typeof rawParameters.topP !== "number" || rawParameters.topP < 0 || rawParameters.topP > 1)) throw new Error("topP must be between 0 and 1");
-    const messages = dashboardChatMessages(value.messages);
+    const messages = parseSandboxTranscript(value.messages);
     const last = messages.at(-1);
-    if (last?.role !== "user") throw new Error("Every sandbox branch must end with a user prompt");
-    if (finalPrompt !== null && last.content !== finalPrompt) throw new Error("Every sandbox branch must end with the same prompt");
-    finalPrompt = last.content;
+    const harnessTranscript = tools.length > 0 || transcriptHasTools(messages);
+    if (harnessTranscript) {
+      if (last && last.role === "assistant" && "tool_calls" in last) {
+        throw new Error("A sandbox transcript cannot end with an unanswered assistant tool call");
+      }
+    } else {
+      if (last?.role !== "user") throw new Error("Every sandbox branch must end with a user prompt");
+      if (finalPrompt !== null && last.content !== finalPrompt) throw new Error("Every sandbox branch must end with the same prompt");
+      finalPrompt = last.content;
+    }
     ids.add(value.id);
     return {
       id: value.id,
       model: value.model,
       messages,
+      protocol,
       parameters: {
         ...(typeof maxTokens === "number" ? { maxTokens } : {}),
         ...(typeof maxOutputMiB === "number" ? { maxOutputMiB } : {}),
@@ -275,7 +276,7 @@ function sandboxRequest(input: unknown): { branches: SandboxBranch[]; purpose: S
       }
     };
   });
-  return { branches, purpose };
+  return { branches, purpose, tools, protocol };
 }
 
 type DiagnosticNeed = "capabilities" | "readiness" | "runtime" | "config" | "providers" | "catalog" | "credits" | "totals" | "models" | "health" | "live" | "recent" | "history" | "prometheus";
@@ -566,38 +567,57 @@ function requestMetrics(record: RequestRecord | null): object | null {
 
 async function runDashboardModel(
   model: string,
-  messages: Array<ChatMessage | { role: "system"; content: string }>,
+  messages: SandboxTranscriptTurn[],
   signal: AbortSignal,
   parameters: SandboxParameters = {},
-  jsonMode = false
+  jsonMode = false,
+  protocol: Protocol = "openai",
+  tools: SandboxTool[] = []
 ) {
   const localHost = host === "::1" ? "[::1]" : host;
-  const upstream = await fetch(`http://${localHost}:${port}/v1/chat/completions`, {
+  const anthropic = protocol === "anthropic";
+  const openAiMessages = anthropic ? [] : openAiWireMessages(messages);
+  const anthropicPayload = anthropic ? anthropicWirePayload(messages) : null;
+  const body = anthropic ? {
+    model,
+    messages: anthropicPayload!.messages,
+    ...(anthropicPayload!.system ? { system: anthropicPayload!.system } : {}),
+    max_tokens: parameters.maxTokens ?? 4096,
+    stream: true,
+    ...(tools.length ? { tools: anthropicWireTools(tools) } : {}),
+    ...(parameters.temperature === undefined ? {} : { temperature: parameters.temperature }),
+    ...(parameters.topP === undefined ? {} : { top_p: parameters.topP })
+  } : {
+    model,
+    messages: openAiMessages,
+    stream: true,
+    stream_options: { include_usage: true },
+    ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
+    ...(tools.length ? { tools: openAiWireTools(tools) } : {}),
+    ...(parameters.maxTokens === undefined ? {} : { max_tokens: parameters.maxTokens }),
+    ...(parameters.temperature === undefined ? {} : { temperature: parameters.temperature }),
+    ...(parameters.topP === undefined ? {} : { top_p: parameters.topP })
+  };
+  const upstream = await fetch(`http://${localHost}:${port}${anthropic ? "/v1/messages" : "/v1/chat/completions"}`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${proxyApiKey}`,
       "content-type": "application/json",
       accept: "text/event-stream",
       "user-agent": model.startsWith("openrouter:") ? "opencode/1.15.13" : "routetok/0.1",
-      "x-routetok-internal": internalSandboxToken
+      "x-routetok-internal": internalSandboxToken,
+      ...(anthropic ? { "anthropic-version": "2023-06-01" } : {})
     },
-    body: JSON.stringify({
-      model,
-      messages,
-      stream: true,
-      stream_options: { include_usage: true },
-      ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
-      ...(parameters.maxTokens === undefined ? {} : { max_tokens: parameters.maxTokens }),
-      ...(parameters.temperature === undefined ? {} : { temperature: parameters.temperature }),
-      ...(parameters.topP === undefined ? {} : { top_p: parameters.topP })
-    }),
+    body: JSON.stringify(body),
     signal
   });
   const requestId = upstream.headers.get("x-request-id");
   let content = "";
   let reasoning = "";
   let error: string | null = null;
-  const maximumOutputBytes = (parameters.maxOutputMiB ?? 4) * 1024 * 1024;
+  const maximumOutputBytes = typeof parameters.maxOutputMiB === "number" ? parameters.maxOutputMiB * 1024 * 1024 : null;
+  const openAiAccumulator = createOpenAiToolCallAccumulator();
+  const anthropicAccumulator = createAnthropicToolUseAccumulator();
   if (upstream.ok && upstream.body) {
     const reader = upstream.body.getReader();
     const decoder = new TextDecoder();
@@ -606,9 +626,9 @@ async function runDashboardModel(
     while (true) {
       const result = await reader.read();
       receivedBytes += result.value?.byteLength ?? 0;
-      if (receivedBytes > maximumOutputBytes) {
-        await reader.cancel(`sandbox output exceeded ${parameters.maxOutputMiB ?? 4} MiB`);
-        throw new Error(`Sandbox model output exceeded ${parameters.maxOutputMiB ?? 4} MiB`);
+      if (maximumOutputBytes !== null && receivedBytes > maximumOutputBytes) {
+        await reader.cancel(`sandbox output exceeded ${parameters.maxOutputMiB} MiB`);
+        throw new Error(`Sandbox model output exceeded ${parameters.maxOutputMiB} MiB`);
       }
       pending += decoder.decode(result.value ?? new Uint8Array(), { stream: !result.done });
       const blocks = pending.replaceAll("\r\n", "\n").split("\n\n");
@@ -622,8 +642,22 @@ async function runDashboardModel(
           error = String((event.error as Record<string, unknown>).message ?? "Stream failed");
           continue;
         }
+        if (anthropic) {
+          anthropicAccumulator.consume(event);
+          if (typeof event.type !== "string") continue;
+          if (event.type === "content_block_delta") {
+            const delta = event.delta && typeof event.delta === "object" ? event.delta as Record<string, unknown> : {};
+            if (delta.type === "text_delta" && typeof delta.text === "string") content += delta.text;
+            if (delta.type === "thinking_delta" && typeof delta.thinking === "string") reasoning += delta.thinking;
+          } else if (event.type === "content_block_start") {
+            const block = event.content_block && typeof event.content_block === "object" ? event.content_block as Record<string, unknown> : {};
+            if (block.type === "text" && typeof block.text === "string") content += block.text;
+          }
+          continue;
+        }
         const choice = Array.isArray(event.choices) ? event.choices[0] as Record<string, unknown> | undefined : undefined;
         const delta = choice?.delta && typeof choice.delta === "object" ? choice.delta as Record<string, unknown> : {};
+        openAiAccumulator.consume(delta);
         if (typeof delta.content === "string") content += delta.content;
         if (Array.isArray(delta.content)) {
           content += delta.content.map((part) => part && typeof part === "object" && typeof (part as Record<string, unknown>).text === "string" ? (part as Record<string, unknown>).text : "").join("");
@@ -639,12 +673,14 @@ async function runDashboardModel(
     error = String(errorObject?.message ?? `HTTP ${upstream.status}`);
   }
   const record = requestId ? await metrics.waitForRecord(requestId) : null;
+  const toolCalls = anthropic ? anthropicAccumulator.finish() : openAiAccumulator.finish();
   return {
     requestedModel: model,
     content,
     reasoning,
     error: error ?? record?.error ?? null,
-    metrics: requestMetrics(record)
+    metrics: requestMetrics(record),
+    ...(toolCalls.length ? { toolCalls } : {})
   };
 }
 
@@ -690,8 +726,9 @@ async function lazyDiagnosisInstruction(branch: SandboxBranch, signal: AbortSign
 async function dashboardSandbox(request: IncomingMessage, response: ServerResponse): Promise<void> {
   let branches: SandboxBranch[];
   let purpose: SandboxPurpose;
+  let tools: SandboxTool[];
   try {
-    ({ branches, purpose } = sandboxRequest(await readJson(request)));
+    ({ branches, purpose, tools } = sandboxRequest(await readJson(request)));
   } catch (error) {
     return json(response, 400, { error: (error as Error).message });
   }
@@ -713,10 +750,10 @@ async function dashboardSandbox(request: IncomingMessage, response: ServerRespon
           { role: "system" as const, content: purpose === "design" ? designInstruction : diagnosisInstruction },
           ...branch.messages
         ];
-        return { id: branch.id, parameters: branch.parameters, ...await runDashboardModel(branch.model, messages, controller.signal, branch.parameters) };
+        return { id: branch.id, protocol: branch.protocol, parameters: branch.parameters, ...await runDashboardModel(branch.model, messages, controller.signal, branch.parameters, false, branch.protocol, tools) };
       } catch (error) {
         if (controller.signal.aborted) throw error;
-        return { id: branch.id, requestedModel: branch.model, parameters: branch.parameters, content: "", reasoning: "", error: (error as Error).message, metrics: null };
+        return { id: branch.id, requestedModel: branch.model, protocol: branch.protocol, parameters: branch.parameters, content: "", reasoning: "", error: (error as Error).message, metrics: null };
       }
     }));
     if (!response.destroyed) json(response, 200, { results: settled });
@@ -1071,6 +1108,9 @@ const staticFiles: Record<string, [string, string]> = {
   "/fieldbook/context-broker.js": ["fieldbook/context-broker.js", "text/javascript; charset=utf-8"],
   "/fieldbook/studio-chat.js": ["fieldbook/studio-chat.js", "text/javascript; charset=utf-8"],
   "/fieldbook/image-approvals.js": ["fieldbook/image-approvals.js", "text/javascript; charset=utf-8"],
+  "/fieldbook/tools.js": ["fieldbook/tools.js", "text/javascript; charset=utf-8"],
+  "/fieldbook/agent-loop.js": ["fieldbook/agent-loop.js", "text/javascript; charset=utf-8"],
+  "/fieldbook/tool-approvals.js": ["fieldbook/tool-approvals.js", "text/javascript; charset=utf-8"],
   "/image-gallery": ["image-gallery/index.html", "text/html; charset=utf-8"],
   "/image-gallery/": ["image-gallery/index.html", "text/html; charset=utf-8"],
   "/image-gallery/gallery.css": ["image-gallery/gallery.css", "text/css; charset=utf-8"],

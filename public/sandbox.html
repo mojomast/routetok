@@ -130,7 +130,7 @@
               <div class="studio-budget">
                 <div><label for="studio-iterations">Iterations remaining <strong id="studio-iterations-value">6</strong></label><input id="studio-iterations" type="range" min="0" max="20" value="6"></div>
                 <div><label for="studio-duration">Per-agent deadline <strong id="studio-duration-value">60 seconds</strong></label><input id="studio-duration" type="range" min="10" max="300" step="10" value="60"></div>
-                <div><label for="studio-output-mib">Sandbox output limit <strong><span id="studio-output-mib-value">4</span> MiB</strong></label><input id="studio-output-mib" type="range" min="1" max="64" step="1" value="4"></div>
+                <div><label for="studio-output-mib">Sandbox output limit <strong><span id="studio-output-mib-value">Unlimited</span></strong></label><input id="studio-output-mib" type="range" min="0" max="64" step="1" value="0"></div>
                 <div class="studio-run-actions"><button data-studio-top-up="1" type="button">+1</button><button data-studio-top-up="3" type="button">+3</button><button id="studio-pause" type="button" hidden>Pause</button><button id="studio-retry" type="button" hidden>Retry agent</button><button id="studio-skip" type="button" hidden>Skip agent</button><button id="studio-resume" class="primary" type="button">Start / resume</button></div>
                 <p id="studio-status" class="muted" role="status">Ready. Each completed agent turn consumes one iteration.</p>
               </div>
@@ -177,9 +177,15 @@
           <label>System prompt<textarea id="system-prompt" rows="4" maxlength="50000"></textarea></label>
           <label class="inline"><input id="provider-default" type="checkbox" checked> Provider default max tokens</label>
           <label>Max tokens<input id="max-tokens" type="number" min="256" max="262144" value="4096" disabled></label>
-          <label>Sandbox output limit <span>MiB, default 4</span><input id="max-output-mib" type="number" min="1" max="64" step="1" value="4"></label>
+          <label>Sandbox output limit <span>MiB, 0 = unlimited</span><input id="max-output-mib" type="number" min="0" max="64" step="1" value="0"></label>
           <label>Temperature <span>0–2, blank = default</span><input id="temperature" type="number" min="0" max="2" step="0.1"></label>
           <label>Top P <span>0–1, blank = default</span><input id="top-p" type="number" min="0" max="1" step="0.05"></label>
+        </details>
+        <details id="tools-settings">
+          <summary>Tools</summary>
+          <label class="inline"><input id="tools-enabled" type="checkbox"> Enable browser tools</label>
+          <p class="muted" id="tools-status">Read tools run automatically; writes pause for your approval.</p>
+          <div id="tools-list" class="tools-list"></div>
         </details>
         <p id="catalog-status" class="muted" role="status">Loading model catalog…</p>
       </aside>
