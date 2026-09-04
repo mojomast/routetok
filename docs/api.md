@@ -60,6 +60,12 @@ Fallback remains pre-output only. Retriable conditions include `429` while the p
 
 A complete successful non-stream response never falls back. A stream commits as soon as semantic text, reasoning, refusal, or tool/function output appears and never falls back afterward, even if it later stalls, disconnects, or lacks a terminal event. Request body fields are preserved across attempts except for substitution of the selected physical `model`. Existing Anthropic thinking pin/strip behavior and AgentRouter DeepSeek historical-tool compatibility transformations may apply to Anthropic Messages; they do not alter OpenAI Chat Completions requests.
 
+A committed stream no longer ends silently on failure. Upstream error frames arriving after commit are relayed, including flat Responses `type:"error"` events. When a committed stream ends with an upstream-reported error (`response.failed`, a flat error frame, or an error-carrying event) or with no terminal event at all, RouteTok appends a protocol-shaped error frame before ending the response; OpenAI-Chat streams also receive a final `data: [DONE]`. The synthesized frame keeps the `stream_interrupted` envelope with a coarse `reason` sub-field (`idle_timeout`, `deadline`, `reader_abort`, or `upstream_error`) and a generic message; internals are never placed in the message text. Clients therefore observe a terminal error instead of a cleanly truncated stream.
+
+The overall `requestTimeoutMs` deadline applies until a stream commits and for the full duration of non-stream requests. After a stream commits, only the client connection and the per-read `streamIdleTimeoutMs` idle bound govern the response: a committed stream may continue past the overall deadline while it keeps producing data, and a committed stream that goes idle ends with the reason-accurate `idle_timeout` frame. Pre-commit first-output and overall-deadline behavior is unchanged.
+
+
+
 Fallback candidates are removed when catalog metadata explicitly conflicts with request requirements such as tools, image/audio input, or non-text output. Missing metadata remains unknown and does not by itself remove a candidate. A model-specific entitlement `403` blocks that route until health reset; unrelated account/policy `403` responses do not. In either case the bounded upstream error body is preserved for the client.
 
 ## Operations

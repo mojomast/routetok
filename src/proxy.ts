@@ -349,7 +349,7 @@ async function readResponseBuffer(response: Response, maximumBytes: number): Pro
   }
 }
 
-function retryAfterMs(headers: Headers): number {
+export function retryAfterMs(headers: Headers): number {
   const value = headers.get("retry-after");
   if (!value) return 30_000;
   const seconds = Number(value);
@@ -590,7 +590,7 @@ function sseFields(block: string): { event: string; data: string } {
   };
 }
 
-class StreamSanitizer {
+export class StreamSanitizer {
   private readonly decoder = new TextDecoder();
   private pending = "";
 
@@ -641,7 +641,7 @@ class StreamSanitizer {
     if (this.protocol === "openai") {
       const responsesWire = this.path.endsWith("/responses");
       const allowed = responsesWire
-        ? type.startsWith("response.") || Boolean(value.error)
+        ? type.startsWith("response.") || type === "error" || Boolean(value.error)
         : Array.isArray(value.choices) || Boolean(value.error);
       if (!allowed) return [];
       value.model = this.model;
@@ -910,20 +910,35 @@ async function writeChunk(response: ServerResponse, chunk: Uint8Array): Promise<
   });
 }
 
-async function writeStreamError(response: ServerResponse, protocol: Protocol): Promise<void> {
+type StreamErrorReason = "idle_timeout" | "deadline" | "reader_abort" | "upstream_error";
+
+function streamErrorReason(message: string): StreamErrorReason {
+  if (message.includes("idle")) return "idle_timeout";
+  if (message.includes("deadline")) return "deadline";
+  return "reader_abort";
+}
+
+async function writeStreamError(
+  response: ServerResponse,
+  protocol: Protocol,
+  reason: StreamErrorReason,
+  appendChatDone = false
+): Promise<void> {
   if (response.destroyed || response.writableEnded) return;
+  const done = appendChatDone ? "data: [DONE]\n\n" : "";
   const payload = protocol === "anthropic"
     ? `event: error\ndata: ${JSON.stringify({
         type: "error",
-        error: { type: "overloaded_error", message: "Upstream stream stalled or disconnected" }
+        error: { type: "overloaded_error", message: "Upstream stream stalled or disconnected", reason }
       })}\n\n`
     : `data: ${JSON.stringify({
         error: {
           message: "Upstream stream stalled or disconnected",
           type: "server_error",
-          code: "stream_interrupted"
+          code: "stream_interrupted",
+          reason
         }
-      })}\n\n`;
+      })}\n\n${done}`;
   await writeChunk(response, Buffer.from(payload));
 }
 
@@ -1355,6 +1370,7 @@ export class ProxyHandler {
             if (!internalSandbox) this.options.router.recordTransientFailure(protocol, model, config);
             finalStatus = message.includes("deadline") ? 504 : 502;
             finalError = message;
+            if (controller.signal.aborted) break;
             continue;
           } finally {
             clearTimeout(attemptTimeout);
@@ -1381,7 +1397,8 @@ export class ProxyHandler {
             protocol,
               config.streamIdleTimeoutMs,
               path,
-              providerId
+              providerId,
+              () => clearTimeout(timeout)
           );
           const streamCompletedAt = Date.now();
           usage = streamResult.usage;
@@ -1593,17 +1610,20 @@ export class ProxyHandler {
     protocol: Protocol,
     idleTimeoutMs: number,
     path: string,
-    providerId: ProviderId
+    providerId: ProviderId,
+    onCommit: () => void
   ): Promise<{ usage: TokenUsage; error: string | null }> {
     const headerAttempts: DiagnosticAttempt[] = [
       ...priorAttempts,
       { model, providerId, status: upstream.status, outcome: "stream_committed" }
     ];
+    onCommit();
     response.writeHead(
       upstream.status,
       responseHeaders(upstream.headers, requestId, model, headerAttempts, "stream_committed", providerId)
     );
     const sanitizer = new StreamSanitizer(protocol, path, model);
+    const appendChatDone = protocol === "openai" && !path.endsWith("/responses");
     try {
       for (const chunk of prepared.buffered) {
         for (const sanitized of sanitizer.push(chunk)) await writeChunk(response, sanitized);
@@ -1628,14 +1648,17 @@ export class ProxyHandler {
       }
       prepared.inspector.finish();
       for (const sanitized of sanitizer.finish()) await writeChunk(response, sanitized);
-      response.end();
       const error = prepared.inspector.upstreamError ??
         (prepared.inspector.terminal ? null : "stream ended without a terminal event");
+      if (error) {
+        await writeStreamError(response, protocol, "upstream_error", appendChatDone);
+      }
+      response.end();
       return { usage: prepared.inspector.usage, error };
     } catch (error) {
       await prepared.reader.cancel("downstream stream ended").catch(() => {});
       try {
-        await writeStreamError(response, protocol);
+        await writeStreamError(response, protocol, streamErrorReason((error as Error).message), appendChatDone);
         response.end();
       } catch {
         response.destroy();

@@ -4,6 +4,7 @@ import { DEFAULT_CONFIG } from "../../src/config.js";
 import { parseOpenAiCompatibleCatalog, parseOpenRouterCatalog, parseRequestyCatalog } from "../../src/catalog.js";
 import {
   StreamInspector,
+  StreamSanitizer,
   shouldStripThinkingForRequestedModel,
   stripThinkingForFallback,
   thinkingPinnedModel
@@ -350,6 +351,33 @@ test("stream metadata does not commit output and Responses failures are errors",
   ));
   assert.equal(openai.terminal, true);
   assert.equal(openai.upstreamError, "upstream stream error");
+});
+
+test("Responses sanitizer relays flat error events and preserves their event line", () => {
+  const sanitizer = new StreamSanitizer("openai", "/v1/responses", "physical-model");
+  const bytes = sanitizer.push(new TextEncoder().encode(
+    'event: error\ndata: {"type":"error","code":"server_error","message":"upstream boom","param":null,"sequence_number":1}\n\n'
+  ));
+  assert.equal(bytes.length, 1);
+  const text = new TextDecoder().decode(bytes[0]);
+  assert.match(text, /^event: error\ndata: /);
+  assert.match(text, /"type":"error"/);
+  assert.match(text, /"message":"upstream boom"/);
+  assert.doesNotMatch(text, /stream_interrupted/);
+  assert.equal(sanitizer.finish().length, 0);
+});
+
+test("Responses sanitizer drops only non-error unknown event types", () => {
+  const sanitizer = new StreamSanitizer("openai", "/v1/responses", "physical-model");
+  const relayed = sanitizer.push(new TextEncoder().encode(
+    'event: response.failed\ndata: {"type":"response.failed","response":{"error":{"message":"failed"}}}\n\n'
+  ));
+  assert.equal(relayed.length, 1);
+  const dropped = sanitizer.push(new TextEncoder().encode(
+    'event: unknown\ndata: {"type":"unknown_type","unexpected":true}\n\n'
+  ));
+  assert.equal(dropped.length, 0);
+  assert.equal(sanitizer.finish().length, 0);
 });
 
 test("Responses stream inspector tracks text estimates and nested final usage", () => {
