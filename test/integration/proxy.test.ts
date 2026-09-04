@@ -346,6 +346,27 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
     assert.match(dashboardHtml, /id="reset-circuits"/);
     assert.doesNotMatch(dashboardHtml, /class="panel system-panel"/);
     assert.doesNotMatch(dashboardHtml, /data-sandbox-mode="(?:chat|design)"/);
+    assert.doesNotMatch(dashboardHtml, /<\s*script\s*>/, "dashboard HTML carries no inline script blocks");
+    assert.match(dashboardHtml, /src="\/theme-bootstrap\.js/);
+
+    const healthz = await fetch(`http://127.0.0.1:${proxyPort}/healthz`);
+    assert.equal(healthz.status, 200);
+    assert.deepEqual(await healthz.json(), { status: "ok" }, "healthz is minimal liveness; catalog detail stays admin-only");
+    for (const dashboardPath of ["/", "/dashboard"]) {
+      const dashboardTier = await fetch(`http://127.0.0.1:${proxyPort}${dashboardPath}`);
+      assert.equal(dashboardTier.status, 200);
+      assert.equal(dashboardTier.headers.get("cache-control"), "no-store");
+      assert.equal(dashboardTier.headers.get("x-frame-options"), "DENY");
+      assert.equal(dashboardTier.headers.get("x-content-type-options"), "nosniff");
+      assert.match(dashboardTier.headers.get("content-security-policy") ?? "", /default-src 'self'.*script-src 'self'.*style-src 'self' 'unsafe-inline'.*connect-src 'self'.*img-src 'self' data: blob:.*media-src 'self' blob:.*object-src 'none'.*base-uri 'none'.*frame-ancestors 'none'/);
+    }
+    for (const dashboardAsset of ["/styles.css", "/app.js", "/attempt-inspector.js", "/api-setup.js", "/onboarding.js", "/theme-bootstrap.js"]) {
+      const asset = await fetch(`http://127.0.0.1:${proxyPort}${dashboardAsset}`);
+      assert.equal(asset.status, 200);
+      assert.equal(asset.headers.get("cache-control"), "public, max-age=300");
+      assert.equal(asset.headers.get("x-frame-options"), "DENY");
+      assert.match(asset.headers.get("content-security-policy") ?? "", /default-src 'self'.*script-src 'self'.*frame-ancestors 'none'/);
+    }
 
     for (const sandboxPath of ["/sandbox", "/sandbox/"]) {
       const sandboxPage = await fetch(`http://127.0.0.1:${proxyPort}${sandboxPath}`);

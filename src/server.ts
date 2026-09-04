@@ -1118,9 +1118,16 @@ const staticFiles: Record<string, [string, string]> = {
   "/attempt-inspector.js": ["attempt-inspector.js", "text/javascript; charset=utf-8"],
   "/api-setup.js": ["api-setup.js", "text/javascript; charset=utf-8"],
   "/onboarding.js": ["onboarding.js", "text/javascript; charset=utf-8"],
+  "/theme-bootstrap.js": ["theme-bootstrap.js", "text/javascript; charset=utf-8"],
   "/fieldbook/backup.js": ["fieldbook/backup.js", "text/javascript; charset=utf-8"],
   "/styles.css": ["styles.css", "text/css; charset=utf-8"]
 };
+
+function dashboardPath(pathname: string): boolean {
+  return pathname === "/" || pathname === "/dashboard" || pathname === "/styles.css"
+    || pathname === "/theme-bootstrap.js" || pathname === "/app.js"
+    || pathname === "/attempt-inspector.js" || pathname === "/api-setup.js" || pathname === "/onboarding.js";
+}
 
 async function serveStatic(response: ServerResponse, pathname: string): Promise<boolean> {
   const galleryAsset = pathname.match(/^\/image-gallery\/assets\/([a-z0-9][a-z0-9._-]*\.(?:png|jpe?g|webp|svg))$/i);
@@ -1148,7 +1155,7 @@ async function serveStatic(response: ServerResponse, pathname: string): Promise<
         ? "default-src 'none'; style-src 'unsafe-inline'; img-src data:; object-src 'none'; base-uri 'none'; sandbox; frame-ancestors 'none'"
         : pathname === "/image-gallery" || pathname === "/image-gallery/" || pathname === "/image-gallery/gallery.css" || pathname === "/image-gallery/manifest.json"
           ? "default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
-        : pathname.startsWith("/sandbox") || pathname.startsWith("/fieldbook/")
+        : dashboardPath(pathname) || pathname.startsWith("/sandbox") || pathname.startsWith("/fieldbook/")
         ? "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
         : "frame-ancestors 'none'",
       "x-frame-options": "DENY",
@@ -1175,7 +1182,7 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && pathname === "/healthz") {
-      json(response, 200, { status: "ok", catalog: catalog.status() });
+      json(response, 200, { status: "ok" });
       return;
     }
 

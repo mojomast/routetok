@@ -77,6 +77,8 @@ An opened circuit keeps a model out of candidate chains until `circuitOpenMs` el
 - `GET /dashboard`
 - `GET /sandbox`
 
+`GET /healthz` is the only unauthenticated endpoint. It returns minimal liveness (`{"status":"ok"}`) and never echoes catalog state, provider detail, or upstream error strings; the detailed operational projection lives on the authenticated `GET /admin/api/status` and `GET /admin/api/readiness`.
+
 Admin endpoints under `/admin/api/` require `DASHBOARD_TOKEN` when configured. They cover status, deterministic readiness, history, live requests, catalogs, credits, configuration, proposals, sandbox inference, retained request inspection, credentials, and circuit reset.
 
 Model-bearing admin responses expose corresponding normalized metadata fields, but their scopes and compatibility shapes differ from `/v1/models`:
