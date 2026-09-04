@@ -1184,7 +1184,13 @@ function missingStaticAssets(): string[] {
   return missing;
 }
 
-const server = createServer(async (request, response) => {
+const server = createServer(
+  {
+    keepAliveTimeout: 60_000,
+    headersTimeout: 120_000,
+    requestTimeout: 300_000
+  },
+  async (request, response) => {
   try {
     const url = new URL(request.url ?? "/", "http://localhost");
     const pathname = url.pathname;
@@ -1634,7 +1640,14 @@ server.listen(port, host, () => {
   console.log(`Dashboard: http://${host}:${port}/dashboard`);
 });
 
+let shuttingDown = false;
+
 async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) {
+    console.log(`Received second ${signal}; forcing exit.`);
+    process.exit(1);
+  }
+  shuttingDown = true;
   console.log(`Received ${signal}; shutting down.`);
   await new Promise<void>((resolve) => {
     const forceClose = setTimeout(() => server.closeAllConnections(), 5_000);
@@ -1643,10 +1656,11 @@ async function shutdown(signal: string): Promise<void> {
       clearTimeout(forceClose);
       resolve();
     });
+    server.closeIdleConnections();
   });
   await metrics.close();
   process.exit(0);
 }
 
-process.once("SIGINT", () => void shutdown("SIGINT"));
-process.once("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
