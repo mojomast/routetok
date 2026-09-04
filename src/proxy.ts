@@ -1112,6 +1112,7 @@ export class ProxyHandler {
       routingRequirements(parsed.raw)
     );
     const customVirtual = config.customCascades.some((cascade) => cascade.name === parsed.model);
+    const virtualRequest = customVirtual || ["auto", "best", "agentrouter-auto", "agentrouter-best", "free", "free-auto"].includes(parsed.model);
     const stripThinkingOnFirstAttempt = config.thinkingFallbackMode === "strip" &&
       shouldStripThinkingForRequestedModel(protocol, parsed.raw, parsed.model, customVirtual);
     const pinnedModel = stripThinkingOnFirstAttempt
@@ -1259,11 +1260,17 @@ export class ProxyHandler {
           if (!internalSandbox) this.options.router.recordRateLimit(protocol, model, retryAfterMs(upstream.headers), config);
           finalStatus = 429;
           finalError = "rate limited";
-          if (paidOpenRouterFallbackActive && attempts.length < candidates.length) {
+          const differentProviderRemains = candidates
+            .slice(attempts.length)
+            .some((candidate) => (this.options.catalog.resolve(candidate, protocol)?.providerId ?? "agentrouter") !== providerId);
+          const cascadeCanContinue = paidOpenRouterFallbackActive || virtualRequest;
+          const canContinue = cascadeCanContinue && attempts.length < candidates.length
+            && (paidOpenRouterFallbackActive || differentProviderRemains);
+          if (canContinue) {
             await upstream.body?.cancel().catch(() => {});
             continue;
           }
-          const terminal = paidOpenRouterFallbackActive && candidates.length > 1 ? "fallback_exhausted" : "rate_limited";
+          const terminal = cascadeCanContinue && candidates.length > 1 ? "fallback_exhausted" : "rate_limited";
           await upstream.body?.cancel().catch(() => {});
           const retryAfter = upstream.headers.get("retry-after");
           sendJson(
