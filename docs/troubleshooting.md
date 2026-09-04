@@ -22,7 +22,7 @@ This isolates entitlement and upstream behavior from the paid fallback chain. Re
 
 ## Streams time out
 
-Reasoning models may need `slowModelFirstEventTimeoutMs`. Heartbeats and metadata do not satisfy the semantic-output deadline. A first-output timeout can try another candidate, but after semantic or tool output commits, a later timeout or disconnect ends that same stream without fallback. Committed-stream failures are not silent: RouteTok appends a protocol-shaped error frame (with a coarse `reason` sub-field such as `idle_timeout`, `deadline`, `reader_abort`, or `upstream_error`) before ending the response, and OpenAI-Chat streams also receive `data: [DONE]`.
+Reasoning models may need `slowModelFirstEventTimeoutMs`. Heartbeats and metadata do not satisfy the semantic-output deadline. A first-output timeout can try another candidate, but after semantic or tool output commits, a later timeout or disconnect ends that same stream without fallback. Committed-stream failures are not silent: RouteTok appends a protocol-shaped error frame (with a coarse `reason` sub-field such as `idle_timeout`, `deadline`, `reader_abort`, or `upstream_error`) before ending the response, and OpenAI-Chat streams also receive `data: [DONE]`. Inspect the reason in the terminal frame and the attempt outcome (`committed_failure`) in dashboard history rather than treating a truncated stream as a successful completion.
 
 ## Generic endpoint unavailable
 

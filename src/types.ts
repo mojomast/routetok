@@ -117,7 +117,7 @@ export interface AttemptRecord {
   status: number | null;
   durationMs: number;
   firstOutputMs: number | null;
-  outcome: "success" | "transient_error" | "permanent_error" | "rate_limited" | "cancelled";
+  outcome: "success" | "transient_error" | "permanent_error" | "rate_limited" | "cancelled" | "committed_failure";
   error?: string;
   providerId?: ProviderId;
 }

@@ -1423,7 +1423,7 @@ export class ProxyHandler {
           finalError = streamResult.error;
           if (streamResult.error) {
             attempts.push(
-              attempt(model, 200, Date.now() - started, "transient_error", streamResult.error, firstOutputMs, providerId)
+              attempt(model, 200, Date.now() - started, "committed_failure", streamResult.error, firstOutputMs, providerId)
             );
             if (!internalSandbox) this.options.router.recordTransientFailure(protocol, model, config);
           } else {

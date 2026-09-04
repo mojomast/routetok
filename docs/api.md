@@ -127,3 +127,4 @@ Credential mutation is write-only:
 - OpenRouter also supports `managementKey`.
 
 No credential endpoint returns key material or key-derived fragments.
+Committed-stream failures keep the already-sent HTTP `200` on the wire but are recorded with attempt outcome `committed_failure` (distinct from pre-commit `transient_error`) so metrics, history, and dashboard attempt rows distinguish provider truncation from fallback-eligible errors.

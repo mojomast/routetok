@@ -258,6 +258,7 @@ test("committed streams emit truthful terminal frames and detach the overall dea
       const record = await recordOf(requestId);
       assert.equal(record.status, 200);
       assert.match(record.error ?? "", /stream ended without a terminal event/);
+      assert.equal(record.attempts[0]?.outcome, "committed_failure");
       assert.match(record.attempts[0]?.error ?? "", /stream ended without a terminal event/);
     });
 

@@ -4,6 +4,7 @@
 
 - Committed streams no longer end silently on failure: post-commit upstream error frames are relayed (including flat Responses `type:"error"` events), and a stream that ends with an upstream error or without a terminal event receives a reason-accurate `stream_interrupted` error frame before the response ends, with `data: [DONE]` appended on OpenAI-Chat.
 - The overall `requestTimeoutMs` deadline now detaches when a stream commits; post-commit responses are bounded only by the client connection and `streamIdleTimeoutMs`, so active streams can run past the deadline while idle streams end with the `idle_timeout` frame.
+- Committed-stream failures are recorded with attempt outcome `committed_failure` (HTTP status stays 200 on the wire) so metrics and dashboard attempt rows distinguish post-commit provider truncation from pre-commit `transient_error`.
 - Overall-deadline expiry during pre-output stream preparation no longer dispatches a phantom attempt on the next candidate.
 - Sandbox model output is unlimited by default; an optional 1-64 MiB per-note cap can still be set.
 - Added read-only admin endpoints `GET /admin/api/attempts/decode`, `GET /admin/api/route/simulate`, and `GET /admin/api/models/visibility` with dashboard authentication.

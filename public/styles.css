@@ -564,7 +564,7 @@ textarea { resize: vertical; }
 }
 .request-attempt:last-child { border-bottom: 1px solid var(--line); }
 .request-attempt.success { border-left: 2px solid var(--acid); }
-.request-attempt.transient_error, .request-attempt.permanent_error { border-left: 2px solid var(--red); }
+.request-attempt.transient_error, .request-attempt.committed_failure, .request-attempt.permanent_error { border-left: 2px solid var(--red); }
 .request-attempt.rate_limited { border-left: 2px solid var(--amber); }
 .request-attempt.cancelled { border-left: 2px solid var(--dim); }
 .request-attempt span { overflow-wrap: anywhere; }

@@ -195,7 +195,7 @@ function normalizeRecord(input: unknown): RequestRecord | null {
     (value.selectedModel !== null && typeof value.selectedModel !== "string") || typeof value.stream !== "boolean") return null;
   const attempts = value.attempts.flatMap((inputAttempt) => {
     const attempt = object(inputAttempt);
-    if (!attempt || typeof attempt.model !== "string" || !["success", "transient_error", "permanent_error", "rate_limited", "cancelled"].includes(String(attempt.outcome))) return [];
+    if (!attempt || typeof attempt.model !== "string" || !["success", "transient_error", "permanent_error", "rate_limited", "cancelled", "committed_failure"].includes(String(attempt.outcome))) return [];
     return [{
       ...attempt,
       status: attempt.status === null ? null : nonNegative(attempt.status),
