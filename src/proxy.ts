@@ -1172,6 +1172,7 @@ export class ProxyHandler {
     let selectedModel: string | null = null;
     let ttftMs: number | null = null;
     let generationDurationMs: number | null = null;
+    let lastSeenRetryAfter: string | null = null;
     let outputTokensPerSecond: number | null = null;
     let usage: TokenUsage = {
       input: 0,
@@ -1183,7 +1184,8 @@ export class ProxyHandler {
     };
 
     try {
-      for (const model of candidates) {
+      for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex++) {
+        const model = candidates[candidateIndex]!;
         const catalogModel = this.options.catalog.resolve(model, protocol);
         const providerId = catalogModel?.providerId ?? "agentrouter";
         const provider = this.provider(providerId);
@@ -1260,12 +1262,13 @@ export class ProxyHandler {
           if (!internalSandbox) this.options.router.recordRateLimit(protocol, model, retryAfterMs(upstream.headers), config);
           finalStatus = 429;
           finalError = "rate limited";
-          const differentProviderRemains = candidates
-            .slice(attempts.length)
-            .some((candidate) => (this.options.catalog.resolve(candidate, protocol)?.providerId ?? "agentrouter") !== providerId);
+          lastSeenRetryAfter = upstream.headers.get("retry-after") ?? lastSeenRetryAfter;
+          const remainingCandidates = candidates.slice(candidateIndex + 1);
           const cascadeCanContinue = paidOpenRouterFallbackActive || virtualRequest;
-          const canContinue = cascadeCanContinue && attempts.length < candidates.length
-            && (paidOpenRouterFallbackActive || differentProviderRemains);
+          const canContinue = cascadeCanContinue && remainingCandidates.length > 0
+            && (paidOpenRouterFallbackActive || remainingCandidates.some(
+              (candidate) => (this.options.catalog.resolve(candidate, protocol)?.providerId ?? "agentrouter") !== providerId
+            ));
           if (canContinue) {
             await upstream.body?.cancel().catch(() => {});
             continue;
@@ -1327,7 +1330,7 @@ export class ProxyHandler {
             if (!internalSandbox) this.options.router.recordRateLimit(protocol, model, 300_000, config);
             finalStatus = 402;
             finalError = "AgentRouter model budget pool exhausted";
-            if (attempts.length < candidates.length) continue;
+            if (candidateIndex + 1 < candidates.length) continue;
             const terminal = attempts.length > 1 ? "fallback_exhausted" : "rate_limited";
             await this.forwardResponse(
               response,
@@ -1555,7 +1558,8 @@ export class ProxyHandler {
           protocolError(protocol, requestId, finalError ?? "RouteTok request failed", terminal),
           {
             "x-request-id": requestId,
-            ...diagnosticHeaders(terminal, attempts, lastAttempt?.model, lastAttempt?.providerId)
+            ...diagnosticHeaders(terminal, attempts, lastAttempt?.model, lastAttempt?.providerId),
+            ...(terminal === "fallback_exhausted" && lastSeenRetryAfter ? { "retry-after": lastSeenRetryAfter } : {})
           }
         );
       }

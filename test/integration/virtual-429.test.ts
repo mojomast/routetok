@@ -38,7 +38,9 @@ async function ready(child: ChildProcess): Promise<void> {
 test("virtual routes cascade across providers on 429 while explicit routes stay strict", async () => {
   const calls: Array<{ url: string; model: unknown }> = [];
   let rqRateLimited = false;
+  let rqServerError = false;
   let agentRateLimited = false;
+  let agentServerError = false;
   const upstream = createServer(async (request, response) => {
     if (request.url === "/agent/api/pricing") {
       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{
@@ -66,7 +68,9 @@ test("virtual routes cascade across providers on 429 while explicit routes stay 
     if (request.url === "/requesty/v1/chat/completions") {
       const payload = await requestBody(request);
       calls.push({ url: request.url, model: payload.model });
-      if (rqRateLimited) {
+      if (rqServerError) {
+        response.writeHead(502, { "content-type": "application/json" }).end(JSON.stringify({ error: { message: "boom", type: "server_error" } }));
+      } else if (rqRateLimited) {
         response.writeHead(429, { "content-type": "application/json", "retry-after": "1" }).end(JSON.stringify({ error: { message: "rate limited", type: "rate_limit_error" } }));
       } else {
         response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ id: "c", choices: [{ message: { role: "assistant", content: "rq-ok" } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
@@ -76,7 +80,9 @@ test("virtual routes cascade across providers on 429 while explicit routes stay 
     if (request.url === "/agent/v1/chat/completions" || request.url === "/agent/chat/completions") {
       const payload = await requestBody(request);
       calls.push({ url: request.url, model: payload.model });
-      if (agentRateLimited) {
+      if (agentServerError) {
+        response.writeHead(502, { "content-type": "application/json" }).end(JSON.stringify({ error: { message: "boom", type: "server_error" } }));
+      } else if (agentRateLimited) {
         response.writeHead(429, { "content-type": "application/json", "retry-after": "1" }).end(JSON.stringify({ error: { message: "rate limited", type: "rate_limit_error" } }));
       } else {
         response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ id: "c", choices: [{ message: { role: "assistant", content: "agent-ok" } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
@@ -156,13 +162,27 @@ test("virtual routes cascade across providers on 429 while explicit routes stay 
     assert.equal(exhausted.headers.get("retry-after"), "1", "the upstream retry-after survives the exhausted virtual chain");
     const summary = decodeSummary(exhausted);
     assert.deepEqual(summary.a.map((item) => item.o), ["rate_limited"]);
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+
+    rqRateLimited = false;
+    agentRateLimited = false;
+    rqServerError = true;
+    agentServerError = true;
+    const transientTail = await proxy("auto", "rate limited then transient failures");
+    assert.equal(transientTail.status, 502);
+    assert.equal(transientTail.headers.get("x-router-attempts"), "3", "the chain must run every remaining candidate after the 429 hop");
+    assert.equal(transientTail.headers.get("x-router-terminal"), "fallback_exhausted");
+    assert.equal(transientTail.headers.get("retry-after"), "1", "the retry-after from the rate-limited hop must survive the exhausted chain");
+    const transientSummary = decodeSummary(transientTail);
+    assert.deepEqual(transientSummary.a.map((item) => item.o), ["rate_limited", "transient_error", "transient_error"]);
 
     assert.deepEqual(calls.map((call) => call.model), [
       "vendor/rq",
       "vendor/rq",
       "vendor/or-a", "vendor/rq",
       "vendor/rq", "agent-model",
-      "agent-model"
+      "agent-model",
+      "vendor/or-a", "vendor/rq", "agent-model"
     ]);
   } finally {
     await stopChild(child);
