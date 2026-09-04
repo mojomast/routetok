@@ -188,6 +188,22 @@ test("dashboard sandbox passes tools and tool-result history through both protoc
       const payload = await response.json() as { error?: string };
       assert.match(payload.error ?? "", invalidCase.reason, invalidCase.name);
     }
+
+    const oversizedMessage = await sandboxRequest({
+      purpose: "chat",
+      requests: [{ id: "big", model: "sandbox-tools-model", messages: [{ role: "user", content: "x".repeat(1_200_000) }] }]
+    });
+    assert.equal(oversizedMessage.status, 400, "a multi-megabyte body must reach the transcript validators, not the body reader");
+    const oversizedPayload = await oversizedMessage.json() as { error?: string };
+    assert.match(oversizedPayload.error ?? "", /100,000 characters/, "the 4 MiB body reader must admit a legal-looking oversized transcript so per-message caps reject it");
+
+    const beyondReader = await sandboxRequest({
+      purpose: "chat",
+      requests: [{ id: "huge", model: "sandbox-tools-model", messages: [{ role: "user", content: "y".repeat(4_500_000) }] }]
+    });
+    assert.equal(beyondReader.status, 400);
+    const beyondReaderPayload = await beyondReader.json() as { error?: string };
+    assert.match(beyondReaderPayload.error ?? "", /exceeds 4 MiB/);
   } finally {
     await stopChild(child);
     await new Promise<void>((resolve) => upstream.close(() => resolve()));

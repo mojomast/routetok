@@ -177,13 +177,13 @@ function json(response: ServerResponse, status: number, value: object): void {
   response.end(bytes);
 }
 
-async function readJson(request: IncomingMessage): Promise<unknown> {
+async function readJson(request: IncomingMessage, maximumBytes = 1024 * 1024): Promise<unknown> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of request) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     size += buffer.length;
-    if (size > 1024 * 1024) throw new Error("admin request body exceeds 1 MiB");
+    if (size > maximumBytes) throw new Error(`admin request body exceeds ${Math.round(maximumBytes / (1024 * 1024) * 10) / 10} MiB`);
     chunks.push(buffer);
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
@@ -730,7 +730,7 @@ async function dashboardSandbox(request: IncomingMessage, response: ServerRespon
   let purpose: SandboxPurpose;
   let tools: SandboxTool[];
   try {
-    ({ branches, purpose, tools } = sandboxRequest(await readJson(request)));
+    ({ branches, purpose, tools } = sandboxRequest(await readJson(request, 4 * 1024 * 1024)));
   } catch (error) {
     return json(response, 400, { error: (error as Error).message });
   }

@@ -97,7 +97,7 @@ Managed proxy client keys require a configured `DASHBOARD_TOKEN`:
 
 Only SHA-256 digests are persisted. Managed keys and the environment `PROXY_API_KEY` are both accepted by OpenAI and Anthropic-compatible inference endpoints.
 
-`POST /admin/api/sandbox` accepts an optional `parameters.maxOutputMiB` integer from 1 to 64. The default remains 4 MiB. This changes only the bounded response bytes accepted by the authenticated sandbox runner; it is not forwarded to providers and does not change `max_tokens`.
+`POST /admin/api/sandbox` accepts an optional `parameters.maxOutputMiB` integer from 1 to 64. The default remains 4 MiB. This changes only the bounded response bytes accepted by the authenticated sandbox runner; it is not forwarded to providers and does not change `max_tokens`. The sandbox reader accepts up to 4 MiB of JSON per request so multi-branch max-size transcripts (up to four branches of 40 messages and 500,000 characters each) reach the per-transcript validators; other admin JSON endpoints keep the 1 MiB reader bound. Malformed or oversized sandbox JSON returns `400`.
 
 Arena speech endpoints are also protected by dashboard authentication:
 
