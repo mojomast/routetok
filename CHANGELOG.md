@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added read-only admin endpoints `GET /admin/api/attempts/decode`, `GET /admin/api/route/simulate`, and `GET /admin/api/models/visibility` with dashboard authentication.
+- Added dashboard Attempt Inspector, API Setup test request, onboarding wizard, and Fieldbook backup modules with script-tag mounts and static serving.
+- Added docs/onboarding.md plus dashboard, API, README, and changelog pointers for the new operational workflows.
+
 - Added the standalone Model Fieldbook with Chat, Compare, Room, Evaluate, Images, and Iteration Studio workspaces.
 - Added explicit bounded cross-workspace context, a shared revisioned scratchpad, Roster Architect, branching, generated titles, artifact previews, and configurable sandbox output limits.
 - Added browser-enforced Studio patch, handoff, review, steering, file-scope, revision, snapshot, rollback, and image-approval workflows.

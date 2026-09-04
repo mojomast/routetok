@@ -146,6 +146,7 @@ Read the [security model](docs/security-model.md) before exposing RouteTok over 
 ## Documentation
 
 - [Dashboard guide](docs/dashboard.md)
+- [Onboarding](docs/onboarding.md)
 - [Model Fieldbook guide](docs/fieldbook.md)
 - [Architecture](docs/architecture.md)
 - [Configuration](docs/configuration.md)

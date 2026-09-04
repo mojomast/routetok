@@ -54,6 +54,18 @@ The masthead API Setup button opens a dismissible, focus-contained Connect Appli
 
 Client authentication and provider credentials are separate. The environment `PROXY_API_KEY` remains accepted for existing clients. Managed client keys are generated with high entropy, displayed once, and stored only as SHA-256 hashes under `DATA_DIR/secrets/client-api-keys.json`; revocation takes effect immediately. Provider credentials authorize RouteTok to call upstream services and can be replaced or disabled through the dashboard without ever being returned to the browser.
 
+## Attempt Inspector
+
+The dashboard loads `window.AttemptInspector` from `/attempt-inspector.js`. Paste an `x-router-attempt-summary` value to decode it locally, or pick a retained request via `GET /admin/api/live` and `GET /admin/api/history?limit=100`. Generated curl replay commands redact secret headers before display or copy.
+
+## API Setup Test Request
+
+The dashboard loads `window.ApiSetup` from `/api-setup.js`. The Connect Applications drawer pastes a client key once, sends a `GET /v1/models` test request with `Authorization: Bearer <key>`, and reports the advertised model count. An HTTP 401 shows key-remediation guidance without ever displaying secret values.
+
+## Model Visibility Reasons
+
+Route Health explains hidden routes with per-model visibility reasons from `GET /admin/api/models/visibility`: `unconfigured-provider`, `disabled`, `paid-needs-enable`, `unknown-price-needs-enable`, `image-only`, and `not-text-capable`. A model is visible only when its reasons list is empty.
+
 ## Dashboard And Fieldbook
 
 The dashboard is optimized for operating RouteTok. The standalone [Model Fieldbook](fieldbook.md) at `/sandbox` is optimized for persistent model experimentation, evaluation, bounded model rooms, images, and virtual-project iteration. The two applications have separate browser storage and frontend assets while sharing authenticated server capabilities.

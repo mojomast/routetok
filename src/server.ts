@@ -5,6 +5,9 @@ import path from "node:path";
 import { AdminAudioService } from "./admin-audio.js";
 import { AdminImageService } from "./admin-images.js";
 import { CatalogService, catalogModelFreeStatus, isFreeExternalCatalogModel, isTextGenerationModel } from "./catalog.js";
+import { decodeAttemptSummary } from "./attempt-summary.js";
+import { visibilityOf } from "./model-visibility.js";
+import { simulateRoute } from "./route-simulator.js";
 import { ClientApiKeyStore } from "./client-api-keys.js";
 import { ConfigStore } from "./config.js";
 import { CreditsService } from "./credits.js";
@@ -1072,6 +1075,10 @@ const staticFiles: Record<string, [string, string]> = {
   "/image-gallery/": ["image-gallery/index.html", "text/html; charset=utf-8"],
   "/image-gallery/gallery.css": ["image-gallery/gallery.css", "text/css; charset=utf-8"],
   "/app.js": ["app.js", "text/javascript; charset=utf-8"],
+  "/attempt-inspector.js": ["attempt-inspector.js", "text/javascript; charset=utf-8"],
+  "/api-setup.js": ["api-setup.js", "text/javascript; charset=utf-8"],
+  "/onboarding.js": ["onboarding.js", "text/javascript; charset=utf-8"],
+  "/fieldbook/backup.js": ["fieldbook/backup.js", "text/javascript; charset=utf-8"],
   "/styles.css": ["styles.css", "text/css; charset=utf-8"]
 };
 
@@ -1282,6 +1289,51 @@ const server = createServer(async (request, response) => {
 
       if (request.method === "GET" && pathname === "/admin/api/readiness") {
         json(response, 200, readinessProjection());
+        return;
+      }
+
+      if (request.method === "GET" && pathname === "/admin/api/attempts/decode") {
+        const header = url.searchParams.get("header") ?? "";
+        if (!header) return json(response, 400, { error: "header query parameter is required" });
+        if (header.length > 8192) return json(response, 400, { error: "header query parameter exceeds 8KB" });
+        json(response, 200, decodeAttemptSummary(header));
+        return;
+      }
+
+      if (request.method === "GET" && pathname === "/admin/api/route/simulate") {
+        const model = (url.searchParams.get("model") ?? "").trim();
+        if (!model) return json(response, 400, { error: "model query parameter is required" });
+        const protocolParam = (url.searchParams.get("protocol") ?? "openai").trim();
+        if (protocolParam !== "openai" && protocolParam !== "anthropic") {
+          return json(response, 400, { error: "protocol must be openai or anthropic" });
+        }
+        const protocol: Protocol = protocolParam;
+        const toolsParam = url.searchParams.get("tools");
+        let tools: boolean | undefined;
+        if (toolsParam !== null) {
+          if (toolsParam === "true" || toolsParam === "1") tools = true;
+          else if (toolsParam === "false" || toolsParam === "0") tools = false;
+          else return json(response, 400, { error: "tools must be true or false" });
+        }
+        const splitList = (value: string | null): string[] | undefined => {
+          if (value === null) return undefined;
+          return value.split(",").map((entry) => entry.trim()).filter(Boolean);
+        };
+        const splitInput = splitList(url.searchParams.get("inputModalities"));
+        const splitOutput = splitList(url.searchParams.get("outputModalities"));
+        const candidates = simulateRoute(
+          { ...(tools !== undefined ? { tools } : {}), ...(splitInput !== undefined ? { inputModalities: splitInput } : {}), ...(splitOutput !== undefined ? { outputModalities: splitOutput } : {}), model, protocol },
+          { config: config.get(), catalogModels: catalog.getModels(), health: router.snapshot() }
+        );
+        json(response, 200, { model, protocol, candidates });
+        return;
+      }
+
+      if (request.method === "GET" && pathname === "/admin/api/models/visibility") {
+        const current = config.get();
+        const providerConfigured = Object.fromEntries(providers.map((provider) => [provider.id, provider.configured]));
+        const models = catalog.getModels().map((model) => ({ id: model.id, ...visibilityOf(model, { config: current, providerConfigured }) }));
+        json(response, 200, { models });
         return;
       }
 

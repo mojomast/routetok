@@ -106,6 +106,10 @@ Image bytes do not enter RouteTok metrics, request retention, Fieldbook IndexedD
 
 `GET /admin/api/readiness` returns a bounded, deterministic projection of authentication posture, catalog freshness, configured-provider counts, viable models by protocol, free and paid/unknown enablement, health counts, stale route entries, and fixed-enum next actions. It excludes credentials, base URLs, paths, and raw upstream errors.
 
+- `GET /admin/api/attempts/decode?header=...` decodes an `x-router-attempt-summary` value without provider calls. Missing `header` returns `400`, and values over 8KB return `400`.
+- `GET /admin/api/route/simulate?model=...&protocol=openai&tools=true&inputModalities=text&outputModalities=text` returns ordered route candidates with strike reasons for the requested model. It is read-only and makes zero provider calls.
+- `GET /admin/api/models/visibility` returns per-model `{ id, visible, reasons[] }` entries using the same visibility rules as the dashboard.
+
 `POST /admin/api/assistant/plan` creates a bounded comparison plan from a natural-language request. It returns only validated `chat`/`design` mode, one to four eligible physical lanes, optional generation parameters, an improved prompt, rationale, warnings, provider destinations, and cost class. Model IDs may repeat when independent samples of the same model are requested. Planning never executes inference comparisons or configuration mutations.
 
 Assistant diagnosis uses a two-stage lazy resource request. The first model pass selects from an allowlist of dashboard resources; the final pass receives only those bounded API results. Raw request bodies are never available to this workflow.
