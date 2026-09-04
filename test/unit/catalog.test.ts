@@ -29,3 +29,22 @@ test("failed catalogs retry after a short backoff instead of the normal refresh 
   assert.equal(catalog.status().lastError, null);
   assert.equal(catalog.resolve("generic:local-model")?.source, "live");
 });
+
+test("catalog content-type sniffing is case-insensitive", async () => {
+  const provider: ProviderRuntime = {
+    id: "generic", configured: true, apiKey: "", auth: "none", baseUrl: "http://catalog.test/v1", endpoints: ["chat"]
+  };
+  const catalog = new CatalogService([provider], async () => new Response(
+    JSON.stringify({ data: [{ id: "mixed-case-model" }] }),
+    { status: 200, headers: { "content-type": "Application/Json; charset=utf-8" } }
+  ));
+  await catalog.refresh();
+  assert.equal(catalog.resolve("generic:mixed-case-model")?.source, "live");
+
+  const rejected = new CatalogService([provider], async () => new Response(
+    JSON.stringify({ data: [{ id: "x" }] }),
+    { status: 200, headers: { "content-type": "text/plain" } }
+  ));
+  await rejected.refresh();
+  assert.match(rejected.status().lastError ?? "", /non-JSON content/);
+});

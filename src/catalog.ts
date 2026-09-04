@@ -493,7 +493,7 @@ export class CatalogService {
         signal: AbortSignal.timeout(10_000)
       });
       if (!response.ok) throw new Error(`catalog returned HTTP ${response.status}`);
-      const contentType = response.headers.get("content-type") ?? "";
+      const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
       if (!contentType.includes("json")) throw new Error("catalog returned non-JSON content");
 
       const payload = await response.json() as unknown;

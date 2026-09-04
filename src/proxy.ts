@@ -872,7 +872,7 @@ async function prepareStream(
   protocol: Protocol,
   timeoutMs: number
 ): Promise<PreparedStream> {
-  const contentType = upstream.headers.get("content-type") ?? "";
+  const contentType = (upstream.headers.get("content-type") ?? "").toLowerCase();
   if (!contentType.includes("text/event-stream")) {
     throw new Error(`expected text/event-stream, received ${contentType || "unknown content type"}`);
   }
@@ -1479,7 +1479,7 @@ export class ProxyHandler {
         let payload: JsonPayload;
         try {
           const bytes = await readResponseBuffer(upstream, MAX_JSON_RESPONSE_BYTES);
-          const contentType = upstream.headers.get("content-type") ?? "";
+          const contentType = (upstream.headers.get("content-type") ?? "").toLowerCase();
           if (contentType.includes("text/html")) throw new Error("upstream returned an HTML challenge");
           payload = parseSuccessfulJson(bytes);
         } catch (error) {

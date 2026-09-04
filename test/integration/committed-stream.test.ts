@@ -111,6 +111,18 @@ test("committed streams emit truthful terminal frames and detach the overall dea
       });
       return;
     }
+    if (content.includes("mixed-case-sse")) {
+      response.writeHead(200, { "content-type": "Text/Event-Stream; charset=utf-8" });
+      response.write(chatDelta("MIXED-0"));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      response.end(chatFinish());
+      return;
+    }
+    if (content.includes("mixed-case-html")) {
+      response.writeHead(200, { "content-type": "Text/Html" });
+      response.end("<html><body>challenge</body></html>");
+      return;
+    }
 
     response.writeHead(200, { "content-type": "text/event-stream" });
     if (model === BAD) {
@@ -283,6 +295,25 @@ test("committed streams emit truthful terminal frames and detach the overall dea
       assert.match(text, /chunk-20/);
       assert.match(text, /data: \[DONE\]\n\n$/);
       assert.doesNotMatch(text, /stream_interrupted/);
+    });
+
+    await suite.test("content-type sniffing is case-insensitive for SSE and the HTML-challenge check", async () => {
+      await resetCircuits();
+      const { response, text } = await streamChat("mixed-case-sse");
+      assert.equal(response.status, 200, "a Text/Event-Stream content type must be accepted");
+      assert.equal(response.headers.get("x-router-terminal"), "stream_committed");
+      assert.match(text, /MIXED-0/);
+      assert.match(text, /data: \[DONE\]\n\n$/);
+      assert.equal(response.headers.get("x-router-terminal"), "stream_committed");
+      assert.match(text, /data: \[DONE\]\n\n$/);
+
+      const html = await fetch(chatEndpoint, {
+        method: "POST",
+        headers: { authorization: "Bearer local-test-key", "content-type": "application/json" },
+        body: JSON.stringify({ model: GOOD, messages: [{ role: "user", content: "mixed-case-html" }] })
+      });
+      assert.equal(html.status, 502);
+      assert.match(await html.text(), /upstream returned an HTML challenge/);
     });
 
     await suite.test("overall-deadline expiry during pre-output prepare does not dispatch a phantom attempt", async () => {
