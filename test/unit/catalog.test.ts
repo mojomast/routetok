@@ -48,3 +48,24 @@ test("catalog content-type sniffing is case-insensitive", async () => {
   await rejected.refresh();
   assert.match(rejected.status().lastError ?? "", /non-JSON content/);
 });
+
+test("catalog read views are frozen: mutations of getModels() or resolve() results throw", async () => {
+  const provider: ProviderRuntime = {
+    id: "generic", configured: true, apiKey: "", auth: "none", baseUrl: "http://catalog.test/v1", endpoints: ["chat"]
+  };
+  const catalog = new CatalogService([provider], async () => Response.json({
+    data: [{ id: "frozen-model" }]
+  }));
+  await catalog.refresh();
+  const models = catalog.getModels();
+  assert.equal(models.length, 1);
+  assert.throws(() => { models.push(models[0]!); }, TypeError, "the read array must be frozen");
+  assert.throws(() => { models[0]!.displayName = "mutated"; }, TypeError, "read model objects must be frozen");
+  const filtered = catalog.getModels("openai");
+  assert.equal(filtered.length, 1);
+  assert.throws(() => { filtered[0]!.id = "other"; }, TypeError);
+  const resolved = catalog.resolve("generic:frozen-model");
+  assert.equal(resolved?.id, "generic:frozen-model");
+  assert.throws(() => { resolved!.protocols.push("anthropic"); }, TypeError);
+  assert.equal(catalog.resolve("generic:frozen-model")?.protocols.length, 1, "internal state must be untouched");
+});

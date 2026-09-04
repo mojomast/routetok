@@ -356,8 +356,23 @@ export function parseOpenAiCompatibleCatalog(payload: unknown, provider: Provide
   });
 }
 
+function deepFreezeModel(model: CatalogModel): CatalogModel {
+  Object.freeze(model.protocols);
+  if (Array.isArray(model.endpoints)) Object.freeze(model.endpoints);
+  for (const field of ["inputModalities", "outputModalities", "supportedParameters"] as const) {
+    if (Array.isArray(model[field])) Object.freeze(model[field]);
+  }
+  if (model.capabilities) Object.freeze(model.capabilities);
+  if (model.pricing) Object.freeze(model.pricing);
+  if (Array.isArray(model.pricingTiers)) {
+    for (const tier of model.pricingTiers) Object.freeze(tier);
+    Object.freeze(model.pricingTiers);
+  }
+  return Object.freeze(model);
+}
+
 export class CatalogService {
-  private models: CatalogModel[] = [];
+  private models: readonly CatalogModel[] = [];
   private readonly providers: ProviderRuntime[];
   private readonly states = new Map<ProviderId, ProviderCatalogState>();
   private refreshPromise: Promise<CatalogModel[]> | null = null;
@@ -376,10 +391,8 @@ export class CatalogService {
   }
 
   getModels(protocol?: Protocol): CatalogModel[] {
-    const models = protocol
-      ? this.models.filter((model) => model.protocols.includes(protocol))
-      : this.models;
-    return structuredClone(models);
+    if (!protocol) return this.models as CatalogModel[];
+    return this.models.filter((model) => model.protocols.includes(protocol));
   }
 
   has(model: string, protocol: Protocol): boolean {
@@ -387,8 +400,7 @@ export class CatalogService {
   }
 
   resolve(model: string, protocol?: Protocol): CatalogModel | undefined {
-    const found = this.models.find((entry) => entry.id === model && (!protocol || entry.protocols.includes(protocol)));
-    return found ? structuredClone(found) : undefined;
+    return this.models.find((entry) => entry.id === model && (!protocol || entry.protocols.includes(protocol)));
   }
 
   status(): {
@@ -535,6 +547,6 @@ export class CatalogService {
   }
 
   private rebuild(): void {
-    this.models = [...this.states.values()].flatMap((state) => state.models);
+    this.models = Object.freeze([...this.states.values()].flatMap((state) => state.models).map(deepFreezeModel));
   }
 }
