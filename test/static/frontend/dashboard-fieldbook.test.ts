@@ -64,3 +64,11 @@ test("Fieldbook module contracts preserve note identity and image option filteri
   assert.match(fieldbook, /values\.outputFormat !== "auto"/);
   assert.match(imageApprovals, /\["auto", "png", "jpeg", "webp", "svg"\]/);
 });
+
+test("live Room and Chat appends stay inside the import bounds", async () => {
+  const fieldbook = await readFile(files.fieldbook, "utf8");
+  assert.match(fieldbook, /function appendRoomMessage\(room, message\)/);
+  assert.match(fieldbook, /room\.messages\.length > 500/);
+  assert.match(fieldbook, /slice\(0, 100000\)/);
+  assert.match(fieldbook, /c\.turns\.length > 200/);
+});

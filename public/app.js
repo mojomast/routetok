@@ -323,7 +323,7 @@ async function api(path, options = {}) {
     byId("auth-dialog").showModal();
     throw new Error("Dashboard authentication required");
   }
-  const payload = await response.json();
+  const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const message = typeof payload.error === "string" ? payload.error : payload.error?.message;
     const error = new Error(message || `HTTP ${response.status}`);
