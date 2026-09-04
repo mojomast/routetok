@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The server verifies every allowlisted static asset at boot and refuses to start when any is missing from `public/`; a new dependency-free `scripts/smoke.mjs` boots the service and GETs `/healthz` plus every allowlisted module, and CI runs it after the build.
 - Dashboard pages and modules now receive the full sandbox-tier Content-Security-Policy (`default-src 'self'` with explicit script/style/connect/img/media sources, `frame-ancestors 'none'`), and the single inline theme bootstrap was externalized into an allowlisted `theme-bootstrap.js`.
 - `GET /healthz` now returns minimal liveness (`{"status":"ok"}`) and no longer echoes catalog state or upstream error strings; detailed status stays on the authenticated `/admin/api/status`.
 - Image and audio upstream fetches no longer follow redirects: discovery metadata GETs treat redirects as errors and POST operations surface a redirected response as `502`.

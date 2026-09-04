@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { AdminAudioService } from "./admin-audio.js";
@@ -1170,6 +1171,18 @@ async function serveStatic(response: ServerResponse, pathname: string): Promise<
   return true;
 }
 
+function missingStaticAssets(): string[] {
+  const missing: string[] = [];
+  for (const file of Object.values(staticFiles)) {
+    try {
+      readFileSync(path.join(publicDir, file[0]));
+    } catch {
+      missing.push(file[0]);
+    }
+  }
+  return missing;
+}
+
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url ?? "/", "http://localhost");
@@ -1593,6 +1606,12 @@ const server = createServer(async (request, response) => {
     console.error("Request failed:", (error as Error).message);
   }
 });
+
+const missingAssets = missingStaticAssets();
+if (missingAssets.length) {
+  console.error(`Refusing to start: allowlisted static assets are missing from ${publicDir}: ${missingAssets.join(", ")}`);
+  process.exit(1);
+}
 
 server.listen(port, host, () => {
   console.log(`RouteTok listening on http://${host}:${port}`);

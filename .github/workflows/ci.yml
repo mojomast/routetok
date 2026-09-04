@@ -17,6 +17,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - run: node scripts/smoke.mjs
       - run: docker compose -f compose.yml config --quiet
       - run: docker compose -f deploy/local-stt/compose.yml config --quiet
       - run: docker buildx build --check .

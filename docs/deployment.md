@@ -20,7 +20,7 @@ Upgrade procedure:
 4. Restart the process.
 5. Verify `/healthz`, `/v1/models`, `/dashboard`, and `/sandbox`.
 
-Keep the complete `public/` directory beside the built service. The Fieldbook imports explicitly routed modules from `public/fieldbook/`, and the optional static benchmark gallery uses `public/image-gallery/`.
+Keep the complete `public/` directory beside the built service. The Fieldbook imports explicitly routed modules from `public/fieldbook/`, and the optional static benchmark gallery uses `public/image-gallery/`. The server verifies every allowlisted static asset at boot and refuses to start (exit code 1) when any is missing from `public/`, so a partial frontend deploy cannot silently produce 500s for dashboard/sandbox modules. `node scripts/smoke.mjs` boots the service against a throwaway data directory and GETs `/healthz` plus every allowlisted module; it runs in CI after the build.
 
 If local transcription is enabled, operate Speaches as a separate loopback-only service and preserve its model cache independently from RouteTok's `DATA_DIR`. The included `model-init` service retries transient HTTP/network failures and has a bounded on-failure restart policy; persistent failures remain visible through `docker compose ps` and logs.
 
