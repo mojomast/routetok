@@ -12,6 +12,34 @@ Inference accepts `Authorization: Bearer <PROXY_API_KEY>` or `x-api-key` when co
 
 `GET /v1/models` returns virtual and custom routes plus physical text-generation routes whose provider is configured and whose spending policy allows use. Disabled routes, image-only routes, unconfigured providers, and paid or unknown-price external models that have not been explicitly enabled are omitted. Unknown capability metadata is not treated as an incompatibility.
 
+### Model Metadata
+
+`GET /v1/models` remains the strict-compatible model-list representation. Its fields and filtering are unchanged, and no RouteTok-specific fields are added unless the client opts in with `GET /v1/models?include=routetok`. An unsupported or combined `include` mode returns `400` rather than being silently ignored.
+
+With `include=routetok`, every model entry also has a nested `routetok` object using metadata schema version `1`. The versioned projection covers:
+
+- canonical route identity, provider identity, and the provider's upstream model ID;
+- route kind, including physical, built-in virtual, and custom cascade routes;
+- catalog provenance and dedicated pricing provenance where known;
+- supported wire protocols and concrete endpoints;
+- context-window and maximum-output token limits;
+- input and output modalities;
+- tri-state capabilities, whose values are `true`, `false`, or `null` (unknown);
+- the known supported request parameters;
+- pricing currency, unit, source, rates, and provider-defined tiers;
+- provider quality and completion ratios when available;
+- free classification and current access/enablement state;
+- configured routing ranks and ordered cascade members; and
+- a safe, bounded health projection separated by protocol.
+
+The schema distinguishes missing knowledge from empty or zero values. `null` means unknown or unavailable, while `[]` means the collection is known to be empty. Numeric zero and decimal-string rate `"0"` are actual zero values; clients must not derive either from `null`. Clients should inspect the schema version, tolerate additive fields, and use the canonical top-level model `id` when making requests.
+
+When known, token prices are decimal strings denominated in USD per one million tokens. `currency`, `unit`, and `source` can be `null` when the upstream catalog does not establish them, and rates remain `null` rather than being estimated. Provider pricing-tier thresholds are token counts, not currency amounts. A free classification is explicit metadata and must not be inferred solely from a missing or zero-looking rate.
+
+Virtual and custom-cascade entries are conservative aggregates. Candidate-independent facts may be reported, but context limits, output limits, modalities, capabilities, parameters, prices, and health that depend on which physical candidate is selected remain `null`. Ordered cascade members and routing ranks describe current routing configuration, not a guarantee that a candidate will be attempted; protocol compatibility, access policy, health, and attempt limits still apply.
+
+Health metadata is operational and deliberately safe: it is protocol-specific, bounded, and excludes credentials, raw upstream errors, and sensitive request data. It is a point-in-time routing signal rather than a provider uptime guarantee.
+
 Routed response metadata includes `x-request-id`, selected physical route aliases `x-router-model` and `x-router-route`, `x-router-provider`, and `x-router-attempts`. `x-router-terminal` states why routing ended: `complete`, `rate_limited`, `fallback_exhausted`, `non_retryable`, `request_timeout`, `client_cancelled`, `no_candidate`, `invalid_request`, or `stream_committed`.
 
 `x-router-attempt-summary` is base64url-encoded UTF-8 JSON with this versioned compact shape:
@@ -43,6 +71,14 @@ Fallback candidates are removed when catalog metadata explicitly conflicts with 
 
 Admin endpoints under `/admin/api/` require `DASHBOARD_TOKEN` when configured. They cover status, deterministic readiness, history, live requests, catalogs, credits, configuration, proposals, sandbox inference, retained request inspection, credentials, and circuit reset.
 
+Model-bearing admin responses expose corresponding normalized metadata fields, but their scopes and compatibility shapes differ from `/v1/models`:
+
+- `GET /admin/api/status` is the raw operational control-plane view. It can describe normalized catalog and routing state, including routes that are not advertised to proxy clients, together with safe health and configuration context; optional unknown catalog collections can be omitted.
+- `GET /admin/api/sandbox/catalog` is the Fieldbook selection view. It contains only models eligible for the authenticated sandbox's text workflows and includes sandbox-specific presentation or eligibility fields; unknown collections are returned as `null`.
+- `GET /admin/api/images/capabilities` is the image-generation view. It contains only currently eligible image-output models and generation options, not the text proxy catalog; unknown collections are returned as `null`.
+
+These authenticated endpoints must not be treated as interchangeable catalogs. They expose corresponding normalized metadata fields rather than the compatibility endpoint's nested schema object. Their metadata has the same null, empty-list, zero, pricing-unit, and conservative-aggregation semantics described above, while each endpoint applies its own access and modality filters.
+
 Managed proxy client keys require a configured `DASHBOARD_TOKEN`:
 
 - `GET /admin/api/client-keys` lists key IDs, labels, creation times, and whether the environment key is configured.
@@ -55,7 +91,7 @@ Only SHA-256 digests are persisted. Managed keys and the environment `PROXY_API_
 
 Arena speech endpoints are also protected by dashboard authentication:
 
-- `GET /admin/api/audio/capabilities` returns bounded OpenRouter speech plus local Speaches and Requesty transcription model inventories. Local models use the `local:` namespace and appear before `requesty:` models; only models confirmed by current discovery are advertised. The initial release advertises only catalog-confirmed free TTS models.
+- `GET /admin/api/audio/capabilities` returns bounded OpenRouter speech plus local Speaches and Requesty transcription model inventories. Local models use the `local:` namespace and appear before `requesty:` models; only models confirmed by current discovery are advertised. The initial release advertises only catalog-confirmed free TTS models, reports `unavailable` when a configured speech catalog contains no eligible free model, preserves provider-native pricing without inventing a currency/unit, and includes known context, modality, parameter, provenance, voice, and capability metadata. Its legacy `free` field remains Boolean; `freeStatus` is the tri-state source of truth and is `null` when cost cannot be established.
 - `POST /admin/api/audio/speech` accepts strict JSON containing a namespaced free OpenRouter speech model, up to 4,096 input characters, an optional advertised voice, MP3 or PCM output, and optional speed. The explicit default is PCM when `responseFormat` is omitted. It returns bounded audio bytes and does not retry.
 - `POST /admin/api/audio/transcriptions` accepts bounded multipart form data containing one audio file, one approved `local:` or `requesty:` model, and an optional two-letter language. It returns sanitized transcript text and usage. Local requests go only to the startup-configured Speaches API root; Requesty requests use the effective Requesty credential.
 

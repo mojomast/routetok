@@ -4,15 +4,16 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { AdminAudioService } from "./admin-audio.js";
 import { AdminImageService } from "./admin-images.js";
-import { CatalogService, isFreeExternalCatalogModel, isTextGenerationModel } from "./catalog.js";
+import { CatalogService, catalogModelFreeStatus, isFreeExternalCatalogModel, isTextGenerationModel } from "./catalog.js";
 import { ClientApiKeyStore } from "./client-api-keys.js";
 import { ConfigStore } from "./config.js";
 import { CreditsService } from "./credits.js";
 import { MetricsStore } from "./metrics.js";
+import { serializeModelMetadata } from "./model-metadata.js";
 import { ProxyHandler } from "./proxy.js";
 import { ProviderCredentialStore } from "./provider-credentials.js";
 import { HealthRouter } from "./router.js";
-import type { Protocol, ProviderId, ProviderRuntime, RequestRecord, RouterConfig } from "./types.js";
+import type { CatalogModel, ModelHealth, Protocol, ProviderId, ProviderRuntime, RequestRecord, RouterConfig } from "./types.js";
 
 const host = process.env.HOST?.trim() || "127.0.0.1";
 const port = Number(process.env.PORT || 8787);
@@ -983,29 +984,72 @@ function providerStatus(): Array<{ providerId: ProviderId; configured: boolean; 
   }));
 }
 
-function openAiModelsResponse(): object {
-  const ids = modelIds("openai");
+interface ModelMetadataContext {
+  config: RouterConfig;
+  models: Map<string, CatalogModel>;
+  providerConfigured: Partial<Record<ProviderId, boolean>>;
+  health: ModelHealth[];
+  listedIds: Record<Protocol, string[]>;
+}
+
+function createModelMetadataContext(): ModelMetadataContext {
+  return {
+    config: config.get(),
+    models: new Map(catalog.getModels().map((model) => [model.id, model])),
+    providerConfigured: Object.fromEntries(providers.map((provider) => [provider.id, provider.configured])),
+    health: router.snapshot(),
+    listedIds: { openai: modelIds("openai"), anthropic: modelIds("anthropic") }
+  };
+}
+
+function modelMetadata(id: string, context: ModelMetadataContext): object {
+  const current = context.config;
+  const cascade = current.customCascades.find((entry) => entry.name === id);
+  const model = context.models.get(id);
+  const virtual = new Set(["auto", "best", "free", "free-auto"]).has(id);
+  const free = model ? catalogModelFreeStatus(model) : null;
+  const routeProtocols = (["openai", "anthropic"] as Protocol[]).filter((protocol) => context.listedIds[protocol].includes(id));
+  return serializeModelMetadata({
+    id,
+    routeKind: cascade ? "custom_cascade" : virtual ? "virtual" : "physical",
+    ...(model ? { model } : {}),
+    config: current,
+    providerConfigured: context.providerConfigured,
+    health: context.health,
+    ...(cascade ? { cascadeMembers: cascade.members } : {}),
+    ...(!model ? { protocols: routeProtocols } : {}),
+    free: id === "free" || id === "free-auto" ? true : free
+  });
+}
+
+function openAiModelsResponse(includeMetadata = false): object {
+  const context = createModelMetadataContext();
+  const ids = context.listedIds.openai;
+  const cascades = context.config.customCascades;
   return {
     object: "list",
     data: ids.map((id) => ({
       id,
       object: "model",
       created: 0,
-      owned_by: id === "auto" || id === "best" || config.get().customCascades.some((cascade) => cascade.name === id)
+      owned_by: id === "auto" || id === "best" || cascades.some((cascade) => cascade.name === id)
         ? "routetok"
-        : catalog.resolve(id)?.providerId ?? "agentrouter"
+        : context.models.get(id)?.providerId ?? "agentrouter",
+      ...(includeMetadata ? { routetok: modelMetadata(id, context) } : {})
     }))
   };
 }
 
-function anthropicModelsResponse(): object {
-  const ids = modelIds("anthropic");
+function anthropicModelsResponse(includeMetadata = false): object {
+  const metadata = includeMetadata ? createModelMetadataContext() : null;
+  const ids = metadata?.listedIds.anthropic ?? modelIds("anthropic");
   return {
     data: ids.map((id) => ({
       id,
       type: "model",
       display_name: id,
-      created_at: "1970-01-01T00:00:00Z"
+      created_at: "1970-01-01T00:00:00Z",
+      ...(metadata ? { routetok: modelMetadata(id, metadata) } : {})
     })),
     has_more: false,
     first_id: ids.at(0) ?? null,
@@ -1033,21 +1077,27 @@ const staticFiles: Record<string, [string, string]> = {
 
 async function serveStatic(response: ServerResponse, pathname: string): Promise<boolean> {
   const galleryAsset = pathname.match(/^\/image-gallery\/assets\/([a-z0-9][a-z0-9._-]*\.(?:png|jpe?g|webp|svg))$/i);
+  const showcaseAsset = pathname.match(/^\/fieldbook\/showcases\/([a-z0-9][a-z0-9._-]*\.(?:png|jpe?g|webp))$/i);
   const galleryType = galleryAsset?.[1]?.toLowerCase().endsWith(".png") ? "image/png"
     : galleryAsset?.[1]?.toLowerCase().match(/\.jpe?g$/) ? "image/jpeg"
       : galleryAsset?.[1]?.toLowerCase().endsWith(".webp") ? "image/webp"
         : galleryAsset ? "image/svg+xml" : "";
+  const showcaseType = showcaseAsset?.[1]?.toLowerCase().endsWith(".png") ? "image/png"
+    : showcaseAsset?.[1]?.toLowerCase().match(/\.jpe?g$/) ? "image/jpeg"
+      : showcaseAsset ? "image/webp" : "";
   const file = staticFiles[pathname]
     ?? (pathname === "/image-gallery/manifest.json" ? ["image-gallery/manifest.json", "application/json; charset=utf-8"] as [string, string] : undefined)
-    ?? (galleryAsset ? [`image-gallery/assets/${galleryAsset[1]}`, galleryType] as [string, string] : undefined);
+    ?? (pathname === "/fieldbook/showcases/manifest.json" ? ["fieldbook/showcases/manifest.json", "application/json; charset=utf-8"] as [string, string] : undefined)
+    ?? (galleryAsset ? [`image-gallery/assets/${galleryAsset[1]}`, galleryType] as [string, string] : undefined)
+    ?? (showcaseAsset ? [`fieldbook/showcases/${showcaseAsset[1]}`, showcaseType] as [string, string] : undefined);
   if (!file) return false;
   try {
     const bytes = await readFile(path.join(publicDir, file[0]));
     response.writeHead(200, {
       "content-type": file[1],
       "content-length": String(bytes.length),
-      "cache-control": pathname === "/" || pathname === "/dashboard" || pathname === "/sandbox" || pathname === "/sandbox/" || pathname === "/image-gallery" || pathname === "/image-gallery/" || pathname === "/image-gallery/manifest.json" ? "no-store" : pathname.startsWith("/image-gallery/assets/") ? "public, max-age=86400, immutable" : "public, max-age=300",
-      "content-security-policy": pathname.startsWith("/image-gallery/assets/")
+      "cache-control": pathname === "/" || pathname === "/dashboard" || pathname === "/sandbox" || pathname === "/sandbox/" || pathname === "/image-gallery" || pathname === "/image-gallery/" || pathname === "/image-gallery/manifest.json" || pathname === "/fieldbook/showcases/manifest.json" ? "no-store" : pathname.startsWith("/image-gallery/assets/") || showcaseAsset ? "public, max-age=86400, immutable" : "public, max-age=300",
+      "content-security-policy": pathname.startsWith("/image-gallery/assets/") || showcaseAsset
         ? "default-src 'none'; style-src 'unsafe-inline'; img-src data:; object-src 'none'; base-uri 'none'; sandbox; frame-ancestors 'none'"
         : pathname === "/image-gallery" || pathname === "/image-gallery/" || pathname === "/image-gallery/gallery.css" || pathname === "/image-gallery/manifest.json"
           ? "default-src 'self'; script-src 'none'; style-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
@@ -1085,7 +1135,15 @@ const server = createServer(async (request, response) => {
     if (request.method === "GET" && pathname === "/v1/models") {
       const protocol: Protocol = request.headers["anthropic-version"] ? "anthropic" : "openai";
       if (!inferenceAuthorized(request)) return unauthorized(response, protocol);
-      json(response, 200, protocol === "anthropic" ? anthropicModelsResponse() : openAiModelsResponse());
+      const includes = url.searchParams.getAll("include");
+      if (includes.length > 1 || (includes.length === 1 && includes[0] !== "routetok")) {
+        json(response, 400, protocol === "anthropic"
+          ? { type: "error", error: { type: "invalid_request_error", message: "Unsupported model-list include value" } }
+          : { error: { message: "Unsupported model-list include value", type: "invalid_request_error", param: "include", code: "invalid_include" } });
+        return;
+      }
+      const includeMetadata = includes[0] === "routetok";
+      json(response, 200, protocol === "anthropic" ? anthropicModelsResponse(includeMetadata) : openAiModelsResponse(includeMetadata));
       return;
     }
 
@@ -1160,19 +1218,28 @@ const server = createServer(async (request, response) => {
           id: model.id,
           displayName: model.displayName ?? model.id,
           provider: model.providerId ?? "agentrouter",
-          free: (model.providerId ?? "agentrouter") !== "agentrouter" && isFreeExternalCatalogModel(model),
+          free: catalogModelFreeStatus(model),
           pricing: {
             input: model.pricing?.input ?? null,
             output: model.pricing?.output ?? null,
             cacheRead: model.pricing?.cacheRead ?? null,
-            cacheWrite: model.pricing?.cacheWrite ?? null
+            cacheWrite: model.pricing?.cacheWrite ?? null,
+            currency: model.pricing?.currency ?? null,
+            unit: model.pricing?.unit ?? null,
+            source: model.pricing?.source ?? null
           },
+          pricingTiers: model.pricingTiers ?? null,
           contextTokens: model.contextTokens ?? null,
           maxOutputTokens: model.maxOutputTokens ?? null,
-          inputModalities: model.inputModalities ?? [],
-          outputModalities: model.outputModalities ?? [],
+          inputModalities: model.inputModalities ?? null,
+          outputModalities: model.outputModalities ?? null,
           capabilities: model.capabilities ?? { tools: null, vision: null, audio: null, reasoning: null, caching: null, webSearch: null },
-          supportedParameters: model.supportedParameters ?? []
+          supportedParameters: model.supportedParameters ?? null,
+          source: model.source,
+          metadataSource: model.metadataSource ?? null,
+          protocols: model.protocols,
+          endpoints: model.endpoints ?? null,
+          quality: { modelRatio: model.modelRatio, completionRatio: model.completionRatio }
         }));
         json(response, 200, { models, maxLanes: 4, supportedPurposes: ["chat", "design", "diagnose"] });
         return;

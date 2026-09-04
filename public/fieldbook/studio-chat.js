@@ -1,4 +1,4 @@
-export function createStudioChat({ document, getConversation, getStudio, isActive, request, buildMessages, parseResponse, acceptProposal, save, renderText, metricText, uid, now, onStatus }) {
+export function createStudioChat({ document, getConversation, getStudio, isActive, getTimeoutMs = () => 60_000, request, buildMessages, parseResponse, acceptProposal, save, renderText, metricText, uid, now, onStatus }) {
   const $ = (id) => document.getElementById(id);
   let controller = null;
 
@@ -69,15 +69,21 @@ export function createStudioChat({ document, getConversation, getStudio, isActiv
     const agent = studio.agents[agentIndex];
     if (!agent) return onStatus("Choose an agent");
     const user = { id: uid("studioChat"), role: "user", content, agent: agent.name, createdAt: now(), context: frozenContext };
-    controller = { abortController: new AbortController(), conversation }; chat.messages.push(user); chat.draft = ""; input.value = ""; render(); await save(conversation);
+    const operation = { abortController: new AbortController(), conversation, timedOut: false, timer: null };
+    operation.timer = setTimeout(() => { operation.timedOut = true; operation.abortController.abort(); }, Math.max(10_000, getTimeoutMs(conversation)));
+    controller = operation; chat.messages.push(user); chat.draft = ""; input.value = ""; render();
     try {
-      const result = await request(agent, buildMessages(studio, agent, content, frozenContext), controller.abortController.signal, conversation);
+      await save(conversation);
+      const result = await request(agent, buildMessages(studio, agent, content, frozenContext), operation.abortController.signal, conversation);
       const parsed = parseResponse(result.content || result.reasoning || "", studio, agent);
       chat.messages.push({ id: uid("studioChat"), role: "assistant", agent: agent.name, content: parsed.advisory, proposal: parsed.proposal, metrics: result.metrics, createdAt: now() });
     } catch (error) {
-      chat.messages.push({ id: uid("studioChat"), role: "assistant", agent: agent.name, content: error.name === "AbortError" ? "Steering response cancelled." : `Steering response failed: ${error.message}`, createdAt: now() });
+      chat.messages.push({ id: uid("studioChat"), role: "assistant", agent: agent.name, content: error.name === "AbortError" ? operation.timedOut ? "Steering response reached the per-agent deadline." : "Steering response cancelled." : `Steering response failed: ${error.message}`, createdAt: now() });
+    } finally {
+      clearTimeout(operation.timer);
+      if (controller === operation) controller = null;
     }
-    controller = null; chat.messages = chat.messages.slice(-80); await save(conversation); if (isActive(conversation)) render();
+    chat.messages = chat.messages.slice(-80); await save(conversation); if (isActive(conversation)) render();
   }
 
   function stop() { controller?.abortController.abort(); }

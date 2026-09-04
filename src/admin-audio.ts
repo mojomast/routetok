@@ -13,14 +13,28 @@ const MAX_TRANSCRIPTION_FILE_BYTES = 16 * MIB;
 const MAX_TRANSCRIPTION_RESPONSE_BYTES = 2 * MIB;
 const TRANSCRIPTION_EXTENSIONS = ["flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm"] as const;
 
-type CapabilityState = "available" | "unconfigured" | "error";
+type CapabilityState = "available" | "unavailable" | "unconfigured" | "error";
 type AudioModel = {
   id: string;
   displayName: string;
+  provider: "openrouter" | "requesty" | "local";
+  upstreamId: string;
+  metadataSource: "provider" | "mixed";
   free: boolean;
+  freeStatus: boolean | null;
   pricing: Record<string, string | number | null> | null;
+  pricingCurrency: string | null;
+  pricingUnit: string | null;
+  contextTokens: number | null;
+  maxOutputTokens: number | null;
+  inputModalities: string[] | null;
+  outputModalities: string[] | null;
+  supportedParameters: string[] | null;
+  capabilities: { tools: boolean | null; vision: boolean | null; audio: boolean | null; reasoning: boolean | null };
   voices: string[];
+  voicesKnown: boolean;
   formats: string[];
+  formatsSource: "routetok";
 };
 type CapabilityResult = {
   speech: { provider: "openrouter"; status: CapabilityState; models: AudioModel[] };
@@ -136,21 +150,34 @@ function pricing(value: unknown): Record<string, string | number | null> | null 
   const safe: Record<string, string | number | null> = {};
   for (const [key, amount] of Object.entries(value).slice(0, 32)) {
     if (!/^[a-zA-Z0-9_-]{1,64}$/.test(key)) continue;
+    if (/(?:api[_-]?key|secret|credential|password|authorization|auth[_-]?token)/i.test(key)) continue;
     if (amount === null || (typeof amount === "number" && Number.isFinite(amount))) safe[key] = amount;
     else if (typeof amount === "string" && amount.length <= 128 && amount.trim() && Number.isFinite(Number(amount))) safe[key] = amount;
   }
   return Object.keys(safe).length ? safe : null;
 }
 
-function isFree(id: string, modelPricing: Record<string, string | number | null> | null): boolean {
-  const amounts = Object.values(modelPricing ?? {}).filter((value): value is string | number => value !== null);
+function freeStatus(id: string, modelPricing: Record<string, string | number | null> | null): boolean | null {
+  const values = Object.values(modelPricing ?? {});
+  if (values.some((value) => value === null)) return null;
+  const amounts = values.filter((value): value is string | number => value !== null);
   if (amounts.length) return amounts.every((value) => Number(value) === 0);
-  return id.toLowerCase().endsWith(":free");
+  return id.toLowerCase().endsWith(":free") ? true : null;
 }
 
 function strings(value: unknown, maximum = 100): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0 && entry.length <= 128).slice(0, maximum);
+}
+
+function optionalStrings(...values: unknown[]): string[] | null {
+  for (const value of values) if (Array.isArray(value)) return strings(value);
+  return null;
+}
+
+function nonNegative(value: unknown): number | null {
+  const parsed = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function modelEntries(payload: unknown): unknown[] {
@@ -166,15 +193,44 @@ function capabilityModels(payload: unknown, provider: "openrouter" | "requesty" 
     if (!plainObject(entry) || typeof entry.id !== "string" || !entry.id || entry.id.length > 512) continue;
     const id = entry.id.startsWith(`${provider}:`) ? entry.id : `${provider}:${entry.id}`;
     const modelPricing = pricing(entry.pricing);
+    const rawPricing = plainObject(entry.pricing) ? entry.pricing : {};
     const nested = plainObject(entry.top_provider) ? entry.top_provider : {};
-    const voices = speech ? strings(entry.supported_voices ?? entry.voices ?? entry.voice_options ?? nested.supported_voices) : [];
+    const architecture = plainObject(entry.architecture) ? entry.architecture : {};
+    const capabilityFlags = plainObject(entry.capabilities) ? entry.capabilities : {};
+    const rawVoices = entry.supported_voices ?? entry.voices ?? entry.voice_options ?? nested.supported_voices;
+    const voices = speech ? strings(rawVoices) : [];
+    const inputModalities = optionalStrings(entry.input_modalities, architecture.input_modalities);
+    const outputModalities = optionalStrings(entry.output_modalities, architecture.output_modalities);
+    const supportedParameters = optionalStrings(entry.supported_parameters);
+    const flag = (...values: unknown[]): boolean | null => values.find((value) => typeof value === "boolean") as boolean | undefined ?? null;
+    const modelFreeStatus = provider === "local" ? true : freeStatus(entry.id, modelPricing);
     output.push({
       id,
       displayName: typeof entry.name === "string" && entry.name.length <= 512 ? entry.name : entry.id,
-      free: provider === "local" || isFree(entry.id, modelPricing),
+      provider,
+      upstreamId: entry.id,
+      metadataSource: provider === "local" ? "mixed" : "provider",
+      free: modelFreeStatus === true,
+      freeStatus: modelFreeStatus,
       pricing: modelPricing,
+      pricingCurrency: typeof (entry.currency ?? rawPricing.currency) === "string" && String(entry.currency ?? rawPricing.currency).length <= 16 ? String(entry.currency ?? rawPricing.currency).toUpperCase() : null,
+      pricingUnit: typeof (entry.pricing_unit ?? rawPricing.unit ?? rawPricing.billing_unit) === "string" && String(entry.pricing_unit ?? rawPricing.unit ?? rawPricing.billing_unit).length <= 64 ? String(entry.pricing_unit ?? rawPricing.unit ?? rawPricing.billing_unit) : null,
+      contextTokens: nonNegative(entry.context_length ?? entry.context_window),
+      maxOutputTokens: nonNegative(nested.max_completion_tokens ?? entry.max_output_tokens),
+      inputModalities,
+      outputModalities,
+      supportedParameters,
+      capabilities: {
+        tools: flag(entry.supports_tool_calling, capabilityFlags.tools, capabilityFlags.function_calling) ?? (supportedParameters ? supportedParameters.some((item) => /tool|function/i.test(item)) : null),
+        vision: flag(entry.supports_vision, capabilityFlags.vision) ?? (inputModalities ? inputModalities.includes("image") : null),
+        audio: flag(entry.supports_audio, capabilityFlags.audio) ?? (speech || inputModalities?.includes("audio") || outputModalities?.includes("audio")
+          ? true : inputModalities && outputModalities ? false : null),
+        reasoning: flag(entry.supports_reasoning, capabilityFlags.reasoning) ?? (supportedParameters ? supportedParameters.some((item) => /reason/i.test(item)) : null)
+      },
       voices,
-      formats: speech ? ["mp3", "pcm"] : [...TRANSCRIPTION_EXTENSIONS]
+      voicesKnown: speech && Array.isArray(rawVoices),
+      formats: speech ? ["mp3", "pcm"] : [...TRANSCRIPTION_EXTENSIONS],
+      formatsSource: "routetok"
     });
   }
   return output;
@@ -243,8 +299,8 @@ export class AdminAudioService {
       const capabilities = await this.discover(false);
       const selectedModel = capabilities.speech.models.find((model) => model.id === `openrouter:${String(body.model)}`);
       if (!selectedModel) throw new AudioHttpError(400, "Speech model is not in the current OpenRouter speech catalog");
-      if (!selectedModel.free) throw new AudioHttpError(403, "Only catalog-confirmed free speech models are enabled in this initial release");
-      if (typeof body.voice === "string" && selectedModel.voices.length && !selectedModel.voices.includes(body.voice)) {
+      if (selectedModel.freeStatus !== true) throw new AudioHttpError(403, "Only catalog-confirmed free speech models are enabled in this initial release");
+      if (typeof body.voice === "string" && selectedModel.voicesKnown && !selectedModel.voices.includes(body.voice)) {
         throw new AudioHttpError(400, "Speech voice is not advertised for the selected model");
       }
       if (lifecycle.controller.signal.aborted) throw new Error("Audio request aborted");
@@ -410,8 +466,10 @@ export class AdminAudioService {
       const transcriptionStatus: CapabilityState = transcriptionModels.length
         ? "available"
         : local.status === "unconfigured" && requesty.status === "unconfigured" ? "unconfigured" : "error";
+      const speechModels = speech.models.filter((model) => model.freeStatus === true);
+      const speechStatus: CapabilityState = speechModels.length ? "available" : speech.status === "available" ? "unavailable" : speech.status;
       const value: CapabilityResult = {
-        speech: { provider: "openrouter", status: speech.status, models: speech.models.filter((model) => model.free) },
+        speech: { provider: "openrouter", status: speechStatus, models: speechModels },
         transcription: {
           provider: sources.length === 2 ? "local+requesty" : sources[0] ?? (this.localStt.baseUrl ? "local" : "requesty"),
           status: transcriptionStatus,
@@ -440,7 +498,8 @@ export class AdminAudioService {
       });
       if (!response.ok || !(response.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")) return { status: "error", models: [] };
       const bytes = await readFetchBody(response, MAX_DISCOVERY_BYTES, lifecycle.controller);
-      return { status: "available", models: capabilityModels(JSON.parse(bytes.toString("utf8")), id, id === "openrouter") };
+      const models = capabilityModels(JSON.parse(bytes.toString("utf8")), id, id === "openrouter");
+      return { status: models.length ? "available" : "unavailable", models };
     } catch {
       return { status: "error", models: [] };
     } finally {

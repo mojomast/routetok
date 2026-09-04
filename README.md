@@ -94,6 +94,15 @@ Open:
 
 RouteTok works with clients that support a custom OpenAI base URL. `GET /v1/models` advertises only currently configured text routes that the client may request; paid or unknown-price external models appear only after explicit enablement.
 
+The default model list remains strictly compatible and unchanged. RouteTok-aware clients can opt into versioned metadata on each entry:
+
+```bash
+curl -H "Authorization: Bearer $ROUTETOK_PROXY_KEY" \
+  'http://127.0.0.1:8787/v1/models?include=routetok'
+```
+
+The nested `routetok` object describes route identity, provenance, protocols, limits, capabilities, pricing, access, routing, and safe health data without changing the default response. See the [API reference](docs/api.md#model-metadata) for the schema and unknown-value rules.
+
 ```bash
 curl http://127.0.0.1:8787/v1/chat/completions \
   -H 'Content-Type: application/json' \

@@ -42,6 +42,7 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
   let localTranscriptionRequest: { authorization: string | undefined; model: string; language: string; prompt: string; name: string; bytes: Buffer } | null = null;
   let imageRequest: { authorization: string | undefined; body: Record<string, unknown> } | null = null;
   let speechDiscoveryCount = 0;
+  let paidOnlySpeech = false;
   const upstream = createServer(async (request, response) => {
     if (request.url === "/openrouter/v1/models?output_modalities=all") {
       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{
@@ -65,17 +66,20 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
     if (request.url === "/openrouter/v1/models?output_modalities=speech") {
       speechDiscoveryCount += 1;
       assert.equal(request.headers.authorization, "Bearer effective-openrouter");
-      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [
-        { id: "black-forest-labs/flux-speech:free", name: "Flux Speech", pricing: { audio: "0" }, supported_voices: ["nova", "alloy"], secret: "not-for-clients" },
+      const speechModels = [
+        { id: "black-forest-labs/flux-speech:free", name: "Flux Speech", context_length: 65536, top_provider: { max_completion_tokens: 4096 }, architecture: { input_modalities: ["text"], output_modalities: ["audio"] }, supported_parameters: ["voice", "speed"], pricing: { audio: "0", currency: "usd", unit: "per_audio_token", api_key: "123456" }, supported_voices: ["nova", "alloy"], secret: "not-for-clients" },
         { id: "fish-audio/s1-mini:free", name: "Fish Audio", pricing: { audio: "0.000" }, voices: ["fish"] },
+        { id: "vendor/empty-voices:free", name: "Empty Voices", pricing: { audio: "0" }, supported_voices: [] },
+        { id: "vendor/partial-price:free", name: "Partial Price", pricing: { audio: null, prompt: "0" } },
         { id: "vendor/paid-speech", name: "Paid Speech", pricing: { audio: "0.01" }, supported_voices: ["paid"] }
-      ], base_url: "http://private", token: "upstream-secret" }));
+      ];
+      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: paidOnlySpeech ? speechModels.filter((model) => model.id === "vendor/paid-speech") : speechModels, base_url: "http://private", token: "upstream-secret" }));
       return;
     }
     if (request.url === "/requesty/v1/models/transcription") {
       assert.equal(request.headers.authorization, "Bearer effective-requesty");
       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [
-        { id: "vendor/whisper", name: "Whisper", pricing: { audio: "0.001" }, api_key: "hidden" }
+        { id: "vendor/whisper", name: "Whisper", context_window: 32768, input_modalities: ["audio"], output_modalities: ["text"], supported_parameters: ["language"], pricing: { audio: "0.001" }, api_key: "hidden" }
       ], internal: "hidden" }));
       return;
     }
@@ -218,16 +222,21 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
     const capabilityResponse = await fetch(`${base}/admin/api/audio/capabilities`, { headers: dashboardHeaders });
     assert.equal(capabilityResponse.status, 200);
     const capabilities = await capabilityResponse.json() as {
-      speech: { status: string; models: Array<{ id: string; displayName: string; free: boolean; voices: string[]; formats: string[] }> };
+      speech: { status: string; models: Array<{ id: string; displayName: string; free: boolean; freeStatus: boolean | null; voices: string[]; formats: string[]; [key: string]: unknown }> };
       transcription: { provider: string; status: string; models: Array<{ id: string }> };
     };
     assert.equal(capabilities.speech.status, "available");
     assert.equal(capabilities.transcription.status, "available");
     assert.deepEqual(capabilities.speech.models[0], {
-      id: "openrouter:black-forest-labs/flux-speech:free", displayName: "Flux Speech", free: true,
-      pricing: { audio: "0" }, voices: ["nova", "alloy"], formats: ["mp3", "pcm"]
+      id: "openrouter:black-forest-labs/flux-speech:free", displayName: "Flux Speech", free: true, freeStatus: true,
+      provider: "openrouter", upstreamId: "black-forest-labs/flux-speech:free", metadataSource: "provider",
+      pricing: { audio: "0" }, pricingCurrency: "USD", pricingUnit: "per_audio_token",
+      contextTokens: 65536, maxOutputTokens: 4096, inputModalities: ["text"], outputModalities: ["audio"],
+      supportedParameters: ["voice", "speed"], capabilities: { tools: false, vision: false, audio: true, reasoning: false },
+      voices: ["nova", "alloy"], voicesKnown: true, formats: ["mp3", "pcm"], formatsSource: "routetok"
     });
     assert(capabilities.speech.models.some((model) => model.id.includes("fish-audio") && model.free));
+    assert(!capabilities.speech.models.some((model) => model.id.includes("partial-price")), "partially unknown pricing must not be advertised as free");
     assert(!capabilities.speech.models.some((model) => model.id.includes("paid-speech")), "initial release must advertise only free TTS models");
     assert.equal(capabilities.transcription.provider, "local+requesty");
     assert.deepEqual(capabilities.transcription.models.map((model) => model.id), [
@@ -236,8 +245,22 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
     assert.doesNotMatch(JSON.stringify(capabilities), /secret|base_url|api_key|private/i);
     await fetch(`${base}/admin/api/audio/capabilities`, { headers: dashboardHeaders });
     assert.equal(speechDiscoveryCount, 1);
-    await fetch(`${base}/admin/api/audio/capabilities?refresh=true`, { headers: dashboardHeaders });
+    paidOnlySpeech = true;
+    const paidOnlyCapabilities = await fetch(`${base}/admin/api/audio/capabilities?refresh=true`, { headers: dashboardHeaders }).then((response) => response.json()) as { speech: { status: string; models: unknown[] } };
     assert.equal(speechDiscoveryCount, 2);
+    assert.equal(paidOnlyCapabilities.speech.status, "unavailable");
+    assert.deepEqual(paidOnlyCapabilities.speech.models, []);
+    paidOnlySpeech = false;
+    await fetch(`${base}/admin/api/audio/capabilities?refresh=true`, { headers: dashboardHeaders });
+    assert.equal(speechDiscoveryCount, 3);
+
+    const unsupportedVoice = await fetch(`${base}/admin/api/audio/speech`, {
+      method: "POST",
+      headers: { ...dashboardHeaders, "content-type": "application/json" },
+      body: JSON.stringify({ model: "openrouter:vendor/empty-voices:free", input: "voice check", voice: "not-advertised", responseFormat: "mp3" })
+    });
+    assert.equal(unsupportedVoice.status, 400);
+    assert.equal(speechRequests.length, 0);
 
     const beforeStatus = await fetch(`${base}/admin/api/status`, { headers: dashboardHeaders }).then((response) => response.json()) as { metrics: { totals: { requests: number }; recent: unknown[] } };
     const beforeHistory = await fetch(`${base}/admin/api/history`, { headers: dashboardHeaders }).then((response) => response.json()) as { samples: unknown[]; retained: number };

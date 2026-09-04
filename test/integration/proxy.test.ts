@@ -76,6 +76,8 @@ async function waitForReady(child: ChildProcess): Promise<void> {
 
 test("proxy preserves client identity, replaces credentials, and falls back before output", async () => {
   const calls: CapturedCall[] = [];
+  let releaseLiveStream: (() => void) | undefined;
+  const liveStreamGate = new Promise<void>((resolve) => { releaseLiveStream = resolve; });
   const upstream = createServer(async (request, response) => {
     if (request.url === "/api/pricing") {
       response.writeHead(200, { "content-type": "application/json" });
@@ -203,13 +205,16 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
         "",
         ""
       ].join("\n"));
-      setTimeout(() => response.end([
+      const finish = () => response.end([
         'data: {"id":"chatcmpl-stream","object":"chat.completion.chunk","model":"good-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
         "",
         "data: [DONE]",
         "",
         ""
-      ].join("\n")), 100);
+      ].join("\n"));
+      if (messages.some((message) => JSON.stringify(message).includes("Reply OK"))) await liveStreamGate;
+      else await new Promise((resolve) => setTimeout(resolve, 100));
+      finish();
       return;
     }
     if (payload.model === "bad-model") {
@@ -520,6 +525,7 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
     assert.equal(lightweightLive.inFlight.length, 1);
     assert.equal(lightweightLive.completedRequests, liveDashboard.metrics.totals.requests);
     assert(lightweightLive.recent.length > 0);
+    releaseLiveStream?.();
     const streamText = await streamResponse.text();
     assert.match(streamText, /FALLBACK-OK/);
     assert.doesNotMatch(streamText, /billing\.summary|data: null/);
@@ -764,6 +770,7 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
     const imageCapabilities = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/images/capabilities`).then((result) => result.json()) as { status: string; models: unknown[] };
     assert.deepEqual({ status: imageCapabilities.status, models: imageCapabilities.models }, { status: "unconfigured", models: [] });
   } finally {
+    releaseLiveStream?.();
     await stopChild(child);
     await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
     await rm(dataDir, { recursive: true, force: true });

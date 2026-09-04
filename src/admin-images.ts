@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { isFreeExternalCatalogModel } from "./catalog.js";
+import { catalogModelFreeStatus, isFreeExternalCatalogModel } from "./catalog.js";
 import type { CatalogService } from "./catalog.js";
 import type { ConfigStore } from "./config.js";
 import type { ProviderRuntime } from "./types.js";
@@ -93,11 +93,20 @@ export class AdminImageService {
       id: model.id,
       displayName: model.displayName ?? model.id,
       provider: "openrouter",
-      free: isFreeExternalCatalogModel(model),
+      free: catalogModelFreeStatus(model),
       pricing: model.pricing ?? null,
-      inputModalities: model.inputModalities ?? [],
-      outputModalities: model.outputModalities ?? [],
-      ...(model.supportedParameters === undefined ? {} : { supportedParameters: model.supportedParameters })
+      pricingTiers: model.pricingTiers ?? null,
+      contextTokens: model.contextTokens ?? null,
+      maxOutputTokens: model.maxOutputTokens ?? null,
+      inputModalities: model.inputModalities ?? null,
+      outputModalities: model.outputModalities ?? null,
+      capabilities: model.capabilities ?? { tools: null, vision: null, audio: null, reasoning: null, caching: null, webSearch: null },
+      protocols: model.protocols,
+      endpoints: model.endpoints ?? null,
+      source: model.source,
+      metadataSource: model.metadataSource ?? null,
+      supportedParameters: model.supportedParameters ?? null,
+      quality: { modelRatio: model.modelRatio, completionRatio: model.completionRatio }
     }));
     sendJson(response, 200, { status: models.length ? "available" : "unavailable", models, formats: [...FORMATS], aspectRatios: [...ASPECT_RATIOS], qualities: [...QUALITIES], ephemeral: true });
   }
@@ -129,7 +138,7 @@ export class AdminImageService {
         if (!(upstream.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json")) throw new ImageHttpError(502, "Image provider returned an invalid content type");
         const bytes = await responseBytes(upstream, MAX_RESPONSE_BYTES, controller);
         const payload = object(JSON.parse(bytes.toString("utf8"))); const data = payload?.data;
-        if (!Array.isArray(data) || data.length < 1 || data.length > 4) throw new ImageHttpError(502, "Image provider returned an invalid response");
+        if (!Array.isArray(data) || data.length !== 1) throw new ImageHttpError(502, "Image provider must return exactly one image");
         const images = data.map((entry) => {
           const item = object(entry); const encoded = item?.b64_json; const mime = item?.media_type;
           if (typeof encoded !== "string" || typeof mime !== "string" || !MIMES.has(mime) || encoded.length > Math.ceil(MAX_IMAGE_BYTES * 4 / 3) + 4 || encoded.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) throw new ImageHttpError(502, "Image provider returned invalid image data");

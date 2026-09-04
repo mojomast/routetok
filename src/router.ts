@@ -34,12 +34,12 @@ function freshHealth(protocol: Protocol, model: string): ModelHealth {
 function isExplicitlyIncompatible(model: CatalogModel, requirements: RoutingRequirements): boolean {
   if (requirements.tools && model.capabilities?.tools === false) return true;
   for (const modality of requirements.inputModalities) {
-    if (model.inputModalities?.length && !model.inputModalities.includes(modality)) return true;
+    if (model.inputModalities && !model.inputModalities.includes(modality)) return true;
     if (modality === "image" && model.capabilities?.vision === false) return true;
     if (modality === "audio" && model.capabilities?.audio === false) return true;
   }
   for (const modality of requirements.outputModalities) {
-    if (model.outputModalities?.length && !model.outputModalities.includes(modality)) return true;
+    if (model.outputModalities && !model.outputModalities.includes(modality)) return true;
     if (modality === "audio" && model.capabilities?.audio === false) return true;
   }
   return false;

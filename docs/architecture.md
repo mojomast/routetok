@@ -25,6 +25,14 @@ The dashboard and Fieldbook share server-side catalogs and bounded inference/med
 
 Provider catalogs, credits, routing configuration, metrics, dashboard content, and browser sandbox history have separate storage boundaries. Provider credentials never enter `RouterConfig` or metrics.
 
+## Metadata Projection
+
+`CatalogService` preserves normalized values together with catalog, curated, and pricing provenance instead of filling gaps by inference. The opt-in proxy model list uses metadata schema version 1. Admin status retains the broader raw operational model records, while the sandbox and image catalogs expose corresponding normalized camel-case fields for their narrower eligible model sets.
+
+The default `/v1/models` serializer is a separate strict-compatibility path and remains unchanged. Only `include=routetok` adds the nested per-entry projection; unknown include modes fail with `400`. In the enriched projection, `null` is unknown, `[]` is known empty, and zero is a real value. Pricing retains explicit currency, unit, source, decimal-string rates, and token-count tier thresholds rather than collapsing missing values into zero.
+
+Metadata for virtual routes and custom cascades is aggregated conservatively. Identity, route kind, members, and configured ranks can be stated directly, but candidate-dependent limits, modalities, capabilities, supported parameters, pricing, and health remain unknown. Physical health is exposed only as a bounded, protocol-specific safe projection, never as raw circuit errors or sensitive request data.
+
 ## State
 
 - `DATA_DIR/config.json`: routing policy, mode `0600`

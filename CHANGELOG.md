@@ -17,6 +17,7 @@
 - Documented and verified exact paid OpenRouter routing, pre-output retry boundaries, request preservation, terminal routing metadata, and focused Qwen diagnostics.
 - Made failed catalog discovery retry after a short backoff instead of waiting for the normal freshness interval, while preserving the last usable catalog.
 - Filtered `/v1/models` to configured, enabled, text-capable routes and made fallback capability checks reject only explicit incompatibilities while retaining candidates with unknown metadata.
+- Added opt-in RouteTok model metadata schema v1 to `/v1/models?include=routetok` and corresponding scoped metadata on admin status, sandbox catalog, and image capability responses while preserving the strict-compatible default model list.
 - Corrected model-entitlement `403` classification, Responses cache-token accounting, blank credit handling, managed-key internal authentication, concurrent key mutation safety, persisted metrics normalization, image request limits/status, and the default speech format.
 - Hardened local and CI operations with isolated mock-only integration environments, bounded child-process teardown, recursive test discovery, Compose validation, Dockerfile checks, and retrying local STT model initialization.
 

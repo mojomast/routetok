@@ -102,19 +102,20 @@ test("external catalogs are normalized with canonical route IDs and USD pricing"
   assert.equal(requesty[0]?.pricing?.input, 2);
 
   const requestyVision = parseRequestyCatalog([{ id: "provider/vision", type: "chat", supports_vision: true }]);
-  assert.deepEqual(requestyVision[0]?.inputModalities, ["text", "image"]);
+  assert.equal(requestyVision[0]?.inputModalities, undefined);
+  assert.equal(requestyVision[0]?.capabilities?.vision, true);
 
   const unknownOpenRouter = parseOpenRouterCatalog({ data: [{ id: "vendor/unknown", pricing: {} }] })[0];
-  assert.deepEqual(unknownOpenRouter?.inputModalities, []);
-  assert.deepEqual(unknownOpenRouter?.outputModalities, []);
+  assert.equal(unknownOpenRouter?.inputModalities, undefined);
+  assert.equal(unknownOpenRouter?.outputModalities, undefined);
   assert.equal(unknownOpenRouter?.capabilities?.tools, null);
   assert.equal(unknownOpenRouter?.capabilities?.vision, null);
   assert.equal(unknownOpenRouter?.capabilities?.audio, null);
   assert.equal(unknownOpenRouter?.supportedParameters, undefined);
 
   const unknownRequesty = parseRequestyCatalog([{ id: "vendor/unknown" }])[0];
-  assert.deepEqual(unknownRequesty?.inputModalities, []);
-  assert.deepEqual(unknownRequesty?.outputModalities, []);
+  assert.equal(unknownRequesty?.inputModalities, undefined);
+  assert.equal(unknownRequesty?.outputModalities, undefined);
   assert.equal(unknownRequesty?.capabilities?.tools, null);
   assert.equal(unknownRequesty?.capabilities?.vision, null);
   assert.equal(unknownRequesty?.capabilities?.audio, null);
@@ -223,7 +224,8 @@ test("fallback capability filtering rejects explicit conflicts but retains unkno
     { id: "primary", providerId: "agentrouter", protocols: ["openai"], source: "live", modelRatio: 1, completionRatio: 1 },
     { id: "no-tools", providerId: "agentrouter", protocols: ["openai"], source: "live", modelRatio: 1, completionRatio: 1, capabilities: { tools: false, vision: null, audio: null, reasoning: null, caching: null, webSearch: null } },
     { id: "text-only", providerId: "agentrouter", protocols: ["openai"], source: "live", modelRatio: 1, completionRatio: 1, inputModalities: ["text"], outputModalities: ["text"], capabilities: { tools: true, vision: false, audio: false, reasoning: null, caching: null, webSearch: null } },
-    { id: "metadata-unknown", providerId: "agentrouter", protocols: ["openai"], source: "live", modelRatio: 1, completionRatio: 1, inputModalities: [], outputModalities: [], capabilities: { tools: null, vision: null, audio: null, reasoning: null, caching: null, webSearch: null } }
+    { id: "metadata-unknown", providerId: "agentrouter", protocols: ["openai"], source: "live", modelRatio: 1, completionRatio: 1, capabilities: { tools: null, vision: null, audio: null, reasoning: null, caching: null, webSearch: null } },
+    { id: "metadata-empty", providerId: "agentrouter", protocols: ["openai"], source: "live", modelRatio: 1, completionRatio: 1, inputModalities: [], outputModalities: [], capabilities: { tools: null, vision: null, audio: null, reasoning: null, caching: null, webSearch: null } }
   ];
   const capabilityConfig = { ...config, maxAttempts: 4, openaiOrder: capabilityCatalog.map((model) => model.id) };
   assert.deepEqual(router.candidates("openai", "primary", capabilityCatalog, capabilityConfig, {

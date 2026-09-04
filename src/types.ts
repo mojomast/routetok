@@ -27,6 +27,13 @@ export interface ModelPricing {
   output: number | null;
   cacheRead: number | null;
   cacheWrite: number | null;
+  currency?: "USD" | null;
+  unit?: "per_million_tokens" | null;
+  source?: "provider" | "curated" | "unknown";
+}
+
+export interface ModelPricingTier extends ModelPricing {
+  promptTokensThreshold: number | null;
 }
 
 export interface CatalogModel {
@@ -40,8 +47,10 @@ export interface CatalogModel {
   outputModalities?: string[];
   capabilities?: ModelCapabilities;
   pricing?: ModelPricing;
+  pricingTiers?: ModelPricingTier[];
   endpoints?: EndpointKind[];
   supportedParameters?: string[];
+  metadataSource?: "provider" | "curated" | "mixed" | "fallback" | "unknown";
   protocols: Protocol[];
   source: "live" | "fallback";
   modelRatio: number;

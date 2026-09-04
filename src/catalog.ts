@@ -1,4 +1,4 @@
-import type { CatalogModel, ModelCapabilities, ModelPricing, Protocol, ProviderId, ProviderRuntime } from "./types.js";
+import type { CatalogModel, ModelCapabilities, ModelPricing, ModelPricingTier, Protocol, ProviderId, ProviderRuntime } from "./types.js";
 
 const CATALOG_FAILURE_RETRY_MS = 30_000;
 
@@ -14,12 +14,11 @@ for (const model of FALLBACK_MODELS) {
   model.providerId = "agentrouter";
   model.upstreamId = model.id;
   model.displayName = model.id;
+  model.metadataSource = "fallback";
   model.contextTokens = null;
   model.maxOutputTokens = null;
-  model.inputModalities = [];
-  model.outputModalities = [];
   model.capabilities = { tools: null, vision: null, audio: null, reasoning: null, caching: null, webSearch: null };
-  model.pricing = { input: null, output: null, cacheRead: null, cacheWrite: null };
+  model.pricing = { input: null, output: null, cacheRead: null, cacheWrite: null, currency: null, unit: null, source: "unknown" };
 }
 
 interface PricingResponse {
@@ -44,20 +43,57 @@ interface ProviderCatalogState {
 const nullableCapabilities = (): ModelCapabilities => ({
   tools: null, vision: null, audio: null, reasoning: null, caching: null, webSearch: null
 });
-const nullablePricing = (): ModelPricing => ({ input: null, output: null, cacheRead: null, cacheWrite: null });
+const nullablePricing = (): ModelPricing => ({
+  input: null, output: null, cacheRead: null, cacheWrite: null,
+  currency: null, unit: null, source: "unknown"
+});
 const finite = (value: unknown): number | null => {
   const parsed = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
   return Number.isFinite(parsed) ? parsed : null;
 };
-const million = (value: unknown): number | null => {
-  const parsed = finite(value);
-  return parsed === null ? null : parsed * 1_000_000;
+const rate = (...values: unknown[]): number | null => {
+  for (const value of values) {
+    const parsed = finite(value);
+    if (parsed !== null && parsed >= 0) return parsed;
+  }
+  return null;
+};
+const millionRate = (...values: unknown[]): number | null => {
+  const parsed = rate(...values);
+  if (parsed === null) return null;
+  const normalized = parsed * 1_000_000;
+  return Number.isFinite(normalized) ? normalized : null;
 };
 const strings = (value: unknown): string[] => Array.isArray(value)
   ? value.filter((item): item is string => typeof item === "string")
   : [];
+const stringArray = (...values: unknown[]): string[] | undefined => {
+  for (const value of values) {
+    if (Array.isArray(value)) return strings(value);
+  }
+  return undefined;
+};
 const object = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value)
   ? value as Record<string, unknown> : {};
+const isObject = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value);
+const explicitBoolean = (...values: unknown[]): boolean | null => {
+  for (const value of values) {
+    if (typeof value === "boolean") return value;
+  }
+  return null;
+};
+const normalizedPricing = (
+  input: number | null,
+  output: number | null,
+  cacheRead: number | null,
+  cacheWrite: number | null,
+  source: "provider" | "curated" | "unknown"
+): ModelPricing => ({
+  input, output, cacheRead, cacheWrite,
+  currency: source === "unknown" ? null : "USD",
+  unit: source === "unknown" ? null : "per_million_tokens",
+  source
+});
 
 const ZEN_FREE_MODELS: Array<{ id: string; context: number; output: number; modalities: string[]; endpoints: NonNullable<CatalogModel["endpoints"]> }> = [
   { id: "big-pickle", context: 200_000, output: 32_000, modalities: ["text"], endpoints: ["chat"] },
@@ -79,6 +115,7 @@ function zenFreeCatalog(payload: unknown): CatalogModel[] {
     protocols: ["openai"],
     endpoints: model.endpoints,
     source: "live",
+    metadataSource: "mixed",
     modelRatio: 0,
     completionRatio: 0,
     contextTokens: model.context,
@@ -86,7 +123,7 @@ function zenFreeCatalog(payload: unknown): CatalogModel[] {
     inputModalities: model.modalities,
     outputModalities: ["text"],
     capabilities: { tools: true, vision: model.modalities.includes("image"), audio: model.modalities.includes("audio"), reasoning: true, caching: true, webSearch: false },
-    pricing: { input: 0, output: 0, cacheRead: 0, cacheWrite: null }
+    pricing: normalizedPricing(0, 0, 0, null, "curated")
   }));
 }
 
@@ -104,6 +141,7 @@ function kimiCodingCatalog(): CatalogModel[] {
     protocols: ["openai", "anthropic"] as Protocol[],
     endpoints: ["chat", "responses", "messages"],
     source: "live" as const,
+    metadataSource: "curated" as const,
     modelRatio: 1,
     completionRatio: 1,
     contextTokens: model.context,
@@ -123,35 +161,40 @@ export function parseOpenRouterCatalog(payload: unknown): CatalogModel[] {
     if (typeof entry.id !== "string" || !entry.id) return [];
     const architecture = object(entry.architecture);
     const topProvider = object(entry.top_provider);
-    const parameters = strings(entry.supported_parameters);
-    const inputModalities = strings(architecture.input_modalities);
-    const outputModalities = strings(architecture.output_modalities);
+    const parameters = stringArray(entry.supported_parameters);
+    const inputModalities = stringArray(architecture.input_modalities);
+    const outputModalities = stringArray(architecture.output_modalities);
     const pricing = object(entry.pricing);
+    const cacheRead = millionRate(pricing.input_cache_read, pricing.cache_read, pricing.input_cache_read_price, pricing.cache_read_price);
+    const cacheWrite = millionRate(pricing.input_cache_write, pricing.cache_write, pricing.input_cache_write_price, pricing.cache_write_price);
+    const pricingSource = isObject(entry.pricing) ? "provider" : "unknown";
+    const tools = explicitBoolean(entry.supports_tool_calling, entry.supports_tools);
+    const vision = explicitBoolean(entry.supports_vision);
+    const audio = explicitBoolean(entry.supports_audio);
+    const reasoning = explicitBoolean(entry.supports_reasoning);
+    const caching = explicitBoolean(entry.supports_caching, entry.supports_prompt_caching);
+    const webSearch = explicitBoolean(entry.supports_web_search);
     return [{
       id: `openrouter:${entry.id}`,
       providerId: "openrouter",
       upstreamId: entry.id,
       displayName: typeof entry.name === "string" ? entry.name : entry.id,
-      protocols: ["openai", "anthropic"], source: "live", modelRatio: 1, completionRatio: 1,
+      protocols: ["openai", "anthropic"], source: "live", metadataSource: "provider", modelRatio: 1, completionRatio: 1,
       contextTokens: finite(entry.context_length),
       maxOutputTokens: finite(topProvider.max_completion_tokens),
-      inputModalities, outputModalities,
-      ...(Array.isArray(entry.supported_parameters) ? { supportedParameters: parameters } : {}),
+      ...(inputModalities === undefined ? {} : { inputModalities }),
+      ...(outputModalities === undefined ? {} : { outputModalities }),
+      ...(parameters === undefined ? {} : { supportedParameters: parameters }),
       capabilities: {
-        tools: parameters.length ? parameters.some((p) => p === "tools" || p === "tool_choice") : null,
-        vision: inputModalities.length ? inputModalities.includes("image") : null,
-        audio: inputModalities.includes("audio") || outputModalities.includes("audio")
-          ? true
-          : inputModalities.length && outputModalities.length ? false : null,
-        reasoning: parameters.some((p) => p.includes("reasoning")),
-        caching: pricing.input_cache_read !== undefined || pricing.input_cache_write !== undefined,
-        webSearch: parameters.some((p) => p.includes("web"))
+        tools: tools ?? (parameters === undefined ? null : parameters.some((p) => p === "tools" || p === "tool_choice")),
+        vision: vision ?? (inputModalities === undefined ? null : inputModalities.includes("image")),
+        audio: audio ?? (inputModalities?.includes("audio") || outputModalities?.includes("audio")
+          ? true : inputModalities !== undefined && outputModalities !== undefined ? false : null),
+        reasoning: reasoning ?? (parameters === undefined ? null : parameters.some((p) => p.includes("reasoning"))),
+        caching: caching ?? (cacheRead !== null || cacheWrite !== null ? true : null),
+        webSearch: webSearch ?? (parameters === undefined ? null : parameters.some((p) => p.includes("web")))
       },
-      pricing: {
-        input: million(pricing.prompt), output: million(pricing.completion),
-        cacheRead: million(pricing.input_cache_read ?? pricing.cache_read),
-        cacheWrite: million(pricing.input_cache_write ?? pricing.cache_write)
-      }
+      pricing: normalizedPricing(millionRate(pricing.prompt), millionRate(pricing.completion), cacheRead, cacheWrite, pricingSource)
     }];
   });
 }
@@ -159,19 +202,25 @@ export function parseOpenRouterCatalog(payload: unknown): CatalogModel[] {
 export function isTextGenerationModel(model: CatalogModel, protocol: Protocol = "openai"): boolean {
   const textEndpoints = protocol === "anthropic" ? ["messages"] : ["chat", "responses"];
   if (!model.protocols.includes(protocol) || (model.endpoints && !model.endpoints.some((endpoint) => textEndpoints.includes(endpoint)))) return false;
-  if (model.inputModalities?.length && !model.inputModalities.includes("text")) return false;
-  if (model.outputModalities?.length && (model.outputModalities.length !== 1 || model.outputModalities[0] !== "text")) return false;
+  if (model.inputModalities && !model.inputModalities.includes("text")) return false;
+  if (model.outputModalities && (model.outputModalities.length !== 1 || model.outputModalities[0] !== "text")) return false;
   if (model.providerId === "openrouter" && model.supportedParameters?.length) {
     return model.supportedParameters.some((parameter) => ["max_tokens", "temperature", "top_p", "tools", "reasoning"].includes(parameter));
   }
   return true;
 }
 
-export function isFreeExternalCatalogModel(model: CatalogModel): boolean {
-  if (!model.providerId || model.providerId === "agentrouter") return false;
-  if (model.pricing?.input !== 0 || model.pricing?.output !== 0) return false;
+export function catalogModelFreeStatus(model: CatalogModel): boolean | null {
+  if (!model.providerId || model.providerId === "agentrouter") return null;
+  const prices = [model.pricing, ...(model.pricingTiers ?? [])];
+  if (!prices.length || prices.some((price) => price?.input === null || price?.input === undefined || price.output === null || price.output === undefined)) return null;
+  if (prices.some((price) => [price!.input, price!.output, price!.cacheRead, price!.cacheWrite].some((rate) => rate !== null && rate !== undefined && rate > 0))) return false;
   if (model.providerId !== "openrouter") return true;
   return model.upstreamId === "openrouter/free" || model.upstreamId?.endsWith(":free") === true;
+}
+
+export function isFreeExternalCatalogModel(model: CatalogModel): boolean {
+  return catalogModelFreeStatus(model) === true;
 }
 
 export function parseRequestyCatalog(payload: unknown): CatalogModel[] {
@@ -185,41 +234,59 @@ export function parseRequestyCatalog(payload: unknown): CatalogModel[] {
       : typeof entry.type === "string" ? entry.type.toLowerCase() : "chat";
     if (type && !type.includes("chat") && !type.includes("language") && type !== "model") return [];
     const modalities = object(entry.modalities);
-    let inputModalities = strings(entry.input_modalities).length
-      ? strings(entry.input_modalities) : strings(modalities.input);
-    let outputModalities = strings(entry.output_modalities).length
-      ? strings(entry.output_modalities) : strings(modalities.output);
-    if (inputModalities.length === 0 && entry.supports_vision === true) inputModalities = ["text", "image"];
-    const features = strings(entry.supported_parameters).concat(strings(entry.capabilities));
+    const capabilityFlags = object(entry.capabilities);
+    let inputModalities = stringArray(entry.input_modalities, modalities.input);
+    const outputModalities = stringArray(entry.output_modalities, modalities.output);
+    const supportedParameters = stringArray(entry.supported_parameters);
+    const capabilityNames = stringArray(entry.capabilities);
+    const featureEvidence = supportedParameters !== undefined || capabilityNames !== undefined;
+    const features = [...new Set([...(supportedParameters ?? []), ...(capabilityNames ?? [])])];
     const pricingBands = Array.isArray(entry.pricing)
-      ? entry.pricing.map(object).sort((left, right) => (finite(left.prompt_tokens_threshold) ?? 0) - (finite(right.prompt_tokens_threshold) ?? 0))
+      ? entry.pricing.map(object).sort((left, right) => (rate(left.prompt_tokens_threshold, left.input_tokens_threshold) ?? 0) - (rate(right.prompt_tokens_threshold, right.input_tokens_threshold) ?? 0))
       : [];
     const prices = pricingBands[0] ?? object(entry.pricing);
+    const input = millionRate(entry.input_price, prices.input_price, prices.prompt, prices.input);
+    const output = millionRate(entry.output_price, prices.output_price, prices.completion, prices.output);
+    const cacheRead = millionRate(entry.cached_price, prices.cached_price, prices.cache_read, prices.input_cache_read);
+    const cacheWrite = millionRate(entry.cache_write_price, prices.caching_price, prices.caching_5m_price, prices.cache_write, prices.input_cache_write);
+    const pricingPresent = Array.isArray(entry.pricing) || isObject(entry.pricing)
+      || input !== null || output !== null || cacheRead !== null || cacheWrite !== null;
     const capabilities = nullableCapabilities();
-    capabilities.tools = typeof entry.supports_tool_calling === "boolean"
-      ? entry.supports_tool_calling : features.length ? features.some((p) => /tool|function/.test(p)) : null;
-    capabilities.vision = typeof entry.supports_vision === "boolean"
-      ? entry.supports_vision : inputModalities.length ? inputModalities.includes("image") : null;
-    capabilities.audio = inputModalities.includes("audio") || outputModalities.includes("audio")
-      ? true
-      : inputModalities.length && outputModalities.length ? false : null;
-    capabilities.reasoning = typeof entry.supports_reasoning === "boolean" ? entry.supports_reasoning : features.some((p) => /reason/.test(p));
-    capabilities.caching = typeof entry.supports_caching === "boolean" ? entry.supports_caching
-      : prices.cache_read !== undefined || prices.cache_write !== undefined || entry.cached_price !== undefined;
-    capabilities.webSearch = typeof entry.supports_web_search === "boolean" ? entry.supports_web_search : features.some((p) => /web|search/.test(p));
+    capabilities.tools = explicitBoolean(entry.supports_tool_calling, entry.supports_tools, capabilityFlags.tool_calling, capabilityFlags.tools)
+      ?? (featureEvidence ? features.some((p) => /tool|function/i.test(p)) : null);
+    capabilities.vision = explicitBoolean(entry.supports_vision, capabilityFlags.vision)
+      ?? (inputModalities === undefined ? null : inputModalities.includes("image"));
+    capabilities.audio = explicitBoolean(entry.supports_audio, capabilityFlags.audio)
+      ?? (inputModalities?.includes("audio") || outputModalities?.includes("audio")
+        ? true : inputModalities !== undefined && outputModalities !== undefined ? false : null);
+    capabilities.reasoning = explicitBoolean(entry.supports_reasoning, capabilityFlags.reasoning)
+      ?? (featureEvidence ? features.some((p) => /reason/i.test(p)) : null);
+    capabilities.caching = explicitBoolean(entry.supports_caching, capabilityFlags.caching)
+      ?? (cacheRead !== null || cacheWrite !== null ? true : featureEvidence ? features.some((p) => /cach/i.test(p)) : null);
+    capabilities.webSearch = explicitBoolean(entry.supports_web_search, capabilityFlags.web_search, capabilityFlags.webSearch)
+      ?? (featureEvidence ? features.some((p) => /web|search/i.test(p)) : null);
+    const pricingTiers: ModelPricingTier[] = pricingBands.map((band) => ({
+      promptTokensThreshold: rate(band.prompt_tokens_threshold, band.input_tokens_threshold),
+      ...normalizedPricing(
+        millionRate(band.input_price, band.prompt, band.input),
+        millionRate(band.output_price, band.completion, band.output),
+        millionRate(band.cached_price, band.cache_read, band.input_cache_read),
+        millionRate(band.cache_write_price, band.caching_price, band.caching_5m_price, band.cache_write, band.input_cache_write),
+        "provider"
+      )
+    }));
     return [{
       id: `requesty:${id}`, providerId: "requesty", upstreamId: id,
       displayName: typeof entry.name === "string" ? entry.name : id,
-      protocols: ["openai", "anthropic"], source: "live", modelRatio: 1, completionRatio: 1,
+      protocols: ["openai", "anthropic"], source: "live", metadataSource: "provider", modelRatio: 1, completionRatio: 1,
       contextTokens: finite(entry.context_window ?? entry.context_length),
       maxOutputTokens: finite(entry.max_output_tokens ?? entry.max_completion_tokens),
-      inputModalities, outputModalities, capabilities,
-      pricing: {
-        input: million(entry.input_price ?? prices.input_price ?? prices.prompt ?? prices.input),
-        output: million(entry.output_price ?? prices.output_price ?? prices.completion ?? prices.output),
-        cacheRead: million(entry.cached_price ?? prices.cached_price ?? prices.cache_read ?? prices.input_cache_read),
-        cacheWrite: million(entry.cache_write_price ?? prices.caching_price ?? prices.caching_5m_price ?? prices.cache_write ?? prices.input_cache_write)
-      }
+      ...(inputModalities === undefined ? {} : { inputModalities }),
+      ...(outputModalities === undefined ? {} : { outputModalities }),
+      ...(supportedParameters === undefined ? {} : { supportedParameters }),
+      capabilities,
+      pricing: normalizedPricing(input, output, cacheRead, cacheWrite, pricingPresent ? "provider" : "unknown"),
+      ...(Array.isArray(entry.pricing) ? { pricingTiers } : {})
     }];
   });
 }
@@ -245,26 +312,46 @@ export function parseOpenAiCompatibleCatalog(payload: unknown, provider: Provide
     const architecture = object(entry.architecture);
     const capabilities = object(entry.capabilities);
     const pricing = object(entry.pricing);
-    const inputModalities = strings(architecture.input_modalities ?? entry.input_modalities);
-    const outputModalities = strings(architecture.output_modalities ?? entry.output_modalities);
-    const directPricing = provider.id === "together" || provider.id === "deepinfra";
-    const price = (value: unknown): number | null => directPricing ? finite(value) : million(value);
+    const inputModalities = stringArray(architecture.input_modalities, entry.input_modalities);
+    const outputModalities = stringArray(architecture.output_modalities, entry.output_modalities);
+    const supportedParameters = stringArray(entry.supported_parameters);
+    const declaredCurrency = String(pricing.currency ?? entry.pricing_currency ?? "").toUpperCase();
+    const declaredUnit = String(pricing.unit ?? pricing.billing_unit ?? entry.pricing_unit ?? "").toLowerCase();
+    const genericPricingKnown = provider.id !== "generic" || declaredCurrency === "USD" && ["per_token", "per_million_tokens", "per_1m_tokens"].includes(declaredUnit);
+    const directPricing = provider.id === "together" || provider.id === "deepinfra" || provider.id === "generic" && declaredUnit !== "per_token";
+    const price = (...values: unknown[]): number | null => !genericPricingKnown ? null : directPricing ? rate(...values) : millionRate(...values);
+    const input = price(pricing.input, pricing.prompt, entry.input_price, entry.prompt_price);
+    const output = price(pricing.output, pricing.completion, entry.output_price, entry.completion_price);
+    const cacheRead = price(
+      pricing.input_cache_read, pricing.cache_read, pricing.input_cache_read_price, pricing.cache_read_price,
+      pricing.cached_input, pricing.cached_price, pricing.cache_read_input_token, pricing.cache_read_input_token_cost,
+      pricing.prompt_cache_hit_token, entry.input_cache_read, entry.input_cache_read_price, entry.cache_read_price
+    );
+    const cacheWrite = price(
+      pricing.input_cache_write, pricing.cache_write, pricing.input_cache_write_price, pricing.cache_write_price,
+      pricing.cache_creation, pricing.cache_creation_input_token, pricing.cache_creation_input_token_cost,
+      pricing.prompt_cache_miss_token, entry.input_cache_write, entry.input_cache_write_price, entry.cache_write_price
+    );
+    const pricingPresent = genericPricingKnown && (isObject(entry.pricing) || input !== null || output !== null || cacheRead !== null || cacheWrite !== null);
     return [{
       id: `${provider.id}:${id}`, providerId: provider.id, upstreamId: id,
       displayName: typeof entry.display_name === "string" ? entry.display_name : typeof entry.name === "string" ? entry.name : id,
-      protocols: ["openai"], endpoints: provider.endpoints ?? ["chat"], source: "live", modelRatio: 1, completionRatio: 1,
+      protocols: ["openai"], endpoints: provider.endpoints ?? ["chat"], source: "live", metadataSource: "provider", modelRatio: 1, completionRatio: 1,
       contextTokens: finite(entry.context_window ?? entry.context_length ?? entry.max_context_length),
       maxOutputTokens: finite(entry.max_completion_tokens ?? entry.max_output_tokens ?? entry.max_tokens),
-      inputModalities, outputModalities,
-      supportedParameters: strings(entry.supported_parameters),
+      ...(inputModalities === undefined ? {} : { inputModalities }),
+      ...(outputModalities === undefined ? {} : { outputModalities }),
+      ...(supportedParameters === undefined ? {} : { supportedParameters }),
       capabilities: {
-        tools: typeof capabilities.function_calling === "boolean" ? capabilities.function_calling : null,
-        vision: typeof capabilities.vision === "boolean" ? capabilities.vision : inputModalities.includes("image") || null,
-        audio: inputModalities.includes("audio") || outputModalities.includes("audio") || null,
-        reasoning: typeof capabilities.reasoning === "boolean" ? capabilities.reasoning : null,
-        caching: null, webSearch: null
+        tools: explicitBoolean(capabilities.function_calling, capabilities.tools, entry.supports_tool_calling, entry.supports_tools),
+        vision: explicitBoolean(capabilities.vision, entry.supports_vision) ?? (inputModalities === undefined ? null : inputModalities.includes("image")),
+        audio: explicitBoolean(capabilities.audio, entry.supports_audio) ?? (inputModalities?.includes("audio") || outputModalities?.includes("audio")
+          ? true : inputModalities !== undefined && outputModalities !== undefined ? false : null),
+        reasoning: explicitBoolean(capabilities.reasoning, entry.supports_reasoning),
+        caching: explicitBoolean(capabilities.caching, entry.supports_caching) ?? (cacheRead !== null || cacheWrite !== null ? true : null),
+        webSearch: explicitBoolean(capabilities.web_search, capabilities.webSearch, entry.supports_web_search)
       },
-      pricing: { input: price(pricing.input ?? pricing.prompt), output: price(pricing.output ?? pricing.completion), cacheRead: null, cacheWrite: null }
+      pricing: normalizedPricing(input, output, cacheRead, cacheWrite, pricingPresent ? "provider" : "unknown")
     }];
   });
 }
@@ -429,6 +516,7 @@ export class CatalogService {
           displayName: entry.model_name,
           protocols: [...new Set(protocols)],
           source: "live",
+          metadataSource: "provider",
           modelRatio: typeof entry.model_ratio === "number" ? entry.model_ratio : 1,
           completionRatio: typeof entry.completion_ratio === "number" ? entry.completion_ratio : 1,
           capabilities: nullableCapabilities(), pricing: nullablePricing()
