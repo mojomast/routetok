@@ -663,7 +663,14 @@ export class StreamSanitizer {
         ? type.startsWith("response.") || type === "error" || Boolean(value.error)
         : Array.isArray(value.choices) || Boolean(value.error);
       if (!allowed) return [];
-      value.model = this.model;
+      if (responsesWire) {
+        const responseObject = value.response && typeof value.response === "object"
+          ? value.response as Record<string, unknown>
+          : null;
+        if (responseObject) responseObject.model = this.model;
+      } else {
+        value.model = this.model;
+      }
       const prefix = responsesWire && event ? `event: ${event}\n` : "";
       return [Buffer.from(`${prefix}data: ${JSON.stringify(value)}\n\n`)];
     }
