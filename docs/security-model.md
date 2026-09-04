@@ -21,7 +21,7 @@ RouteTok is designed for a trusted single-user host and defaults to loopback.
 
 ## Retention
 
-Server metrics persist request metadata, errors, timing, tokens, and costs. Eligible request bodies may be retained only in bounded process memory for authenticated inspection. Dashboard and Fieldbook content persist in separate browser IndexedDB databases. The dashboard token persists in local storage.
+Server metrics persist request metadata, errors, timing, tokens, and costs. Eligible request bodies may be retained only in bounded process memory for authenticated inspection, expire after 24 hours, and are evicted when new content is retained; setting `ROUTETOK_RETAIN_REQUEST_CONTENT=0` disables retention entirely. Dashboard and Fieldbook content persist in separate browser IndexedDB databases. The dashboard token persists in local storage.
 
 Generated image bytes, recordings, speech output, filenames, and unreviewed transcripts remain ephemeral. They are excluded from metrics, history, retained requests, Fieldbook notes, IndexedDB, and exports.
 

@@ -22,6 +22,16 @@ const MAX_ERROR_RESPONSE_BYTES = 8 * 1024 * 1024;
 const MAX_RETAINED_REQUEST_BYTES = 2 * 1024 * 1024;
 const MAX_RETAINED_CONTENT_BYTES = 16 * 1024 * 1024;
 const MAX_RETAINED_REQUESTS = 100;
+export const RETAINED_REQUEST_TTL_MS = 24 * 3_600_000;
+
+export function requestContentRetentionEnabled(environment: NodeJS.ProcessEnv = process.env): boolean {
+  return environment.ROUTETOK_RETAIN_REQUEST_CONTENT?.trim() !== "0";
+}
+
+export function expiredRetained(capturedAt: string, now = Date.now(), ttlMs = RETAINED_REQUEST_TTL_MS): boolean {
+  const captured = Date.parse(capturedAt);
+  return !Number.isFinite(captured) || now - captured >= ttlMs;
+}
 const MAX_ATTEMPT_HEADER_BYTES = 4_096;
 const MAX_DIAGNOSTIC_ATTEMPTS = 16;
 const TRANSIENT_STATUSES = new Set([408, 425, 500, 502, 503, 504, 529]);
@@ -980,6 +990,11 @@ export class ProxyHandler {
   getRetainedRequestContent(requestId: string): RetainedRequestContent | null {
     const retained = this.retainedRequests.get(requestId);
     if (!retained) return null;
+    if (expiredRetained(retained.capturedAt)) {
+      this.retainedRequests.delete(requestId);
+      this.retainedRequestBytes -= retained.bytes.byteLength;
+      return null;
+    }
     return {
       capturedAt: retained.capturedAt,
       sizeBytes: retained.bytes.byteLength,
@@ -988,7 +1003,8 @@ export class ProxyHandler {
   }
 
   private retainRequestContent(requestId: string, bytes: Buffer): void {
-    if (bytes.byteLength > MAX_RETAINED_REQUEST_BYTES) return;
+    if (!requestContentRetentionEnabled() || bytes.byteLength > MAX_RETAINED_REQUEST_BYTES) return;
+    this.evictExpiredRetained();
     const retained = {
       capturedAt: new Date().toISOString(),
       bytes: Buffer.from(bytes)
@@ -1004,6 +1020,14 @@ export class ProxyHandler {
       const oldest = this.retainedRequests.get(oldestId);
       this.retainedRequests.delete(oldestId);
       this.retainedRequestBytes -= oldest?.bytes.byteLength ?? 0;
+    }
+  }
+
+  private evictExpiredRetained(): void {
+    for (const [id, entry] of this.retainedRequests) {
+      if (!expiredRetained(entry.capturedAt)) continue;
+      this.retainedRequests.delete(id);
+      this.retainedRequestBytes -= entry.bytes.byteLength;
     }
   }
 

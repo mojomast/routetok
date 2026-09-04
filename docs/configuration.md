@@ -11,6 +11,7 @@ Copy `.env.example` to `.env`. RouteTok uses Node's environment-file support and
 | `PROXY_API_KEY` | empty | Client inference authentication |
 | `DASHBOARD_TOKEN` | empty | Dashboard/admin authentication |
 | `DATA_DIR` | `./data` | Runtime state directory |
+| `ROUTETOK_RETAIN_REQUEST_CONTENT` | on | Set to `0` to disable bounded in-memory request-body retention for inspection (see Security Model); retained content expires after 24 hours |
 
 `PROXY_API_KEY` remains the baseline client credential and is useful for bootstrap and recovery. Once `DASHBOARD_TOKEN` is configured, API Setup can create additional labelled client keys without changing the environment or restarting RouteTok. Managed keys are additive and individually revocable.
 

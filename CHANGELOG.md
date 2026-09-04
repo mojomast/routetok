@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Retained request bodies now expire after 24 hours (evicted lazily on retention of new content and on read) and `ROUTETOK_RETAIN_REQUEST_CONTENT=0` opts out of content retention entirely while the default stays on.
 - The server verifies every allowlisted static asset at boot and refuses to start when any is missing from `public/`; a new dependency-free `scripts/smoke.mjs` boots the service and GETs `/healthz` plus every allowlisted module, and CI runs it after the build.
 - Dashboard pages and modules now receive the full sandbox-tier Content-Security-Policy (`default-src 'self'` with explicit script/style/connect/img/media sources, `frame-ancestors 'none'`), and the single inline theme bootstrap was externalized into an allowlisted `theme-bootstrap.js`.
 - `GET /healthz` now returns minimal liveness (`{"status":"ok"}`) and no longer echoes catalog state or upstream error strings; detailed status stays on the authenticated `/admin/api/status`.
