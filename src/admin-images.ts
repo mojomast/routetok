@@ -79,7 +79,7 @@ async function responseBytes(response: Response, maximum: number, controller: Ab
 }
 
 export class AdminImageService {
-  private active = false;
+  private active = 0;
 
   constructor(private readonly providers: ProviderRuntime[], private readonly catalog: CatalogService, private readonly config: ConfigStore) {}
 
@@ -113,6 +113,7 @@ export class AdminImageService {
 
   async generate(request: IncomingMessage, response: ServerResponse): Promise<void> {
     if (this.active) return sendJson(response, 429, { error: "An image generation is already active" });
+    let release: (() => void) | undefined;
     try {
       const body = object(await readJsonBody(request));
       if (!body || Object.keys(body).some((key) => !["model", "prompt", "aspectRatio", "quality", "outputFormat"].includes(key))) throw new ImageHttpError(400, "Image request is invalid");
@@ -123,13 +124,14 @@ export class AdminImageService {
       if (body.outputFormat !== undefined && (typeof body.outputFormat !== "string" || !FORMATS.has(body.outputFormat))) throw new ImageHttpError(400, "Image output format is invalid");
       const provider = this.providers.find((entry) => entry.id === "openrouter");
       if (!provider?.configured || !provider.apiKey) throw new ImageHttpError(503, "OpenRouter image generation is not configured");
-      this.active = true;
+      release = this.acquire();
       const controller = new AbortController();
       const disconnected = () => controller.abort(); request.once("aborted", disconnected); response.once("close", disconnected);
       const timer = setTimeout(() => controller.abort(), IMAGE_TIMEOUT_MS); timer.unref();
       try {
         const upstream = await fetch(`${provider.baseUrl}/images`, {
           method: "POST",
+          redirect: "manual",
           headers: { authorization: `Bearer ${provider.apiKey}`, accept: "application/json", "content-type": "application/json" },
           body: JSON.stringify({ model: body.model.slice("openrouter:".length), prompt: body.prompt.trim(), n: 1, ...(body.aspectRatio ? { aspect_ratio: body.aspectRatio } : {}), ...(body.quality ? { quality: body.quality } : {}), ...(body.outputFormat ? { output_format: body.outputFormat } : {}) }),
           signal: controller.signal
@@ -148,12 +150,20 @@ export class AdminImageService {
         });
         sendJson(response, 200, { images, usage: safeUsage(payload?.usage), ephemeral: true });
       } finally {
-        clearTimeout(timer); request.off("aborted", disconnected); response.off("close", disconnected); this.active = false;
+        clearTimeout(timer); request.off("aborted", disconnected); response.off("close", disconnected);
       }
     } catch (error) {
       const known = error instanceof ImageHttpError ? error : null;
       sendJson(response, known?.status ?? 502, { error: known?.message ?? "Image generation failed" });
+    } finally {
+      release?.();
     }
+  }
+
+  private acquire(): () => void {
+    if (this.active >= 1) throw new ImageHttpError(429, "An image generation is already active");
+    this.active += 1;
+    return () => { this.active -= 1; };
   }
 
   private imageModels() {

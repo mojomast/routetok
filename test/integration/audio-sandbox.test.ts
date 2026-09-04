@@ -43,6 +43,12 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
   let imageRequest: { authorization: string | undefined; body: Record<string, unknown> } | null = null;
   let speechDiscoveryCount = 0;
   let paidOnlySpeech = false;
+  let redirectMode = false;
+  let deferImageResponse = false;
+  const imageLatch = { release: null as (() => void) | null };
+  const redirect = (response: import("node:http").ServerResponse) => {
+    response.writeHead(302, { location: "http://private.invalid/redirected", "content-type": "text/plain" }).end("moved");
+  };
   const upstream = createServer(async (request, response) => {
     if (request.url === "/openrouter/v1/models?output_modalities=all") {
       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{
@@ -64,6 +70,7 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
       return;
     }
     if (request.url === "/openrouter/v1/models?output_modalities=speech") {
+      if (redirectMode) { redirect(response); return; }
       speechDiscoveryCount += 1;
       assert.equal(request.headers.authorization, "Bearer effective-openrouter");
       const speechModels = [
@@ -77,6 +84,7 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
       return;
     }
     if (request.url === "/requesty/v1/models/transcription") {
+      if (redirectMode) { redirect(response); return; }
       assert.equal(request.headers.authorization, "Bearer effective-requesty");
       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [
         { id: "vendor/whisper", name: "Whisper", context_window: 32768, input_modalities: ["audio"], output_modalities: ["text"], supported_parameters: ["language"], pricing: { audio: "0.001" }, api_key: "hidden" }
@@ -84,6 +92,7 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
       return;
     }
     if (request.url === "/local/v1/models") {
+      if (redirectMode) { redirect(response); return; }
       assert.equal(request.headers.authorization, "Bearer local-stt-secret");
       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [
         { id: "other/local-model", name: "Other local model", secret: "hidden" },
@@ -92,6 +101,7 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
       return;
     }
     if (request.url === "/openrouter/v1/audio/speech") {
+      if (redirectMode) { redirect(response); return; }
       const payload = JSON.parse((await incomingBytes(request)).toString("utf8")) as Record<string, unknown>;
       speechRequests.push({
         authorization: request.headers.authorization,
@@ -103,12 +113,17 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
       return;
     }
     if (request.url === "/openrouter/v1/images") {
+      if (redirectMode) { redirect(response); return; }
       imageRequest = { authorization: request.headers.authorization, body: JSON.parse((await incomingBytes(request)).toString("utf8")) as Record<string, unknown> };
+      if (deferImageResponse) {
+        await new Promise<void>((resolve) => { imageLatch.release = resolve; });
+      }
       const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{ b64_json: png.toString("base64"), media_type: "image/png" }], usage: { prompt_tokens: 4, completion_tokens: 8, total_tokens: 12, cost: 0.02, secret: "hidden" } }));
       return;
     }
     if (request.url === "/requesty/v1/audio/transcriptions") {
+      if (redirectMode) { redirect(response); return; }
       assert.match(request.headers["content-type"] ?? "", /^multipart\/form-data; boundary=/);
       const body = Uint8Array.from(await incomingBytes(request)).buffer;
       const form = await new Request("http://localhost/", { method: "POST", headers: { "content-type": request.headers["content-type"]! }, body }).formData();
@@ -127,6 +142,7 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
       return;
     }
     if (request.url === "/local/v1/audio/transcriptions") {
+      if (redirectMode) { redirect(response); return; }
       assert.match(request.headers["content-type"] ?? "", /^multipart\/form-data; boundary=/);
       const body = Uint8Array.from(await incomingBytes(request)).buffer;
       const form = await new Request("http://localhost/", { method: "POST", headers: { "content-type": request.headers["content-type"]! }, body }).formData();
@@ -306,6 +322,47 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
       method: "POST", headers: { ...dashboardHeaders, "content-type": "application/json" }, body: JSON.stringify({ padding: "x".repeat(1024 * 1024) })
     });
     assert.equal(oversizedImage.status, 413);
+
+    async function until(check: () => boolean, timeoutMs = 3_000): Promise<void> {
+      const start = Date.now();
+      while (!check()) {
+        if (Date.now() - start > timeoutMs) throw new Error("condition not met in time");
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    }
+    const imageGenerationBody = { model: "openrouter:vendor/image-model", prompt: "Concurrent gate check", aspectRatio: "1:1", quality: "low", outputFormat: "png" };
+    const imageGeneration = () => fetch(`${base}/admin/api/images/generations`, { method: "POST", headers: { ...dashboardHeaders, "content-type": "application/json" }, body: JSON.stringify(imageGenerationBody) });
+    deferImageResponse = true;
+    imageRequest = null;
+    const firstImage = imageGeneration();
+    await until(() => imageRequest !== null && imageLatch.release !== null, 5_000);
+    const concurrentImage = await imageGeneration();
+    assert.equal(concurrentImage.status, 429, "the image gate holds atomically while a generation is in flight");
+    imageLatch.release?.();
+    assert.equal((await firstImage).status, 200);
+    deferImageResponse = false;
+    const gateReleased = await imageGeneration();
+    assert.equal(gateReleased.status, 200, "the gate releases after the in-flight generation finishes");
+
+    redirectMode = true;
+    const redirectedImage = await imageGeneration();
+    assert.equal(redirectedImage.status, 502, "POST image fetches must not follow redirects");
+    const redirectedSpeech = await fetch(`${base}/admin/api/audio/speech`, {
+      method: "POST", headers: { ...dashboardHeaders, "content-type": "application/json" },
+      body: JSON.stringify({ model: "openrouter:black-forest-labs/flux-speech:free", input: "redirect probe" })
+    });
+    assert.equal(redirectedSpeech.status, 502, "POST speech fetches must not follow redirects");
+    const redirectedForm = new FormData();
+    redirectedForm.append("file", new Blob([Buffer.from([9, 8, 0, 7, 6])], { type: "audio/wav" }), "sample.wav");
+    redirectedForm.append("model", "requesty:vendor/whisper");
+    assert.equal((await fetch(`${base}/admin/api/audio/transcriptions`, { method: "POST", headers: dashboardHeaders, body: redirectedForm })).status, 502, "POST transcription fetches must not follow redirects");
+    const redirectedDiscovery = await fetch(`${base}/admin/api/audio/capabilities?refresh=true`, { headers: dashboardHeaders }).then((response) => response.json()) as { speech: { status: string }; transcription: { status: string } };
+    assert.equal(redirectedDiscovery.speech.status, "error", "GET discovery must refuse redirects outright");
+    assert.equal(redirectedDiscovery.transcription.status, "error", "GET discovery must refuse redirects outright");
+    redirectMode = false;
+    const recoveredCapabilities = await fetch(`${base}/admin/api/audio/capabilities?refresh=true`, { headers: dashboardHeaders }).then((response) => response.json()) as { speech: { status: string }; transcription: { status: string } };
+    assert.equal(recoveredCapabilities.speech.status, "available", "discovery recovers once upstream stops redirecting");
+    assert.equal(recoveredCapabilities.transcription.status, "available");
 
     const audioFile = Buffer.from([9, 8, 0, 7, 6]);
     const localTranscriptionForm = new FormData();

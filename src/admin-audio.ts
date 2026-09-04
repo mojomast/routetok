@@ -306,6 +306,7 @@ export class AdminAudioService {
       if (lifecycle.controller.signal.aborted) throw new Error("Audio request aborted");
       const upstream = await fetch(`${provider.baseUrl}/audio/speech`, {
         method: "POST",
+        redirect: "manual",
         headers: { authorization: `Bearer ${provider.apiKey}`, accept: "audio/*, application/octet-stream", "content-type": "application/json" },
         body: JSON.stringify(body),
         signal: lifecycle.controller.signal
@@ -399,6 +400,7 @@ export class AdminAudioService {
       const credential = source === "local" ? this.localStt.apiKey : provider!.apiKey;
       const upstream = await fetch(`${destination}/audio/transcriptions`, {
         method: "POST",
+        redirect: "manual",
         headers: { accept: "application/json", ...(credential ? { authorization: `Bearer ${credential}` } : {}) },
         body: upstreamForm,
         signal: lifecycle.controller.signal
@@ -493,6 +495,7 @@ export class AdminAudioService {
     try {
       const endpoint = id === "openrouter" ? "/models?output_modalities=speech" : "/models/transcription";
       const response = await fetch(`${provider.baseUrl}${endpoint}`, {
+        redirect: "error",
         headers: { authorization: `Bearer ${provider.apiKey}`, accept: "application/json" },
         signal: lifecycle.controller.signal
       });
@@ -512,6 +515,7 @@ export class AdminAudioService {
     const lifecycle = discoveryController();
     try {
       const response = await fetch(`${this.localStt.baseUrl}/models`, {
+        redirect: "error",
         headers: { accept: "application/json", ...(this.localStt.apiKey ? { authorization: `Bearer ${this.localStt.apiKey}` } : {}) },
         signal: lifecycle.controller.signal
       });

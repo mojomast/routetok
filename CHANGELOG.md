@@ -4,6 +4,8 @@
 
 - Dashboard pages and modules now receive the full sandbox-tier Content-Security-Policy (`default-src 'self'` with explicit script/style/connect/img/media sources, `frame-ancestors 'none'`), and the single inline theme bootstrap was externalized into an allowlisted `theme-bootstrap.js`.
 - `GET /healthz` now returns minimal liveness (`{"status":"ok"}`) and no longer echoes catalog state or upstream error strings; detailed status stays on the authenticated `/admin/api/status`.
+- Image and audio upstream fetches no longer follow redirects: discovery metadata GETs treat redirects as errors and POST operations surface a redirected response as `502`.
+- Image generation uses the same atomic single-flight acquire pattern as audio (check-and-set without an await window, released on every exit path).
 - Half-open circuits now admit a single probe at a time and re-open immediately when that probe fails, is rate limited, or is entitlement-blocked; opening a circuit resets the inherited failure streak so the probe outcome is the sole decision point. The route simulator models the same gate.
 - Committed streams no longer end silently on failure: post-commit upstream error frames are relayed (including flat Responses `type:"error"` events), and a stream that ends with an upstream error or without a terminal event receives a reason-accurate `stream_interrupted` error frame before the response ends, with `data: [DONE]` appended on OpenAI-Chat.
 - The overall `requestTimeoutMs` deadline now detaches when a stream commits; post-commit responses are bounded only by the client connection and `streamIdleTimeoutMs`, so active streams can run past the deadline while idle streams end with the `idle_timeout` frame.

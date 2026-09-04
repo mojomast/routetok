@@ -105,12 +105,12 @@ Arena speech endpoints are also protected by dashboard authentication:
 - `POST /admin/api/audio/speech` accepts strict JSON containing a namespaced free OpenRouter speech model, up to 4,096 input characters, an optional advertised voice, MP3 or PCM output, and optional speed. The explicit default is PCM when `responseFormat` is omitted. It returns bounded audio bytes and does not retry.
 - `POST /admin/api/audio/transcriptions` accepts bounded multipart form data containing one audio file, one approved `local:` or `requesty:` model, and an optional two-letter language. It returns sanitized transcript text and usage. Local requests go only to the startup-configured Speaches API root; Requesty requests use the effective Requesty credential.
 
-Audio content is never passed through the text proxy or added to request retention, metrics, history, or Fieldbook persistence. The two audio operations share a separate concurrency limit of two.
+Audio content is never passed through the text proxy or added to request retention, metrics, history, or Fieldbook persistence. The two audio operations share a separate concurrency limit of two. Upstream redirects are never followed: discovery metadata GETs treat redirects as errors, and the POST operations surface a redirected response as a `502` instead of retrying elsewhere.
 
 Fieldbook image endpoints are protected by dashboard authentication:
 
 - `GET /admin/api/images/capabilities` returns `unconfigured` with no models when OpenRouter credentials are absent; otherwise it returns explicitly enabled OpenRouter image-output models and bounded generation options.
-- `POST /admin/api/images/generations` accepts at most 1 MiB of valid JSON containing one enabled `openrouter:` model, a prompt, and optional aspect ratio, quality, and PNG/JPEG/WebP/SVG format values. Malformed JSON returns `400` and an oversized request returns `413`. It requests one image through OpenRouter's dedicated Image API, allows only one active generation, validates MIME, base64, decoded size, raster signatures, and passive SVG structure, and returns ephemeral data URLs plus sanitized reported usage.
+- `POST /admin/api/images/generations` accepts at most 1 MiB of valid JSON containing one enabled `openrouter:` model, a prompt, and optional aspect ratio, quality, and PNG/JPEG/WebP/SVG format values. Malformed JSON returns `400` and an oversized request returns `413`. It requests one image through OpenRouter's dedicated Image API, allows only one active generation (the single-flight gate is acquired atomically at start and released when the request finishes or fails), validates MIME, base64, decoded size, raster signatures, and passive SVG structure, and returns ephemeral data URLs plus sanitized reported usage. Upstream redirects are not followed: a redirected response is treated as a `502`.
 
 Image bytes do not enter RouteTok metrics, request retention, Fieldbook IndexedDB, notes, forks, or exports.
 
