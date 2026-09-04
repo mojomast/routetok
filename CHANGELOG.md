@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Client-path in-flight shedding is now configurable via `maxInflightRequests` (default 64): concurrent client `/v1` requests beyond the bound receive a terminal `429` with `retry-after: 1` instead of stacking on upstream providers; internal Fieldbook/sandbox lanes are exempt.
 - Virtual routes (`auto`/`best`/`free` and named custom cascades) now continue on upstream `429` while a different-provider candidate remains in the chain; explicit routes stay strict, and an exhausted chain surfaces a terminal `429` with the upstream `retry-after` preserved.
 - Retained request bodies now expire after 24 hours (evicted lazily on retention of new content and on read) and `ROUTETOK_RETAIN_REQUEST_CONTENT=0` opts out of content retention entirely while the default stays on.
 - The server verifies every allowlisted static asset at boot and refuses to start when any is missing from `public/`; a new dependency-free `scripts/smoke.mjs` boots the service and GETs `/healthz` plus every allowlisted module, and CI runs it after the build.

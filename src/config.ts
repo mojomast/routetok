@@ -5,6 +5,7 @@ import type { RouterConfig } from "./types.js";
 
 export const DEFAULT_CONFIG: RouterConfig = {
   maxAttempts: 4,
+  maxInflightRequests: 64,
   fallbackExplicitModels: true,
   thinkingFallbackMode: "strip",
   requestTimeoutMs: 600_000,
@@ -51,6 +52,7 @@ const NUMBER_LIMITS: Record<
   keyof Pick<
     RouterConfig,
     | "maxAttempts"
+    | "maxInflightRequests"
     | "requestTimeoutMs"
     | "firstEventTimeoutMs"
     | "slowModelFirstEventTimeoutMs"
@@ -64,6 +66,7 @@ const NUMBER_LIMITS: Record<
   [number, number]
 > = {
   maxAttempts: [1, 5],
+  maxInflightRequests: [1, 512],
   requestTimeoutMs: [5_000, 600_000],
   firstEventTimeoutMs: [1_000, 120_000],
   slowModelFirstEventTimeoutMs: [5_000, 180_000],

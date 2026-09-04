@@ -117,6 +117,7 @@ await credentialStore.load();
 const catalog = new CatalogService(providers);
 const credits = new CreditsService(providers);
 const router = new HealthRouter();
+let activeProxyInference = 0;
 const proxy = new ProxyHandler({ providers, catalog, config, router, metrics, internalToken: internalSandboxToken });
 const adminAudio = new AdminAudioService(providers, { baseUrl: localSttBaseUrl, model: localSttModel, apiKey: localSttApiKey });
 const adminImages = new AdminImageService(providers, catalog, config);
@@ -1230,7 +1231,22 @@ const server = createServer(async (request, response) => {
           : { error: { message: "Content-Type must be application/json", type: "invalid_request_error", param: null, code: "unsupported_media_type" } });
       }
       const upstreamPath = pathname === "/messages" ? "/v1/messages" : pathname;
-      await proxy.handle(request, response, upstreamPath, protocol);
+      const internalCall = Boolean(internalSandboxToken) && (
+        request.headers["x-routetok-internal"] === internalSandboxToken ||
+        request.headers["x-agentrouter-internal"] === internalSandboxToken
+      );
+      if (!internalCall && activeProxyInference >= config.get().maxInflightRequests) {
+        response.setHeader("retry-after", "1");
+        return json(response, 429, protocol === "anthropic"
+          ? { type: "error", error: { type: "rate_limit_error", message: "Too many concurrent proxy requests" } }
+          : { error: { message: "Too many concurrent proxy requests", type: "rate_limit_error", param: null, code: "rate_limit_exceeded" } });
+      }
+      activeProxyInference += 1;
+      try {
+        await proxy.handle(request, response, upstreamPath, protocol);
+      } finally {
+        activeProxyInference -= 1;
+      }
       return;
     }
 

@@ -52,7 +52,9 @@ RouteTok does not launch Speaches. A loopback-only, digest-pinned CPU example wi
 
 ## Routing Policy
 
-Routing policy is edited through the dashboard and persisted in `config.json`. It includes protocol orders, free order, paid external enablement, disabled routes, timeout/circuit settings, fallback behavior, and custom cascades. Configuration writes use optimistic revisions.
+Routing policy is edited through the dashboard and persisted in `config.json`. It includes protocol orders, free order, paid external enablement, disabled routes, timeout/circuit settings, the client-path in-flight shed bound, fallback behavior, and custom cascades. Configuration writes use optimistic revisions.
+
+`maxInflightRequests` (default `64`, range 1-512) bounds concurrent client proxy inference requests: additional `/v1` requests receive a terminal `429` with `retry-after: 1` instead of queueing upstream. Internal Fieldbook/sandbox lanes are exempt (they carry the internal token), and the dashboard's own `maxLanes` concurrency applies separately.
 
 Successful provider catalogs use the configured `catalogRefreshHours` freshness interval. Failed discovery attempts preserve the last usable models and become retryable after 30 seconds, so a transient startup or credential-refresh failure does not suppress discovery for the full normal interval.
 

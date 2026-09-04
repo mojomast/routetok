@@ -59,6 +59,7 @@ export interface CatalogModel {
 
 export interface RouterConfig {
   maxAttempts: number;
+  maxInflightRequests: number;
   fallbackExplicitModels: boolean;
   thinkingFallbackMode: "pin" | "strip";
   requestTimeoutMs: number;
