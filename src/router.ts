@@ -127,12 +127,10 @@ export class HealthRouter {
         if (state.entitlementBlocked) return false;
         if (state.rateLimitedUntil && state.rateLimitedUntil > now) return false;
         if (state.circuitState === "open") {
-          if (state.circuitOpenUntil && state.circuitOpenUntil <= now) {
-            state.circuitState = "half-open";
-            return true;
-          }
-          return false;
+          if (!state.circuitOpenUntil || state.circuitOpenUntil > now) return false;
+          state.circuitState = "half-open";
         }
+        if (state.circuitState === "half-open") return state.inflight === 0;
         return true;
       });
     return (customCascade || paidOpenRouterRequest ? filtered : filtered.sort((left, right) => {
@@ -168,6 +166,10 @@ export class HealthRouter {
 
   recordTransientFailure(protocol: Protocol, model: string, config: RouterConfig): void {
     const state = this.get(protocol, model);
+    if (state.circuitState === "half-open") {
+      this.reopen(state, config);
+      return;
+    }
     state.failures += 1;
     state.consecutiveFailures += 1;
     state.recentOutcomes.push(false);
@@ -180,30 +182,36 @@ export class HealthRouter {
       state.consecutiveFailures >= config.circuitFailureThreshold ||
       (state.recentOutcomes.length >= config.circuitMinimumSamples && failureRate >= 0.5);
 
-    if (shouldOpen) {
-      state.circuitState = "open";
-      state.circuitOpenUntil = Date.now() + config.circuitOpenMs;
-    }
+    if (shouldOpen) this.reopen(state, config);
   }
 
   recordPermanentFailure(protocol: Protocol, model: string): void {
     this.get(protocol, model).failures += 1;
   }
 
-  recordRateLimit(protocol: Protocol, model: string, retryAfterMs: number): void {
+  recordRateLimit(protocol: Protocol, model: string, retryAfterMs: number, config: RouterConfig): void {
     const state = this.get(protocol, model);
     state.failures += 1;
     state.rateLimitedUntil = Date.now() + retryAfterMs;
+    if (state.circuitState === "half-open") this.reopen(state, config);
   }
 
-  recordEntitlementFailure(protocol: Protocol, model: string): void {
+  recordEntitlementFailure(protocol: Protocol, model: string, config: RouterConfig): void {
     const state = this.get(protocol, model);
     state.failures += 1;
     state.entitlementBlocked = true;
+    if (state.circuitState === "half-open") this.reopen(state, config);
   }
 
   reset(): void {
     this.health.clear();
+  }
+
+  private reopen(state: ModelHealth, config: RouterConfig): void {
+    state.circuitState = "open";
+    state.circuitOpenUntil = Date.now() + config.circuitOpenMs;
+    state.consecutiveFailures = 0;
+    state.recentOutcomes = [];
   }
 
   snapshot(): ModelHealth[] {

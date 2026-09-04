@@ -43,9 +43,11 @@ function isBlockedByHealth(state: ModelHealth | null, now: number): boolean {
   if (state.entitlementBlocked) return true;
   if (state.rateLimitedUntil && state.rateLimitedUntil > now) return true;
   if (state.circuitState === "open") {
-    if (state.circuitOpenUntil && state.circuitOpenUntil <= now) return false;
-    return true;
+    const expired = state.circuitOpenUntil !== null && state.circuitOpenUntil <= now;
+    if (!expired) return true;
+    return state.inflight > 0;
   }
+  if (state.circuitState === "half-open") return state.inflight > 0;
   return false;
 }
 

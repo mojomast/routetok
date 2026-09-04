@@ -75,11 +75,105 @@ test("explicit models must advertise support for the incoming protocol", () => {
 
 test("rate-limited and entitlement-blocked routes are suppressed", () => {
   const router = new HealthRouter();
-  router.recordRateLimit("anthropic", "best-model", 60_000);
+  router.recordRateLimit("anthropic", "best-model", 60_000, config);
   assert.deepEqual(router.candidates("anthropic", "auto", catalog, config), ["backup-model"]);
 
-  router.recordEntitlementFailure("anthropic", "backup-model");
+  router.recordEntitlementFailure("anthropic", "backup-model", config);
   assert.deepEqual(router.candidates("anthropic", "auto", catalog, config), []);
+});
+
+function seededRouter(health: Array<{ model: string; protocol: "openai" | "anthropic"; circuitState: "closed" | "open" | "half-open"; circuitOpenUntil: number | null; inflight?: number; consecutiveFailures?: number; failures?: number; recentOutcomes?: boolean[] }>): HealthRouter {
+  const router = new HealthRouter();
+  const store = router as unknown as { health: Map<string, import("../../src/types.js").ModelHealth> };
+  for (const entry of health) {
+    store.health.set(`${entry.protocol}:${entry.model}`, {
+      model: entry.model,
+      protocol: entry.protocol,
+      successes: 0,
+      failures: entry.failures ?? 0,
+      consecutiveFailures: entry.consecutiveFailures ?? 0,
+      latencyEwmaMs: null,
+      inflight: entry.inflight ?? 0,
+      circuitState: entry.circuitState,
+      circuitOpenUntil: entry.circuitOpenUntil,
+      rateLimitedUntil: null,
+      entitlementBlocked: false,
+      recentOutcomes: entry.recentOutcomes ?? []
+    });
+  }
+  return router;
+}
+
+test("an expired open circuit admits exactly one half-open probe and reopens on its failure", () => {
+  const router = seededRouter([{
+    model: "best-model", protocol: "openai", circuitState: "open", circuitOpenUntil: Date.now() - 1,
+    consecutiveFailures: 3, failures: 3, recentOutcomes: [false, false, false]
+  }]);
+  const admitted = router.candidates("openai", "best-model", catalog, config);
+  assert.equal(admitted[0], "best-model", "expired open transitions to half-open and admits a probe");
+  assert.ok(admitted.length > 1, "fallback chain stays available behind the probe");
+
+  router.startAttempt("openai", "best-model");
+  const concurrent = router.candidates("openai", "best-model", catalog, config);
+  assert.ok(!concurrent.includes("best-model"), "a half-open probe in flight admits no concurrent probe");
+  router.finishAttempt("openai", "best-model");
+
+  router.recordTransientFailure("openai", "best-model", config);
+  const reopened = router.snapshot().find((entry) => entry.model === "best-model");
+  assert.equal(reopened?.circuitState, "open");
+  assert((reopened?.circuitOpenUntil ?? 0) > Date.now(), "probe failure refreshes the open window");
+  assert.equal(reopened?.consecutiveFailures, 0, "the probe decision replaces any inherited failure counter");
+  assert.deepEqual(reopened?.recentOutcomes, [], "window accumulation is skipped for the half-open probe");
+  assert.equal(reopened?.failures, 3, "the probe failure is not re-accumulated");
+  assert.ok(!router.candidates("openai", "best-model", catalog, config).includes("best-model"));
+});
+
+test("a successful half-open probe closes the circuit and clears the inherited streak", () => {
+  const router = seededRouter([{
+    model: "best-model", protocol: "openai", circuitState: "open", circuitOpenUntil: Date.now() - 1,
+    consecutiveFailures: 7, failures: 7
+  }]);
+  assert.equal(router.candidates("openai", "best-model", catalog, config)[0], "best-model");
+  router.startAttempt("openai", "best-model");
+  router.finishAttempt("openai", "best-model");
+  router.recordSuccess("openai", "best-model", 1_000, config);
+  const state = router.snapshot().find((entry) => entry.model === "best-model");
+  assert.equal(state?.circuitState, "closed");
+  assert.equal(state?.consecutiveFailures, 0);
+  assert.deepEqual(state?.recentOutcomes, [true]);
+  assert.equal(state?.circuitOpenUntil, null);
+});
+
+test("rate-limited and entitlement-blocked half-open probes re-open the circuit", () => {
+  const router = seededRouter([{
+    model: "best-model", protocol: "openai", circuitState: "half-open", circuitOpenUntil: null, consecutiveFailures: 3
+  }]);
+  router.recordRateLimit("openai", "best-model", 60_000, config);
+  const limited = router.snapshot().find((entry) => entry.model === "best-model");
+  assert.equal(limited?.circuitState, "open");
+  assert((limited?.circuitOpenUntil ?? 0) > Date.now());
+  assert.equal(limited?.consecutiveFailures, 0);
+  assert((limited?.rateLimitedUntil ?? 0) > Date.now(), "the rate-limit window still applies after the open period");
+
+  const blocked = seededRouter([{
+    model: "backup-model", protocol: "openai", circuitState: "half-open", circuitOpenUntil: null
+  }]);
+  blocked.recordEntitlementFailure("openai", "backup-model", config);
+  const state = blocked.snapshot().find((entry) => entry.model === "backup-model");
+  assert.equal(state?.circuitState, "open");
+  assert.equal(state?.entitlementBlocked, true, "the entitlement block persists alongside the re-opened circuit");
+});
+
+test("opening via the consecutive-failure arm zeroes the carried streak", () => {
+  const router = new HealthRouter();
+  const hard = { ...config, circuitFailureThreshold: 2 };
+  router.recordTransientFailure("openai", "best-model", hard);
+  router.recordTransientFailure("openai", "best-model", hard);
+  const state = router.snapshot().find((entry) => entry.model === "best-model");
+  assert.equal(state?.circuitState, "open");
+  assert.equal(state?.consecutiveFailures, 0, "the inherited counter cannot re-open the circuit on the next probe");
+  assert.deepEqual(state?.recentOutcomes, []);
+  assert.ok(!router.candidates("openai", "best-model", catalog, config).includes("best-model"));
 });
 
 test("external catalogs are normalized with canonical route IDs and USD pricing", () => {

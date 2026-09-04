@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Half-open circuits now admit a single probe at a time and re-open immediately when that probe fails, is rate limited, or is entitlement-blocked; opening a circuit resets the inherited failure streak so the probe outcome is the sole decision point. The route simulator models the same gate.
 - Committed streams no longer end silently on failure: post-commit upstream error frames are relayed (including flat Responses `type:"error"` events), and a stream that ends with an upstream error or without a terminal event receives a reason-accurate `stream_interrupted` error frame before the response ends, with `data: [DONE]` appended on OpenAI-Chat.
 - The overall `requestTimeoutMs` deadline now detaches when a stream commits; post-commit responses are bounded only by the client connection and `streamIdleTimeoutMs`, so active streams can run past the deadline while idle streams end with the `idle_timeout` frame.
 - Committed-stream failures are recorded with attempt outcome `committed_failure` (HTTP status stays 200 on the wire) so metrics and dashboard attempt rows distinguish post-commit provider truncation from pre-commit `transient_error`.

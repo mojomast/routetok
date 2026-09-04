@@ -1232,7 +1232,7 @@ export class ProxyHandler {
         const duration = Date.now() - started;
         if (upstream.status === 429) {
           attempts.push(attempt(model, 429, duration, "rate_limited", "HTTP 429", null, providerId));
-          if (!internalSandbox) this.options.router.recordRateLimit(protocol, model, retryAfterMs(upstream.headers));
+          if (!internalSandbox) this.options.router.recordRateLimit(protocol, model, retryAfterMs(upstream.headers), config);
           finalStatus = 429;
           finalError = "rate limited";
           if (paidOpenRouterFallbackActive && attempts.length < candidates.length) {
@@ -1263,7 +1263,7 @@ export class ProxyHandler {
             const entitlementError = isModelEntitlementError(upstreamError);
             attempts.push(attempt(model, 403, duration, "permanent_error", "HTTP 403", null, providerId));
             if (!internalSandbox) {
-              if (entitlementError) this.options.router.recordEntitlementFailure(protocol, model);
+              if (entitlementError) this.options.router.recordEntitlementFailure(protocol, model, config);
               else this.options.router.recordPermanentFailure(protocol, model);
             }
             await this.forwardResponse(response, upstream, requestId, model, attempts, protocol, "non_retryable", errorBytes, undefined, providerId);
@@ -1293,7 +1293,7 @@ export class ProxyHandler {
           }
           if (providerId === "agentrouter" && upstream.status === 402 && isBudgetPoolExhausted(upstreamError)) {
             attempts.push(attempt(model, 402, duration, "rate_limited", "budget_pool_exhausted", null, providerId));
-            if (!internalSandbox) this.options.router.recordRateLimit(protocol, model, 300_000);
+            if (!internalSandbox) this.options.router.recordRateLimit(protocol, model, 300_000, config);
             finalStatus = 402;
             finalError = "AgentRouter model budget pool exhausted";
             if (attempts.length < candidates.length) continue;

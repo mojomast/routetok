@@ -138,6 +138,24 @@ test("unhealthy circuits are struck as unhealthy", () => {
   assert.equal(struck?.strikeReason, "unhealthy");
 });
 
+test("expired-open and half-open circuits admit a single probe in simulation parity", () => {
+  const catalog = baseCatalog();
+  const config = baseConfig();
+  const now = Date.now();
+  const fixtures: ModelHealth[][] = [
+    [{ model: "primary", protocol: "openai", successes: 0, failures: 3, consecutiveFailures: 3, latencyEwmaMs: null, inflight: 0, circuitState: "open", circuitOpenUntil: now - 1, rateLimitedUntil: null, entitlementBlocked: false, recentOutcomes: [false, false, false] }],
+    [{ model: "primary", protocol: "openai", successes: 0, failures: 3, consecutiveFailures: 3, latencyEwmaMs: null, inflight: 1, circuitState: "open", circuitOpenUntil: now - 1, rateLimitedUntil: null, entitlementBlocked: false, recentOutcomes: [false, false, false] }],
+    [{ model: "primary", protocol: "openai", successes: 0, failures: 0, consecutiveFailures: 0, latencyEwmaMs: null, inflight: 0, circuitState: "half-open", circuitOpenUntil: null, rateLimitedUntil: null, entitlementBlocked: false, recentOutcomes: [] }],
+    [{ model: "primary", protocol: "openai", successes: 0, failures: 0, consecutiveFailures: 0, latencyEwmaMs: null, inflight: 1, circuitState: "half-open", circuitOpenUntil: null, rateLimitedUntil: null, entitlementBlocked: false, recentOutcomes: [] }]
+  ];
+  for (const health of fixtures) {
+    checkMatchesRouter("openai", "auto", catalog, config, health);
+    const simulated = simulateRoute({ model: "auto", protocol: "openai" }, { config, catalogModels: catalog, health });
+    const admitted = eligibleIds(simulated).includes("primary");
+    assert.equal(admitted, health[0]?.inflight === 0, "half-open admission is gated on zero in-flight probes");
+  }
+});
+
 test("unenabled paid external model is struck as unconfigured-provider", () => {
   const catalog: CatalogModel[] = [
     ...baseCatalog(),

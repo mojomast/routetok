@@ -68,6 +68,8 @@ The overall `requestTimeoutMs` deadline applies until a stream commits and for t
 
 Fallback candidates are removed when catalog metadata explicitly conflicts with request requirements such as tools, image/audio input, or non-text output. Missing metadata remains unknown and does not by itself remove a candidate. A model-specific entitlement `403` blocks that route until health reset; unrelated account/policy `403` responses do not. In either case the bounded upstream error body is preserved for the client.
 
+An opened circuit keeps a model out of candidate chains until `circuitOpenMs` elapses. An expired circuit transitions to half-open and admits at most one in-flight probe at a time (no concurrent probes). A failed, rate-limited, or entitlement-blocked probe re-opens the circuit immediately, and opening resets the inherited failure streak so the single probe outcome governs the next circuit state; a successful probe closes the circuit and resets model health.
+
 ## Operations
 
 - `GET /healthz`
