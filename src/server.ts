@@ -857,7 +857,10 @@ function parseProposalText(content: string): { summary?: string; rationale?: str
 }
 
 async function generateConfigProposal(request: IncomingMessage, response: ServerResponse): Promise<void> {
-  if (activeSandboxRequests >= 8) return json(response, 429, { error: "Sandbox concurrency limit reached" });
+  if (activeSandboxRequests >= 8) {
+    response.setHeader("retry-after", "1");
+    return json(response, 429, { error: "Sandbox concurrency limit reached" });
+  }
   activeSandboxRequests += 1;
   try {
     const input = await readJson(request) as Record<string, unknown>;
@@ -913,7 +916,10 @@ function parseAssistantJson(content: string): Record<string, unknown> {
 }
 
 async function planAssistantComparison(request: IncomingMessage, response: ServerResponse): Promise<void> {
-  if (activeSandboxRequests >= 8) return json(response, 429, { error: "Sandbox concurrency limit reached" });
+  if (activeSandboxRequests >= 8) {
+    response.setHeader("retry-after", "1");
+    return json(response, 429, { error: "Sandbox concurrency limit reached" });
+  }
   activeSandboxRequests += 1;
   try {
     const input = await readJson(request) as Record<string, unknown>;

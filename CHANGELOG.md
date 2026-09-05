@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Sandbox-lane shedding is now uniformly surfaced: the dashboard proposal-generation and assistant-planning lanes answer `429` with `retry-after: 1` (like the main sandbox route) once the shared eight-call sandbox budget is exhausted, and an integration suite holds eight lanes in flight to lock the shed across all three endpoints plus the audio service's two-slot gate.
 - Every JSON response from the generic `json()` helper (proxy, admin, sandbox, and auth error paths) now carries `x-content-type-options: nosniff`, matching the static-file and media responses.
 - The Fieldbook requests the browser Persistent Storage grant once at startup and shows the outcome in the library sidebar next to a storage-quota meter (usage of quota plus granted/denied/unsupported wording), so notes in IndexedDB are kept under storage pressure when the browser honors the grant.
 - The generic provider's private-access flag now means what it says: with `GENERIC_OPENAI_ALLOW_PRIVATE=true`, the configured base URL host must resolve exclusively to private addresses (RFC 1918, loopback, link-local, CGNAT, ULA, or multicast) at startup; hosts that resolve to any public address or that cannot be resolved prevent the service from starting. HTTPS base URLs without the flag keep the documented trusted-operator posture.

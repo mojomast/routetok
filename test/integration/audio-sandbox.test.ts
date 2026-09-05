@@ -45,8 +45,11 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
   let paidOnlySpeech = false;
   let redirectMode = false;
   let deferImageResponse = false;
+  let deferSpeechResponse = false;
   let oddPcm = false;
   const imageLatch = { release: null as (() => void) | null };
+  const speechLatch = { release: null as (() => void) | null };
+  let speechHoldGate: Promise<void> | null = null;
   const redirect = (response: import("node:http").ServerResponse) => {
     response.writeHead(302, { location: "http://private.invalid/redirected", "content-type": "text/plain" }).end("moved");
   };
@@ -111,6 +114,10 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
         dashboard: request.headers["x-dashboard-token"] as string | undefined,
         body: payload
       });
+      if (deferSpeechResponse) {
+        if (!speechHoldGate) speechHoldGate = new Promise<void>((resolve) => { speechLatch.release = resolve; });
+        await speechHoldGate;
+      }
       const pcm = Buffer.from([1, 0, 2, 0]);
       const pcmPayload = oddPcm && payload.response_format !== "mp3" ? Buffer.from([1, 0, 2]) : pcm;
       response.writeHead(200, { "content-type": payload.response_format === "mp3" ? "audio/mpeg; charset=binary" : "audio/pcm", "x-generation-id": "gen-safe", "x-secret": "hidden" }).end(payload.response_format === "mp3" ? speechBytes : pcmPayload);
@@ -381,6 +388,26 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
     deferImageResponse = false;
     const gateReleased = await imageGeneration();
     assert.equal(gateReleased.status, 200, "the gate releases after the in-flight generation finishes");
+
+    const audioSpeech = () => fetch(`${base}/admin/api/audio/speech`, {
+      method: "POST", headers: { ...dashboardHeaders, "content-type": "application/json" },
+      body: JSON.stringify({ model: "openrouter:black-forest-labs/flux-speech:free", input: "audio gate probe" })
+    });
+    deferSpeechResponse = true;
+    const heldSpeechA = audioSpeech();
+    const heldSpeechB = audioSpeech();
+    await until(() => speechLatch.release !== null && speechRequests.filter((request) => request.body.input === "audio gate probe").length >= 2, 5_000);
+    const thirdAudio = await audioSpeech();
+    assert.equal(thirdAudio.status, 429, "the audio single-flight gate sheds beyond two concurrent requests");
+    assert.equal(thirdAudio.headers.get("retry-after"), "1", "shed audio requests carry a retry-after window");
+    const thirdAudioError = await thirdAudio.json() as { error: string };
+    assert.match(thirdAudioError.error ?? "", /Too many active audio requests/);
+    speechLatch.release?.();
+    assert.equal((await heldSpeechA).status, 200);
+    assert.equal((await heldSpeechB).status, 200);
+    deferSpeechResponse = false;
+    const audioGateReleased = await audioSpeech();
+    assert.equal(audioGateReleased.status, 200, "the audio gate releases after in-flight speech finishes");
 
     redirectMode = true;
     const redirectedImage = await imageGeneration();
