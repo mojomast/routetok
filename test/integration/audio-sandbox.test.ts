@@ -123,7 +123,12 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
         await new Promise<void>((resolve) => { imageLatch.release = resolve; });
       }
       const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
-      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{ b64_json: png.toString("base64"), media_type: "image/png" }], usage: { prompt_tokens: 4, completion_tokens: 8, total_tokens: 12, cost: 0.02, secret: "hidden" } }));
+      const svgContent = String(imageRequest?.body.prompt ?? "").includes("svg external probe")
+        ? '<svg xmlns="http://www.w3.org/2000/svg"><use href="https://evil.example/sprite.svg"/></svg>'
+        : '<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10" fill="blue"/></svg>';
+      const bytes = imageRequest?.body.output_format === "svg" ? Buffer.from(svgContent, "utf8") : png;
+      const mediaType = imageRequest?.body.output_format === "svg" ? "image/svg+xml" : "image/png";
+      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{ b64_json: bytes.toString("base64"), media_type: mediaType }], usage: { prompt_tokens: 4, completion_tokens: 8, total_tokens: 12, cost: 0.02, secret: "hidden" } }));
       return;
     }
     if (request.url === "/requesty/v1/audio/transcriptions") {
@@ -292,6 +297,15 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
     assert.match(generatedPayload.images[0]?.dataUrl ?? "", /^data:image\/png;base64,/);
     assert.equal(generatedPayload.usage.cost, 0.02);
     assert.deepEqual(imageRequest, { authorization: "Bearer effective-openrouter", body: { model: "vendor/image-model", prompt: "A bounded test image", n: 1, aspect_ratio: "1:1", quality: "low", output_format: "png" } });
+    const svgImage = await fetch(`${base}/admin/api/images/generations`, { method: "POST", headers: { ...dashboardHeaders, "content-type": "application/json" }, body: JSON.stringify({ model: "openrouter:vendor/image-model", prompt: "A bounded svg test image", outputFormat: "svg" }) });
+    assert.equal(svgImage.status, 200);
+    const svgPayload = await svgImage.json() as { images: Array<{ mediaType: string; dataUrl: string }> };
+    assert.equal(svgPayload.images[0]?.mediaType, "image/svg+xml");
+    assert.match(svgPayload.images[0]?.dataUrl ?? "", /^data:image\/svg\+xml;base64,/);
+    const hostileSvgImage = await fetch(`${base}/admin/api/images/generations`, { method: "POST", headers: { ...dashboardHeaders, "content-type": "application/json" }, body: JSON.stringify({ model: "openrouter:vendor/image-model", prompt: "svg external probe", outputFormat: "svg" }) });
+    assert.equal(hostileSvgImage.status, 502, "an SVG with external references must be rejected at the gate");
+    const hostileSvgError = await hostileSvgImage.json() as { error: string };
+    assert.match(hostileSvgError.error, /invalid image data/i);
     const speech = await fetch(`${base}/admin/api/audio/speech`, {
       method: "POST",
       headers: { authorization: "Bearer dashboard-secret", "content-type": "application/json", "x-dashboard-token": "caller-value" },

@@ -13,7 +13,7 @@ RouteTok is designed for a trusted single-user host and defaults to loopback.
 - The generic endpoint remains startup-only; private HTTP access requires explicit opt-in.
 - Catalog and inference redirects are blocked.
 - Model-generated Markdown is rendered through bounded safe DOM construction.
-- Generated HTML, SVG, design, and Studio previews use opaque sandboxed iframes with network access blocked.
+- Generated HTML, SVG, design, and Studio previews use opaque sandboxed iframes with network access blocked. Provider-returned SVG is additionally structure-checked before it is handed to the renderer: processing instructions (`xml-stylesheet`), `style` elements and CSS `@import`, executable or embedded elements (`script`, `foreignObject`, `iframe`, `object`, `embed`), event-handler attributes, `DOCTYPE`/`ENTITY`, and any non-fragment `href`/`src`/`xlink:href` on `a`, `image`, `use`, and `feImage` (including `javascript:` and `data:` values) are rejected, while internal `#fragment` references and `url(#...)` paint references remain allowed.
 - Studio JavaScript is opt-in and runs without same-origin access; virtual projects cannot read repository or filesystem files.
 - Fieldbook context is explicit, one-shot, size-bounded, provenance-labelled, and treated as untrusted model data.
 - Studio patches and image requests are scope/revision checked. Image generation requires approval before the provider call.

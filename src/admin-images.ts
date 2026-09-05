@@ -46,12 +46,20 @@ async function readJsonBody(request: IncomingMessage, maximum = MAX_REQUEST_BYTE
   }
 }
 
-function validImage(bytes: Buffer, mime: string): boolean {
+export function validImage(bytes: Buffer, mime: string): boolean {
   if (mime === "image/png") return bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
   if (mime === "image/jpeg") return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
   if (mime === "image/webp") return bytes.length >= 12 && bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP";
   const svg = bytes.toString("utf8").trim();
-  return /^(?:<\?xml[^>]*>\s*)?<svg[\s>]/i.test(svg) && !/<(?:script|foreignObject|iframe|object|embed)\b|\son[a-z]+\s*=|<!DOCTYPE|<!ENTITY/i.test(svg);
+  if (!/^(?:<\?xml[^>]*>\s*)?<svg[\s>]/i.test(svg)) return false;
+  const negative = /<(?:script|foreignObject|iframe|object|embed|style)\b|\son[a-z]+\s*=|<!DOCTYPE|<!ENTITY|<\?xml-stylesheet\b|@import/i;
+  if (negative.test(svg)) return false;
+  const reference = /<\s*(a|image|use|feImage)\b[^>]*\s+(?:href|xlink:href|src)\s*=\s*("([^"]*)"|'([^']*)')/gi;
+  for (const match of svg.matchAll(reference)) {
+    const value = (match[3] ?? match[4] ?? "").trim();
+    if (value && !value.startsWith("#")) return false;
+  }
+  return true;
 }
 
 function safeUsage(value: unknown): object | null {
