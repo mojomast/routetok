@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- AgentRouter upstream calls now present as the opencode client: a genuine incoming `opencode/*` user-agent is preserved, while any foreign or missing client user-agent is replaced with the opencode identifier before reaching `agentrouter` (the gateway answers `unauthorized_client` to unrecognized clients). Other providers keep the incoming user-agent with the `routetok/0.1` fallback.
+
 - The Fieldbook workspace column no longer enforces a 25rem floor in the base three-column shell, so the settings rail stays fully visible down to the 901 px breakpoint instead of being pushed offscreen between 901 and ~976 px; the scratchpad-closed wide-shell floor is unchanged.
 - Sandbox-lane shedding is now uniformly surfaced: the dashboard proposal-generation and assistant-planning lanes answer `429` with `retry-after: 1` (like the main sandbox route) once the shared eight-call sandbox budget is exhausted, and an integration suite holds eight lanes in flight to lock the shed across all three endpoints plus the audio service's two-slot gate.
 - Every JSON response from the generic `json()` helper (proxy, admin, sandbox, and auth error paths) now carries `x-content-type-options: nosniff`, matching the static-file and media responses.

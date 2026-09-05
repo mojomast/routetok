@@ -31,3 +31,5 @@ Across all providers, `null` means unknown and `[]` means known empty. Zero is a
 OpenRouter also supplies catalog-confirmed text-to-speech and explicitly enabled image-output models to authenticated dashboard/Fieldbook endpoints. Requesty may supply transcription models when its live catalog advertises approved audio-input capability. A separately configured local Speaches service appears under the `local:` namespace and is not part of proxy fallback routing.
 
 Fireworks and Groq Responses behavior differs from OpenAI; stateful response IDs should remain pinned to their originating physical provider. Together, DeepInfra, Cerebras, and Mistral are advertised as chat-only.
+
+AgentRouter authorizes known client applications, so the proxy presents `User-Agent: opencode/<version>` on `agentrouter` upstream calls: a genuine incoming `opencode/*` user-agent is preserved, any other (or missing) client user-agent is replaced. Other providers keep the incoming user-agent with a `routetok/0.1` fallback.

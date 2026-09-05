@@ -139,13 +139,14 @@ function headerValue(headers: IncomingHttpHeaders, name: string): string | undef
   return Array.isArray(value) ? value.join(", ") : value;
 }
 
-function buildUpstreamHeaders(
+const OPENCODE_USER_AGENT = "opencode/1.15.13";
+
+export function buildUpstreamHeaders(
   incoming: IncomingHttpHeaders,
   protocol: Protocol,
   apiKey: string,
   stripThinking = false,
-  providerId: ProviderId = "agentrouter",
-  internalAgentRouterRequest = false
+  providerId: ProviderId = "agentrouter"
 ): Record<string, string> {
   const headers: Record<string, string> = {
     "content-type": "application/json",
@@ -164,8 +165,10 @@ function buildUpstreamHeaders(
     if (preservesIdentity) headers[normalized] = Array.isArray(value) ? value.join(", ") : value;
   }
 
-  if (internalAgentRouterRequest) headers["user-agent"] = "opencode/1.15.13";
-  else if (!headers["user-agent"]) headers["user-agent"] = "routetok/0.1";
+  if (providerId === "agentrouter") {
+    const presented = headers["user-agent"];
+    headers["user-agent"] = presented !== undefined && presented.startsWith("opencode/") ? presented : OPENCODE_USER_AGENT;
+  } else if (!headers["user-agent"]) headers["user-agent"] = "routetok/0.1";
   if (protocol === "anthropic" && !headers["anthropic-version"]) {
     headers["anthropic-version"] = "2023-06-01";
   }
@@ -1269,7 +1272,7 @@ export class ProxyHandler {
         const body = JSON.stringify({ ...attemptBody, model: catalogModel.upstreamId ?? model });
         let upstream: Response;
         try {
-          const upstreamHeaders = buildUpstreamHeaders(request.headers, protocol, provider.apiKey, stripThinking, providerId, internalSandbox && providerId === "agentrouter");
+          const upstreamHeaders = buildUpstreamHeaders(request.headers, protocol, provider.apiKey, stripThinking, providerId);
           if (provider.auth === "none") delete upstreamHeaders.authorization;
           upstream = await this.fetchImpl(this.endpoint(provider, path), {
             method: "POST",
