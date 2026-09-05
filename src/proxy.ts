@@ -975,7 +975,7 @@ function streamErrorReason(message: string): StreamErrorReason {
   return "reader_abort";
 }
 
-async function writeStreamError(
+export async function writeStreamError(
   response: ServerResponse,
   protocol: Protocol,
   reason: StreamErrorReason,

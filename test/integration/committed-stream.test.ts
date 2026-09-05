@@ -240,6 +240,9 @@ test("committed streams emit truthful terminal frames and detach the overall dea
       assert.match(text, /"code":"stream_interrupted"/);
       assert.match(text, /"reason":"upstream_error"/);
       assert.match(text, /data: \[DONE\]\n\n$/);
+      const order = [text.indexOf("HELLO-0"), text.indexOf("synthetic mid-stream failure"), text.indexOf('"code":"stream_interrupted"'), text.indexOf("data: [DONE]")];
+      assert.deepEqual(order, [...order].sort((a, b) => a - b), "content, relayed error, synthesized frame, and [DONE] must arrive in order");
+      assert.ok(order.every((index) => index >= 0), "all four frame markers must be present");
     });
 
     await suite.test("a committed Responses flat error event is relayed with its event line", async () => {
@@ -267,6 +270,8 @@ test("committed streams emit truthful terminal frames and detach the overall dea
       assert.match(text, /"code":"stream_interrupted"/);
       assert.match(text, /"reason":"upstream_error"/);
       assert.match(text, /data: \[DONE\]\n\n$/);
+      assert.ok(text.indexOf("EOF-0") < text.indexOf('"code":"stream_interrupted"'), "the synthesized frame must follow the committed content");
+      assert.ok(text.indexOf('"code":"stream_interrupted"') < text.indexOf("data: [DONE]"), "the synthesized frame must precede [DONE]");
       const record = await recordOf(requestId);
       assert.equal(record.status, 200);
       assert.match(record.error ?? "", /stream ended without a terminal event/);
