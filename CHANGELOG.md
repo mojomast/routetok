@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Fieldbook artifact and Studio preview sanitization now share one attribute deny list (`on*`, `action`, `formaction`, `srcdoc`, `srcset`, plus data-URL-gated `src`/`href`/`xlink:href`/`poster`), closing the gaps where `srcset`/`formaction`/`srcdoc` could bypass the artifact URL filters on one path.
 - Virtual-route quality ranking now derives each candidate's success rate from its recent-outcome window instead of lifetime counters, and near-equal candidates (within a 30-point score band) are ordered by a per-request seeded deterministic jitter instead of raw score noise, so concurrent `auto`/`best` requests spread across healthy equals instead of herding onto one model; exact models and custom-cascade orderings are untouched, and the route simulator models the same gate.
 - The dashboard status poll no longer re-downloads the full model catalog: `GET /admin/api/status` now carries only catalog discovery metadata plus a monotonic `revision` and `modelCount`, while the new authenticated `GET /admin/api/catalog` serves the full model list under an `etag` and answers `304` to matching `If-None-Match` requests; the dashboard fetches the catalog only when its stored revision changes (steady-state polls dropped from ~570 KB to ~85 KB per tab).
 - Client-path in-flight shedding is now configurable via `maxInflightRequests` (default 64): concurrent client `/v1` requests beyond the bound receive a terminal `429` with `retry-after: 1` instead of stacking on upstream providers; internal Fieldbook/sandbox lanes are exempt.

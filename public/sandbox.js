@@ -320,6 +320,20 @@ function renderCatalog() {
   $("catalog-status").textContent = imageOnly ? `${visible.length} enabled image-generation model${visible.length === 1 ? "" : "s"}` : `${state.catalog.length} eligible text models · up to ${state.maxLanes} lanes`;
 }
 
+function stripUnsafeAttributes(root, options = {}) {
+  const { includeRoot = false, imagesOnly = false } = options;
+  const elements = includeRoot ? [root, ...root.querySelectorAll("*")] : [...root.querySelectorAll("*")];
+  const allowedUrl = imagesOnly
+    ? /^data:image\/(?:png|jpeg|gif|webp|svg\+xml);/i
+    : /^(#|data:image\/|data:font\/)/i;
+  for (const element of elements) for (const attribute of [...element.attributes]) {
+    const name = attribute.name.toLowerCase();
+    const value = attribute.value.trim();
+    if (/^on/i.test(name) || ["action", "formaction", "srcdoc", "srcset"].includes(name)) { element.removeAttribute(attribute.name); continue; }
+    if (imagesOnly && (name === "href" || name === "xlink:href")) { element.removeAttribute(attribute.name); continue; }
+    if (["src", "href", "xlink:href", "poster"].includes(name) && !allowedUrl.test(value)) element.removeAttribute(attribute.name);
+  }
+}
 function artifactKind(source, language = "") { const value = source.trim(); if (language.toLowerCase() === "svg" || /^(?:<\?xml[^>]*>\s*)?<svg[\s>]/i.test(value)) return "svg"; if (["html","htm"].includes(language.toLowerCase()) || /^<!doctype\s+html|^<html[\s>]/i.test(value)) return "html"; return null; }
 function artifactDocument(source, kind) {
   const parser = new DOMParser();
@@ -327,18 +341,13 @@ function artifactDocument(source, kind) {
     const parsed = parser.parseFromString(source, "image/svg+xml"); const root = parsed.documentElement;
     if (root.nodeName.toLowerCase() !== "svg" || parsed.querySelector("parsererror")) throw new Error("Invalid SVG artifact");
     root.querySelectorAll("script, foreignObject, iframe, object, embed").forEach((node) => node.remove());
-    for (const element of [root, ...root.querySelectorAll("*")]) for (const attribute of [...element.attributes]) {
-      if (/^on/i.test(attribute.name) || (["href","src","xlink:href"].includes(attribute.name.toLowerCase()) && !/^(#|data:image\/)/i.test(attribute.value.trim()))) element.removeAttribute(attribute.name);
-    }
+    stripUnsafeAttributes(root, { includeRoot: true });
     const svg = new XMLSerializer().serializeToString(root);
     return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'"><style>html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#fff}svg{display:block;width:100%;height:100%}</style></head><body>${svg}</body></html>`;
   }
   const parsed = parser.parseFromString(source, "text/html");
   parsed.querySelectorAll("script, iframe, object, embed, link, base, meta[http-equiv]").forEach((node) => node.remove());
-  for (const element of parsed.querySelectorAll("*")) for (const attribute of [...element.attributes]) {
-    const name = attribute.name.toLowerCase(); const value = attribute.value.trim();
-    if (/^on/.test(name) || name === "action" || (["src","href","poster"].includes(name) && !/^(#|data:image\/|data:font\/)/i.test(value))) element.removeAttribute(attribute.name);
-  }
+  stripUnsafeAttributes(parsed);
   const csp = parsed.createElement("meta"); csp.httpEquiv = "Content-Security-Policy"; csp.content = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'"; parsed.head.prepend(csp);
   return `<!doctype html>${parsed.documentElement.outerHTML}`;
 }
@@ -1033,10 +1042,7 @@ function studioPreviewDocument(studio = studioState(), conversation = state.conv
   const parser = new DOMParser(); const parsed = parser.parseFromString(studio.files["index.html"] || "<!doctype html><html><head></head><body></body></html>", "text/html");
   bindStudioAssets(parsed, conversation);
   parsed.querySelectorAll("base,link,script,iframe,frame,object,embed,meta[http-equiv]").forEach((node) => node.remove());
-  for (const element of parsed.querySelectorAll("*")) for (const attribute of [...element.attributes]) {
-    const name = attribute.name.toLowerCase(); const value = attribute.value.trim();
-    if (/^on/.test(name) || ["action", "formaction", "srcdoc"].includes(name) || name === "href" || name === "srcset" || (["src", "poster"].includes(name) && !/^data:image\/(?:png|jpeg|gif|webp|svg\+xml);/i.test(value))) element.removeAttribute(attribute.name);
-  }
+  stripUnsafeAttributes(parsed, { imagesOnly: true });
   const csp = parsed.createElement("meta"); csp.httpEquiv = "Content-Security-Policy"; csp.content = `default-src 'none'; base-uri 'none'; img-src data:; font-src data:; style-src 'unsafe-inline'; script-src ${studio.javascriptEnabled ? "'unsafe-inline'" : "'none'"}; connect-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; object-src 'none'; form-action 'none'`;
   const viewport = parsed.createElement("meta"); viewport.name = "viewport"; viewport.content = "width=device-width,initial-scale=1"; const style = parsed.createElement("style"); style.textContent = (studio.files["styles.css"] || "").replace(/<\/style/gi, "<\\/style"); parsed.head.prepend(csp, viewport); parsed.head.append(style);
   if (studio.javascriptEnabled && studio.files["app.js"]) { const script = parsed.createElement("script"); script.textContent = studio.files["app.js"].replace(/<\/script/gi, "<\\/script"); parsed.body.append(script); }
