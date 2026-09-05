@@ -79,6 +79,8 @@ An opened circuit keeps a model out of candidate chains until `circuitOpenMs` el
 
 `GET /healthz` is the only unauthenticated endpoint. It returns minimal liveness (`{"status":"ok"}`) and never echoes catalog state, provider detail, or upstream error strings; the detailed operational projection lives on the authenticated `GET /admin/api/status` and `GET /admin/api/readiness`.
 
+`GET /metrics` serves Prometheus text exposition and is unauthenticated like `/healthz`. It exposes dual-prefixed families: the historical names are `agentrouter_router_*` and the canonical future names are `routetok_*` with identical semantics — both variants are emitted so old dashboards keep working while new ones use `routetok_`. Families cover request totals (`requests_total`, `request_failures_total`, `fallbacks_total`, `client_cancellations_total`, `upstream_attempts_total`), token and spend (`tokens_total` with `direction="input|output|cache_read|cache_write"`, `estimated_cost_usd_total`, `reported_cost_usd_total`, `cost_usd_total`, `cost_cny_total`), latency and throughput (`ttft_seconds_sum` with `ttft_samples_total`, `generation_seconds_sum` with `generation_output_tokens_total`), per-model routing health (`model_attempts_total`, `model_successes_total`, `model_failures_total`, `model_cancellations_total`, `model_latency_ewma_seconds`), the live gauge `inflight_requests`, and the per-model `circuit_state` gauge. Every family carries paired `# HELP` and `# TYPE` lines and label values are escaped per Prometheus rules. A future release will drop the `agentrouter_router_` prefix and keep only `routetok_`.
+
 Admin endpoints under `/admin/api/` require `DASHBOARD_TOKEN` when configured. They cover status, deterministic readiness, history, live requests, catalogs, credits, configuration, proposals, sandbox inference, retained request inspection, credentials, and circuit reset.
 
 Model-bearing admin responses expose corresponding normalized metadata fields, but their scopes and compatibility shapes differ from `/v1/models`:
@@ -97,7 +99,7 @@ Managed proxy client keys require a configured `DASHBOARD_TOKEN`:
 
 Only SHA-256 digests are persisted. Managed keys and the environment `PROXY_API_KEY` are both accepted by OpenAI and Anthropic-compatible inference endpoints.
 
-`POST /admin/api/sandbox` accepts an optional `parameters.maxOutputMiB` integer from 1 to 64. The default remains 4 MiB. This changes only the bounded response bytes accepted by the authenticated sandbox runner; it is not forwarded to providers and does not change `max_tokens`. The sandbox reader accepts up to 4 MiB of JSON per request so multi-branch max-size transcripts (up to four branches of 40 messages and 500,000 characters each) reach the per-transcript validators; other admin JSON endpoints keep the 1 MiB reader bound. Malformed or oversized sandbox JSON returns `400`.
+`POST /admin/api/sandbox` accepts an optional `parameters.maxOutputMiB` integer from 1 to 64. Output is unlimited by default; the cap bounds only the response bytes accepted by the authenticated sandbox runner and is not forwarded to providers, so `max_tokens` is unchanged. The sandbox reader accepts up to 4 MiB of JSON per request so multi-branch max-size transcripts (up to four branches of 40 messages and 500,000 characters each) reach the per-transcript validators; other admin JSON endpoints keep the 1 MiB reader bound. Malformed or oversized sandbox JSON returns `400`.
 
 Arena speech endpoints are also protected by dashboard authentication:
 

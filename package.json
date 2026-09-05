@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Local OpenAI- and Anthropic-compatible token router with health-aware failover, observability, and a model sandbox",
+  "description": "Local OpenAI- and Anthropic-compatible LLM router with health-aware failover, an operational dashboard, and a browser-local model Fieldbook",
   "license": "MIT",
   "author": "mojomast",
   "repository": { "type": "git", "url": "git+https://github.com/mojomast/routetok.git" },

@@ -44,6 +44,10 @@ Run `docker compose logs routetok`. Because the container listens on `0.0.0.0` i
 
 Container loopback is isolated from host loopback. Replace host-local URLs such as `http://127.0.0.1:8000/v1` with `http://host.docker.internal:8000/v1`. The provided Compose file maps that hostname to the host gateway. Confirm the local service accepts connections from the Docker bridge and remains protected from untrusted networks.
 
+## Dashboard assets are unavailable
+
+The dashboard and Fieldbook URLs return `500` (or the process refuses to start with a list of missing allowlisted assets) when `public/` is incomplete: every file in the server's static allowlist must exist on disk. A partial deploy that copies only some frontend files produces exactly this mode — sync `public/index.html` together with the module files it references (`app.js`, `styles.css`, `theme-bootstrap.js`, `api-setup.js`, `attempt-inspector.js`, `onboarding.js`, `sandbox.js`/`sandbox.css`, and the `fieldbook/*.js` modules), never individually. `node scripts/smoke.mjs` boots the service and GETs every allowlisted route so this can be checked before a deploy.
+
 ## Fieldbook does not load
 
 Confirm `/sandbox.js` and the explicitly mapped `/fieldbook/*.js` modules return `200`. RouteTok must run from the project working directory with the complete `public/` tree present. Unknown module paths intentionally return `404`.

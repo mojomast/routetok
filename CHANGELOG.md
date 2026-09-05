@@ -30,7 +30,7 @@
 - Overall-deadline expiry during pre-output stream preparation no longer dispatches a phantom attempt on the next candidate.
 - Sandbox model output is unlimited by default; an optional 1-64 MiB per-note cap can still be set.
 - Added read-only admin endpoints `GET /admin/api/attempts/decode`, `GET /admin/api/route/simulate`, and `GET /admin/api/models/visibility` with dashboard authentication.
-- Added dashboard Attempt Inspector, API Setup test request, onboarding wizard, and Fieldbook backup modules with script-tag mounts and static serving.
+- Added dashboard Attempt Inspector, API Setup test request, onboarding wizard, and Fieldbook backup modules with static serving and allowlist coverage; they are mounted in the dashboard Guide dialog and the Fieldbook export/import flows respectively.
 - Added docs/onboarding.md plus dashboard, API, README, and changelog pointers for the new operational workflows.
 
 - Added the standalone Model Fieldbook with Chat, Compare, Room, Evaluate, Images, and Iteration Studio workspaces.
