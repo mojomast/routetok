@@ -588,7 +588,7 @@ function sendJson(response: ServerResponse, status: number, body: object, header
   response.end(bytes);
 }
 
-function streamEventBlocks(buffer: string): { blocks: string[]; remainder: string } {
+export function streamEventBlocks(buffer: string): { blocks: string[]; remainder: string } {
   const blocks: string[] = [];
   const separator = /\r\n\r\n|\n\n|\r\r/g;
   let cursor = 0;

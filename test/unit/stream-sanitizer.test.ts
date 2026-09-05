@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { StreamInspector, StreamSanitizer } from "../../src/proxy.js";
+import { streamEventBlocks, StreamInspector, StreamSanitizer } from "../../src/proxy.js";
 
 function run(protocol: "openai" | "anthropic", path: string, model: string, wire: string): string {
   const sanitizer = new StreamSanitizer(protocol, path, model);
@@ -132,4 +132,111 @@ test("unknown Anthropic event types are dropped and logged once per type", (t) =
   assert.equal(second.push(Buffer.from(wire("message_another_new_type"))).length, 0);
   assert.equal(warns.length, 2, "a different unknown type warns again");
   assert.match(warns[1] ?? "", /message_another_new_type/);
+});
+
+function mulberry32(seed: number): () => number {
+  let value = seed >>> 0;
+  return () => {
+    value = (value + 0x6d2b79f5) >>> 0;
+    let t = value;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function chunked(protocol: "openai" | "anthropic", path: string, model: string, wire: string, boundaries: Array<{ from: number; to: number }>): string {
+  const bytes = Buffer.from(wire);
+  const sanitizer = new StreamSanitizer(protocol, path, model);
+  const out: Uint8Array[] = [];
+  for (const boundary of boundaries) {
+    out.push(...sanitizer.push(bytes.subarray(boundary.from, boundary.to)));
+  }
+  out.push(...sanitizer.finish());
+  return Buffer.concat(out).toString("utf8");
+}
+
+function seededSplitPoints(byteLength: number, seed: number): Array<{ from: number; to: number }> {
+  const random = mulberry32(seed);
+  const points: number[] = [];
+  for (let index = 1; index < byteLength; index++) {
+    if (random() < 0.35) points.push(index);
+  }
+  points.push(byteLength);
+  points.sort((a, b) => a - b);
+  const boundaries: Array<{ from: number; to: number }> = [];
+  let from = 0;
+  for (const point of points) {
+    boundaries.push({ from, to: point });
+    from = point;
+  }
+  return boundaries;
+}
+
+test("sanitizer output is byte-identical across every single split point", () => {
+  const wire = [
+    "event: response.created",
+    `data: ${JSON.stringify({ type: "response.created", sequence_number: 0, response: { id: "r1", model: "vendor/m", object: "response" } })}`,
+    "",
+    "event: response.output_text.delta",
+    `data: ${JSON.stringify({ type: "response.output_text.delta", sequence_number: 1, delta: "héllo wörld 你好 🚀" })}`,
+    "",
+    "event: billing_summary",
+    `data: ${JSON.stringify({ type: "billing_summary", billing: { request: { tokens: { input: 1, output: 2 } } } })}`,
+    "",
+    "event: response.completed",
+    `data: ${JSON.stringify({ type: "response.completed", sequence_number: 2, response: { id: "r1", model: "vendor/m", status: "completed" } })}`,
+    "",
+    ""
+  ].join("\n");
+  const expected = run("openai", "/v1/responses", "routed-model", wire);
+  const byteLength = Buffer.byteLength(wire);
+  for (let split = 1; split < byteLength; split++) {
+    const actual = chunked("openai", "/v1/responses", "routed-model", wire, [{ from: 0, to: split }, { from: split, to: byteLength }]);
+    assert.equal(actual, expected, `split at byte ${split} must not change the sanitized stream`);
+  }
+  assert.ok(!expected.includes("billing"), "billing frames must never leak into the sanitized stream");
+});
+
+test("sanitizer output is byte-identical under seeded multi-chunk splits and CRLF framing", () => {
+  const wire = [
+    `data: ${JSON.stringify({ id: "x", object: "chat.completion.chunk", model: "vendor/m", choices: [{ index: 0, delta: { content: "line one\n\rcontent 🎯" } }] })}`,
+    "\r\n\r\n",
+    "data: [DONE]",
+    "\r\n\r\n"
+  ].join("");
+  const expected = run("openai", "/v1/chat/completions", "routed-model", wire);
+  for (const seed of [1, 7, 42, 99, 2024]) {
+    const actual = chunked("openai", "/v1/chat/completions", "routed-model", wire, seededSplitPoints(Buffer.byteLength(wire), seed));
+    assert.equal(actual, expected, `seeded split ${seed} must not change the sanitized stream`);
+  }
+  assert.match(expected, /data: \[DONE\]/);
+});
+
+test("streamEventBlocks accepts CRLF, LF, and lone-CR separators", () => {
+  const { blocks, remainder } = streamEventBlocks("a\n\nb\r\n\r\nc\r\rd");
+  assert.deepEqual(blocks, ["a", "b", "c"]);
+  assert.equal(remainder, "d");
+  const single = streamEventBlocks("x");
+  assert.deepEqual(single.blocks, []);
+  assert.equal(single.remainder, "x");
+});
+
+test("lone-CR line endings survive an anthropic split sweep without duplication", () => {
+  const wire = [
+    "event: message_start\r",
+    `data: ${JSON.stringify({ type: "message_start", message: { role: "assistant", model: "vendor/m" } })}\r`,
+    "\r",
+    "event: message_stop\r",
+    `data: ${JSON.stringify({ type: "message_stop" })}\r`,
+    "\r",
+    ""
+  ].join("");
+  const expected = run("anthropic", "/v1/messages", "routed-model", wire);
+  for (let split = 1; split < wire.length; split += 7) {
+    const actual = chunked("anthropic", "/v1/messages", "routed-model", wire, [{ from: 0, to: split }, { from: split, to: wire.length }]);
+    assert.equal(actual, expected, `lone-CR split at byte ${split} must not change the sanitized stream`);
+  }
+  assert.equal((expected.match(/event: message_start/g) ?? []).length, 1, "message_start must appear exactly once");
+  assert.equal((expected.match(/event: message_stop/g) ?? []).length, 1, "message_stop must appear exactly once");
 });
