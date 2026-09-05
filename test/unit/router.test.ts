@@ -82,17 +82,17 @@ test("rate-limited and entitlement-blocked routes are suppressed", () => {
   assert.deepEqual(router.candidates("anthropic", "auto", catalog, config), []);
 });
 
-function seededRouter(health: Array<{ model: string; protocol: "openai" | "anthropic"; circuitState: "closed" | "open" | "half-open"; circuitOpenUntil: number | null; inflight?: number; consecutiveFailures?: number; failures?: number; recentOutcomes?: boolean[] }>): HealthRouter {
+function seededRouter(health: Array<{ model: string; protocol: "openai" | "anthropic"; circuitState: "closed" | "open" | "half-open"; circuitOpenUntil: number | null; inflight?: number; consecutiveFailures?: number; successes?: number; failures?: number; recentOutcomes?: boolean[]; latencyEwmaMs?: number }>): HealthRouter {
   const router = new HealthRouter();
   const store = router as unknown as { health: Map<string, import("../../src/types.js").ModelHealth> };
   for (const entry of health) {
     store.health.set(`${entry.protocol}:${entry.model}`, {
       model: entry.model,
       protocol: entry.protocol,
-      successes: 0,
+      successes: entry.successes ?? 0,
       failures: entry.failures ?? 0,
       consecutiveFailures: entry.consecutiveFailures ?? 0,
-      latencyEwmaMs: null,
+      latencyEwmaMs: entry.latencyEwmaMs ?? null,
       inflight: entry.inflight ?? 0,
       circuitState: entry.circuitState,
       circuitOpenUntil: entry.circuitOpenUntil,
@@ -587,4 +587,48 @@ test("thinking fallback strips signatures but preserves visible tool history", (
     }
   ]);
   assert.equal(original.messages[0]?.content[0]?.type, "thinking");
+});
+
+test("quality score trusts the recent-outcome window over lifetime history", () => {
+  const router = seededRouter([
+    {
+      model: "best-model", protocol: "openai", circuitState: "closed", circuitOpenUntil: null,
+      successes: 899, failures: 0, consecutiveFailures: 1, recentOutcomes: [false]
+    }
+  ]);
+  const ordered = router.candidates("openai", "auto", catalog, config);
+  assert.deepEqual(ordered, ["backup-model", "best-model", "openai-only"],
+    "a lifetime of success cannot outweigh a failed recent window and a fresh burst streak");
+});
+
+test("in-band candidates herd deterministically per seed and spread across seeds", () => {
+  const router = seededRouter([
+    {
+      model: "best-model", protocol: "openai", circuitState: "closed", circuitOpenUntil: null,
+      consecutiveFailures: 1, recentOutcomes: [true, true, true]
+    },
+    {
+      model: "backup-model", protocol: "openai", circuitState: "closed", circuitOpenUntil: null,
+      recentOutcomes: [true]
+    }
+  ]);
+  const seedZero = router.candidates("openai", "auto", catalog, config, undefined, 0);
+  assert.equal(router.candidates("openai", "auto", catalog, config, undefined, 0).join(","), seedZero.join(","),
+    "the same seed reproduces the same in-band ordering");
+  const seedOne = router.candidates("openai", "auto", catalog, config, undefined, 1);
+  assert.equal(seedZero[0], "best-model");
+  assert.equal(seedOne[0], "backup-model",
+    "a different seed spreads the herd across equal-quality candidates");
+  assert.deepEqual([...seedZero].sort(), [...seedOne].sort());
+});
+
+test("score band boundaries keep exact requests and cascade orderings untouched", () => {
+  const router = new HealthRouter();
+  assert.deepEqual(router.candidates("openai", "best-model", catalog, config), [
+    "best-model", "backup-model", "openai-only"
+  ]);
+  const cascade = { ...config, maxAttempts: 3, customCascades: [{ name: "explicit-cascade", members: ["backup-model", "best-model", "openai-only"] }] };
+  assert.deepEqual(router.candidates("openai", "explicit-cascade", catalog, cascade), [
+    "backup-model", "best-model", "openai-only"
+  ]);
 });

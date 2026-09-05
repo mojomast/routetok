@@ -1151,15 +1151,17 @@ export class ProxyHandler {
     const requestedCatalogModel = endpointModels.find((model) => model.id === parsed.model);
     const paidOpenRouterFallbackActive = requestedCatalogModel?.providerId === "openrouter" &&
       !isFreeExternalCatalogModel(requestedCatalogModel) && config.paidOpenRouterFallbackOrder.length > 0;
+    const customVirtual = config.customCascades.some((cascade) => cascade.name === parsed.model);
+    const virtualRequest = customVirtual || ["auto", "best", "agentrouter-auto", "agentrouter-best", "free", "free-auto"].includes(parsed.model);
+    const herdingSeed = virtualRequest ? Math.floor(Math.random() * 0x1_0000_0000) : 0;
     let candidates = this.options.router.candidates(
       protocol,
       parsed.model,
       endpointModels,
       config,
-      routingRequirements(parsed.raw)
+      routingRequirements(parsed.raw),
+      herdingSeed
     );
-    const customVirtual = config.customCascades.some((cascade) => cascade.name === parsed.model);
-    const virtualRequest = customVirtual || ["auto", "best", "agentrouter-auto", "agentrouter-best", "free", "free-auto"].includes(parsed.model);
     const stripThinkingOnFirstAttempt = config.thinkingFallbackMode === "strip" &&
       shouldStripThinkingForRequestedModel(protocol, parsed.raw, parsed.model, customVirtual);
     const pinnedModel = stripThinkingOnFirstAttempt

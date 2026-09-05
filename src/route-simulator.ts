@@ -27,6 +27,18 @@ export interface SimulatedCandidate {
 
 const VIRTUAL_MODELS = new Set(["auto", "best", "agentrouter-auto", "agentrouter-best", "free", "free-auto"]);
 
+const SCORE_BAND = 30;
+
+function candidateJitter(protocol: Protocol, model: string, seed: number): number {
+  let hash = 2_166_136_261 ^ (seed | 0);
+  const input = `${protocol}:${model}`;
+  for (let index = 0; index < input.length; index++) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return (hash >>> 0) / 0x1_0000_0000;
+}
+
 function freeModelScore(model: CatalogModel): number {
   return (model.capabilities?.reasoning ? 1_000_000_000 : 0) +
     (model.capabilities?.tools ? 500_000_000 : 0) +
@@ -55,14 +67,22 @@ function score(protocol: Protocol, model: string, order: string[], health: Model
   const state = healthFor(health, protocol, model);
   const orderIndex = order.indexOf(model);
   const base = orderIndex === -1 ? 0 : 1_000 - orderIndex * 100;
-  const successes = state?.successes ?? 0;
-  const failures = state?.failures ?? 0;
-  const attempts = successes + failures;
-  const successRate = attempts ? successes / attempts : 1;
+  const outcomes = state?.recentOutcomes ?? [];
+  const successRate = outcomes.length
+    ? outcomes.filter((outcome) => outcome).length / outcomes.length
+    : 1;
   const latencyPenalty = state?.latencyEwmaMs === null || state?.latencyEwmaMs === undefined
     ? 0
     : Math.min(50, (state.latencyEwmaMs as number) / 1_000);
   return base + successRate * 30 - (state?.consecutiveFailures ?? 0) * 80 - (state?.inflight ?? 0) * 140 - latencyPenalty;
+}
+
+function rankDifference(protocol: Protocol, left: string, right: string, order: string[], health: ModelHealth[]): number {
+  const bucket = (model: string) => Math.floor(score(protocol, model, order, health) / SCORE_BAND);
+  const leftBucket = bucket(left);
+  const rightBucket = bucket(right);
+  if (leftBucket !== rightBucket) return rightBucket - leftBucket;
+  return candidateJitter(protocol, right, 0) - candidateJitter(protocol, left, 0);
 }
 
 function isExplicitlyIncompatible(model: CatalogModel, requirements: RoutingRequirements): boolean {
@@ -189,7 +209,7 @@ export function simulateRoute(input: SimulateRouteInput, snapshot: SimulateRoute
     sortedPassed = sortedPassed.sort((left, right) => {
       if (exact && left === exact) return -1;
       if (exact && right === exact) return 1;
-      return score(protocol, right, ordered, health) - score(protocol, left, ordered, health);
+      return rankDifference(protocol, left, right, ordered, health);
     });
   }
   const eligibleIds = sortedPassed.slice(0, config.maxAttempts);

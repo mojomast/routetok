@@ -3,6 +3,18 @@ import { isFreeExternalCatalogModel, isTextGenerationModel } from "./catalog.js"
 
 const VIRTUAL_MODELS = new Set(["auto", "best", "agentrouter-auto", "agentrouter-best", "free", "free-auto"]);
 
+const SCORE_BAND = 30;
+
+function candidateJitter(protocol: Protocol, model: string, seed: number): number {
+  let hash = 2_166_136_261 ^ (seed | 0);
+  const input = `${protocol}:${model}`;
+  for (let index = 0; index < input.length; index++) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return (hash >>> 0) / 0x1_0000_0000;
+}
+
 function freeModelScore(model: CatalogModel): number {
   return (model.capabilities?.reasoning ? 1_000_000_000 : 0) +
     (model.capabilities?.tools ? 500_000_000 : 0) +
@@ -53,7 +65,8 @@ export class HealthRouter {
     requestedModel: string,
     catalog: CatalogModel[],
     config: RouterConfig,
-    requirements?: RoutingRequirements
+    requirements?: RoutingRequirements,
+    herdingSeed = 0
   ): string[] {
     const now = Date.now();
     const available = new Set(
@@ -136,7 +149,7 @@ export class HealthRouter {
     return (customCascade || paidOpenRouterRequest ? filtered : filtered.sort((left, right) => {
         if (exact && left === exact) return -1;
         if (exact && right === exact) return 1;
-        return this.score(protocol, right, ordered) - this.score(protocol, left, ordered);
+        return this.rankDifference(protocol, left, right, ordered, herdingSeed);
       }))
       .slice(0, config.maxAttempts);
   }
@@ -244,9 +257,19 @@ export class HealthRouter {
     const state = this.peek(protocol, model);
     const orderIndex = order.indexOf(model);
     const base = orderIndex === -1 ? 0 : 1_000 - orderIndex * 100;
-    const attempts = state.successes + state.failures;
-    const successRate = attempts ? state.successes / attempts : 1;
+    const outcomes = state.recentOutcomes;
+    const successRate = outcomes.length
+      ? outcomes.filter((outcome) => outcome).length / outcomes.length
+      : 1;
     const latencyPenalty = state.latencyEwmaMs === null ? 0 : Math.min(50, state.latencyEwmaMs / 1_000);
     return base + successRate * 30 - state.consecutiveFailures * 80 - state.inflight * 140 - latencyPenalty;
+  }
+
+  private rankDifference(protocol: Protocol, left: string, right: string, order: string[], seed: number): number {
+    const bucket = (model: string) => Math.floor(this.score(protocol, model, order) / SCORE_BAND);
+    const leftBucket = bucket(left);
+    const rightBucket = bucket(right);
+    if (leftBucket !== rightBucket) return rightBucket - leftBucket;
+    return candidateJitter(protocol, right, seed) - candidateJitter(protocol, left, seed);
   }
 }
