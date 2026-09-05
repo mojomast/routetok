@@ -1,8 +1,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
+import { lookup } from "node:dns/promises";
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { isPrivateAddress } from "./net-address.js";
 import { AdminAudioService } from "./admin-audio.js";
 import { AdminImageService } from "./admin-images.js";
 import { CatalogService, catalogModelFreeStatus, isFreeExternalCatalogModel, isTextGenerationModel } from "./catalog.js";
@@ -56,7 +58,10 @@ const cerebrasApiKey = process.env.CEREBRAS_API_KEY?.trim() || "";
 const mistralApiKey = process.env.MISTRAL_API_KEY?.trim() || "";
 const genericOpenAiApiKey = process.env.GENERIC_OPENAI_API_KEY?.trim() || "";
 const genericOpenAiAuth = process.env.GENERIC_OPENAI_AUTH === "none" ? "none" : "bearer";
-const genericOpenAiBaseUrl = genericBaseUrl(process.env.GENERIC_OPENAI_BASE_URL?.trim() || "");
+const genericOpenAiBaseUrl = await genericBaseUrl(process.env.GENERIC_OPENAI_BASE_URL?.trim() || "").catch((error) => {
+  console.error((error as Error).message);
+  process.exit(1);
+});
 const genericSupportsResponses = process.env.GENERIC_OPENAI_SUPPORTS_RESPONSES === "true";
 const proxyApiKey = process.env.PROXY_API_KEY?.trim() || "";
 const dashboardToken = process.env.DASHBOARD_TOKEN?.trim() || "";
@@ -66,13 +71,24 @@ const internalSandboxToken = randomUUID();
 const clientApiKeys = new ClientApiKeyStore(dataDir);
 await clientApiKeys.load();
 
-function genericBaseUrl(value: string): string {
+async function genericBaseUrl(value: string): Promise<string> {
   if (!value) return "";
   const parsed = new URL(value);
   const privateAllowed = process.env.GENERIC_OPENAI_ALLOW_PRIVATE === "true";
   if (parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error("GENERIC_OPENAI_BASE_URL cannot include credentials, query, or fragment");
   if (parsed.protocol !== "https:" && !(privateAllowed && parsed.protocol === "http:")) throw new Error("GENERIC_OPENAI_BASE_URL must use HTTPS unless private HTTP access is explicitly enabled");
   if (/\/(?:models|chat\/completions|responses)\/?$/.test(parsed.pathname)) throw new Error("GENERIC_OPENAI_BASE_URL must point to the API root, usually ending in /v1");
+  if (privateAllowed) {
+    let addresses: Array<{ address: string }>;
+    try {
+      addresses = await lookup(parsed.hostname, { all: true, verbatim: true });
+    } catch {
+      throw new Error("GENERIC_OPENAI_BASE_URL must resolve exclusively to private addresses when GENERIC_OPENAI_ALLOW_PRIVATE=true");
+    }
+    if (!addresses.length || !addresses.every((entry) => isPrivateAddress(entry.address))) {
+      throw new Error("GENERIC_OPENAI_BASE_URL must resolve exclusively to private addresses when GENERIC_OPENAI_ALLOW_PRIVATE=true");
+    }
+  }
   return parsed.toString().replace(/\/$/, "");
 }
 

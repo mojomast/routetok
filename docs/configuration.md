@@ -45,7 +45,7 @@ RouteTok does not launch Speaches. A loopback-only, digest-pinned CPU example wi
 `GENERIC_OPENAI_BASE_URL` is startup-only trusted configuration. It should identify an API root, usually ending in `/v1`, not a request endpoint.
 
 - HTTPS is required by default.
-- Set `GENERIC_OPENAI_ALLOW_PRIVATE=true` to permit an exact private/local HTTP destination.
+- Set `GENERIC_OPENAI_ALLOW_PRIVATE=true` to permit an exact private/local HTTP destination. With the flag set, the configured host must resolve exclusively to private addresses (RFC 1918, loopback, link-local, CGNAT, ULA, or multicast) at startup — a host that resolves to any public address, or that cannot be resolved, prevents the service from starting. The default (flag off) trusts the operator-supplied HTTPS URL without host resolution.
 - `GENERIC_OPENAI_AUTH` is `bearer` or `none`.
 - Responses support is disabled unless `GENERIC_OPENAI_SUPPORTS_RESPONSES=true`.
 - Redirects are never followed.

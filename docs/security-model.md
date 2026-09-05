@@ -10,7 +10,7 @@ RouteTok is designed for a trusted single-user host and defaults to loopback.
 - Managed proxy client keys are generated with high entropy, shown once, and persisted only as SHA-256 digests. Individual revocation is immediate.
 - Dashboard key ingress is write-only and persists plaintext under owner-only permissions.
 - Base URL environment overrides are trusted operator configuration and can exfiltrate provider credentials if malicious.
-- The generic endpoint remains startup-only; private HTTP access requires explicit opt-in.
+- The generic endpoint remains startup-only; private HTTP access requires explicit opt-in (`GENERIC_OPENAI_ALLOW_PRIVATE=true`), and with the opt-in set the configured host must resolve exclusively to private addresses at startup (RFC 1918, loopback, link-local, CGNAT, ULA, or multicast); unresolvable or public-resolving names prevent startup. HTTPS base URLs without the opt-in remain trusted operator configuration.
 - Catalog and inference redirects are blocked.
 - Model-generated Markdown is rendered through bounded safe DOM construction.
 - Generated HTML, SVG, design, and Studio previews use opaque sandboxed iframes with network access blocked. Provider-returned SVG is additionally structure-checked before it is handed to the renderer: processing instructions (`xml-stylesheet`), `style` elements and CSS `@import`, executable or embedded elements (`script`, `foreignObject`, `iframe`, `object`, `embed`), event-handler attributes, `DOCTYPE`/`ENTITY`, and any non-fragment `href`/`src`/`xlink:href` on `a`, `image`, `use`, and `feImage` (including `javascript:` and `data:` values) are rejected, while internal `#fragment` references and `url(#...)` paint references remain allowed.
