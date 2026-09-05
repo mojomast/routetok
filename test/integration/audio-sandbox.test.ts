@@ -45,6 +45,7 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
   let paidOnlySpeech = false;
   let redirectMode = false;
   let deferImageResponse = false;
+  let oddPcm = false;
   const imageLatch = { release: null as (() => void) | null };
   const redirect = (response: import("node:http").ServerResponse) => {
     response.writeHead(302, { location: "http://private.invalid/redirected", "content-type": "text/plain" }).end("moved");
@@ -53,6 +54,8 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
     if (request.url === "/openrouter/v1/models?output_modalities=all") {
       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{
         id: "vendor/image-model", name: "Image Model", architecture: { input_modalities: ["text"], output_modalities: ["image"] }, pricing: { prompt: "0", completion: "0" }, supported_parameters: ["max_tokens"]
+      }, {
+        id: "vendor/disabled-image-model", name: "Disabled Image Model", architecture: { input_modalities: ["text"], output_modalities: ["image"] }, pricing: { prompt: "0.1", completion: "0.2" }, supported_parameters: ["max_tokens"]
       }] }));
       return;
     }
@@ -109,7 +112,8 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
         body: payload
       });
       const pcm = Buffer.from([1, 0, 2, 0]);
-      response.writeHead(200, { "content-type": payload.response_format === "mp3" ? "audio/mpeg; charset=binary" : "audio/pcm", "x-generation-id": "gen-safe", "x-secret": "hidden" }).end(payload.response_format === "mp3" ? speechBytes : pcm);
+      const pcmPayload = oddPcm && payload.response_format !== "mp3" ? Buffer.from([1, 0, 2]) : pcm;
+      response.writeHead(200, { "content-type": payload.response_format === "mp3" ? "audio/mpeg; charset=binary" : "audio/pcm", "x-generation-id": "gen-safe", "x-secret": "hidden" }).end(payload.response_format === "mp3" ? speechBytes : pcmPayload);
       return;
     }
     if (request.url === "/openrouter/v1/images") {
@@ -322,6 +326,26 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
       method: "POST", headers: { ...dashboardHeaders, "content-type": "application/json" }, body: JSON.stringify({ padding: "x".repeat(1024 * 1024) })
     });
     assert.equal(oversizedImage.status, 413);
+    const invalidImage = (body: object) => fetch(`${base}/admin/api/images/generations`, {
+      method: "POST", headers: { ...dashboardHeaders, "content-type": "application/json" }, body: JSON.stringify(body)
+    });
+    const imageRequestsBeforeInvalid = imageRequest === null ? 0 : 1;
+    assert.equal((await invalidImage({ model: "openrouter:vendor/disabled-image-model", prompt: "not enabled" })).status, 400, "a catalog image model without enablement must be rejected");
+    assert.equal((await invalidImage({ model: "openrouter:vendor/image-model", prompt: "bad ratio", aspectRatio: "4:7" })).status, 400, "unadvertised aspect ratios must be rejected");
+    assert.equal((await invalidImage({ model: "openrouter:vendor/image-model", prompt: "bad quality", quality: "ultra" })).status, 400, "unadvertised qualities must be rejected");
+    assert.equal((await invalidImage({ model: "openrouter:vendor/image-model", prompt: "bad format", outputFormat: "gif" })).status, 400, "unadvertised output formats must be rejected");
+    assert.equal((await invalidImage({ model: "openrouter:vendor/image-model", prompt: "extra key", apiKey: "caller-secret" })).status, 400, "unknown request keys must be rejected");
+    assert.equal(imageRequest === null ? 0 : 1, imageRequestsBeforeInvalid, "rejected image requests must not touch upstream");
+
+    oddPcm = true;
+    const oddPcmSpeech = await fetch(`${base}/admin/api/audio/speech`, {
+      method: "POST", headers: { ...dashboardHeaders, "content-type": "application/json" },
+      body: JSON.stringify({ model: "openrouter:black-forest-labs/flux-speech:free", input: "odd pcm probe", responseFormat: "pcm" })
+    });
+    assert.equal(oddPcmSpeech.status, 502, "odd-length PCM from the speech provider must fail closed");
+    const oddPcmError = await oddPcmSpeech.json() as { error: string };
+    assert.match(oddPcmError.error ?? "", /invalid PCM/i);
+    oddPcm = false;
 
     async function until(check: () => boolean, timeoutMs = 3_000): Promise<void> {
       const start = Date.now();

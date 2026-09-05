@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { MetricsStore } from "../../src/metrics.js";
+import type { RequestRecord } from "../../src/types.js";
 
 test("persisted metrics normalize malformed numeric fields and discard invalid records", async () => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "routetok-metrics-normalize-"));
@@ -66,7 +67,7 @@ test("record persistence is debounced and coalesced under mock timers", async (t
       ttftMs: null as number | null,
       generationDurationMs: null as number | null,
       outputTokensPerSecond: null as number | null,
-      attempts: [] as Array<{ model: string; status: number | null; durationMs: number; outcome: string; error: string | null; providerId: string }>,
+      attempts: [] as RequestRecord["attempts"],
       usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, costCny: 0, estimatedCostUsd: 0 },
       error: null as string | null,
       trafficClass: "client" as const
