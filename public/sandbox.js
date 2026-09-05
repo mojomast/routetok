@@ -61,28 +61,64 @@ function scheduleLoopRender() {
   setTimeout(() => { loopRenderScheduled = false; if (state.mode === "chat" && state.conversation) renderConversation(); }, 0);
 }
 
+let dbPromise = null;
 function openDb() {
-  return new Promise((resolve, reject) => {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => request.result.createObjectStore(STORE, { keyPath: "id" });
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      db.onversionchange = () => { db.close(); dbPromise = null; };
+      resolve(db);
+    };
+    request.onerror = () => { dbPromise = null; reject(request.error); };
+    request.onblocked = () => { dbPromise = null; reject(request.error); };
   });
+  return dbPromise;
 }
 async function dbAll() { const db = await openDb(); return new Promise((resolve, reject) => { const request = db.transaction(STORE).objectStore(STORE).getAll(); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); }
 async function dbPut(record) { const db = await openDb(); return new Promise((resolve, reject) => { const request = db.transaction(STORE, "readwrite").objectStore(STORE).put(record); request.onsuccess = () => resolve(); request.onerror = () => reject(request.error); }); }
 async function dbDelete(id) { const db = await openDb(); return new Promise((resolve, reject) => { const request = db.transaction(STORE, "readwrite").objectStore(STORE).delete(id); request.onsuccess = () => resolve(); request.onerror = () => reject(request.error); }); }
 async function dbPutAll(records) { const db = await openDb(); return new Promise((resolve, reject) => { const transaction = db.transaction(STORE, "readwrite"); const store = transaction.objectStore(STORE); records.forEach((record) => store.put(record)); transaction.oncomplete = () => resolve(); transaction.onerror = () => reject(transaction.error); transaction.onabort = () => reject(transaction.error); }); }
+async function dbDeleteMany(ids) {
+  if (!ids.length) return;
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE, "readwrite");
+    const store = transaction.objectStore(STORE);
+    for (const id of ids) store.delete(id);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error);
+  });
+}
+let capCheckTimer = null;
+function scheduleCapCheck() {
+  if (capCheckTimer) return;
+  capCheckTimer = setTimeout(() => {
+    capCheckTimer = null;
+    enforceCaps().catch((error) => toast(`Local storage could not be trimmed: ${error.message}`));
+  }, 2_000);
+}
 async function enforceCaps() {
   const records = await dbAll();
+  const ids = [];
+  let conversationsTrimmed = false;
+  let runsTrimmed = false;
+  let suitesTrimmed = false;
   for (const [type, cap] of [["conversation", 100], ["eval-run", 30], ["eval-suite", 30]]) {
     const extras = records.filter((r) => r.type === type).sort((a, b) => String(b.updatedAt).localeCompare(String(a.updatedAt))).slice(cap);
-    await Promise.all(extras.map((r) => dbDelete(r.id)));
-    const removed = new Set(extras.map((record) => record.id));
-    extras.forEach((record) => { state.deletedIds.add(record.id); clearTimeout(state.saving.get(record.id)); state.saving.delete(record.id); });
-    if (type === "conversation") state.conversations = state.conversations.filter((record) => !removed.has(record.id));
-    if (type === "eval-run") state.runs = state.runs.filter((record) => !removed.has(record.id));
-    if (type === "eval-suite") state.suites = state.suites.filter((record) => !removed.has(record.id));
+    extras.forEach((record) => { ids.push(record.id); state.deletedIds.add(record.id); clearTimeout(state.saving.get(record.id)); state.saving.delete(record.id); });
+    if (type === "conversation" && extras.length) { conversationsTrimmed = true; state.conversations = state.conversations.filter((record) => !new Set(extras.map((entry) => entry.id)).has(record.id)); }
+    if (type === "eval-run" && extras.length) { runsTrimmed = true; state.runs = state.runs.filter((record) => !new Set(extras.map((entry) => entry.id)).has(record.id)); }
+    if (type === "eval-suite" && extras.length) { suitesTrimmed = true; state.suites = state.suites.filter((record) => !new Set(extras.map((entry) => entry.id)).has(record.id)); }
+  }
+  if (ids.length) {
+    await dbDeleteMany(ids);
+    if (conversationsTrimmed) renderLibrary();
+    if (runsTrimmed) renderEvalHistory();
+    if (suitesTrimmed) renderSuite?.();
   }
 }
 
@@ -135,8 +171,9 @@ function scratchpadState(conversation = state.conversation) { if (!conversation)
 async function saveConversation(immediate = false, conversation = state.conversation, touch = true) {
   if (!conversation || state.deletedIds.has(conversation.id)) return;
   if (touch) conversation.updatedAt = now();
-  const save = async () => { if (state.deletedIds.has(conversation.id)) return; state.saving.delete(conversation.id); await dbPut(clone(conversation)); await enforceCaps(); renderLibrary(); };
-  clearTimeout(state.saving.get(conversation.id)); if (immediate) await save(); else state.saving.set(conversation.id, setTimeout(() => save().catch((e) => toast(e.message)), 350));
+  const save = async () => { if (state.deletedIds.has(conversation.id)) return; state.saving.delete(conversation.id); await dbPut(clone(conversation)); scheduleCapCheck(); renderLibrary(); };
+  const fail = (error) => toast(`${conversation.title || "Untitled"} could not be saved locally: ${error.message}`);
+  clearTimeout(state.saving.get(conversation.id)); if (immediate) await save().catch(fail); else state.saving.set(conversation.id, setTimeout(() => save().catch(fail), 350));
 }
 async function selectConversation(id) {
   if (state.conversation?.id !== id) studioChat?.stop();
@@ -799,7 +836,7 @@ function renderEvalHistory() {
   runPicker.append(new Option("Latest run", ""));
   for (const run of state.runs) runPicker.append(new Option(`${run.suiteSnapshot?.name || "Evaluation"} · ${new Date(run.updatedAt).toLocaleString()}`, run.id));
 }
-async function saveSuite() { if (!state.suite || state.deletedIds.has(state.suite.id)) return; state.suite.updatedAt = now(); if (!state.suites.some((suite) => suite.id === state.suite.id)) state.suites.unshift(state.suite); await dbPut(clone(state.suite)); await enforceCaps(); renderEvalHistory(); }
+async function saveSuite() { if (!state.suite || state.deletedIds.has(state.suite.id)) return; state.suite.updatedAt = now(); if (!state.suites.some((suite) => suite.id === state.suite.id)) state.suites.unshift(state.suite); await dbPut(clone(state.suite)); scheduleCapCheck(); renderEvalHistory(); }
 function unwrapJson(text) { const trimmed = String(text).trim(); const match = trimmed.match(/^```(?:json)?\s*\n([\s\S]*?)\n```$/i); return match ? match[1].trim() : trimmed; }
 function jsonEqual(left, right) {
   if (Object.is(left, right)) return true;
@@ -822,7 +859,7 @@ async function runEvaluation() {
   if ((jobs.length > 20 || includesPaidOrUnknown) && !confirm(`Run ${jobs.length} model requests${includesPaidOrUnknown ? " including paid or unknown-price models" : ""}? No failed sample is retried automatically.`)) return;
   const run = { id: uid("run"), type:"eval-run", suiteId:suite.id, suiteSnapshot:snapshot, createdAt:now(), updatedAt:now(), status:"running", requested:jobs.length, completed:0, passed:0, failed:0, errored:0, samples:[] }; state.runs.unshift(run); $("run-eval").disabled=true; $("cancel-eval").hidden=false; renderEvalRun(run);
   let cursor=0; const worker=async()=>{ while(!state.evalCancelled && cursor<jobs.length){ const job=jobs[cursor++]; const controller=new AbortController();state.controllers.add(controller);renderBusyState(); let sample; try { const lane={id:uid("evalLane"),model:job.model}; const messages=[...(snapshot.systemPrompt?[{role:"system",content:snapshot.systemPrompt}]:[]),{role:"user",content:job.item.prompt}]; const result=await requestLane(lane,messages,snapshot.parameters,controller.signal); if(result.error) sample={...job,error:result.error,passed:false,content:result.content||"",metrics:result.metrics}; else sample={...job,error:null,passed:assertSample(job.item.assertion,result.content,job.item.expected||"",job.item.caseInsensitive),content:result.content,reasoning:result.reasoning,metrics:result.metrics}; } catch(error){ sample={...job,error:error.name==="AbortError"?"Cancelled":error.message,passed:false,content:"",metrics:null}; } finally {state.controllers.delete(controller);renderBusyState();} run.samples.push(sample);run.completed++;if(sample.error)run.errored++;else if(sample.passed)run.passed++;else run.failed++;renderEvalRun(run); } }; await Promise.all(Array.from({length:Math.min(4,jobs.length)},worker));
-  run.status=state.evalCancelled?"cancelled":"complete";run.updatedAt=now();await dbPut(clone(run));await enforceCaps();$("run-eval").disabled=false;$("cancel-eval").hidden=true;renderEvalHistory();renderEvalRun(run);
+  run.status=state.evalCancelled?"cancelled":"complete";run.updatedAt=now();await dbPut(clone(run));scheduleCapCheck();$("run-eval").disabled=false;$("cancel-eval").hidden=true;renderEvalHistory();renderEvalRun(run);
 }
 function renderEvalRun(run) {
   const box=$("eval-results");box.replaceChildren(); const title=document.createElement("h2");title.textContent=`${run.suiteSnapshot.name} · ${run.status}`;box.append(title);const summary=document.createElement("div");summary.className="run-summary";[["Requested",run.requested],["Completed",run.completed],["Passed",run.passed],["Failed",run.failed],["Errored",run.errored]].forEach(([l,v])=>{const d=document.createElement("div");d.className="stat";const strong=document.createElement("strong");strong.textContent=v;const span=document.createElement("span");span.textContent=l;d.append(strong,span);summary.append(d);});box.append(summary);
@@ -1216,7 +1253,7 @@ function setupFieldbookModules(){
 setupFieldbookModules();
 
 $("composer").onsubmit=(e)=>{e.preventDefault();const prompt=$("prompt").value.trim();if(prompt)sendPrompt(prompt);};$("prompt").oninput=()=>{state.conversation.draft=$("prompt").value;renderBudget();saveConversation();};
-$("new-conversation").onclick=()=>createConversation();$("duplicate-conversation").onclick=()=>createConversation(state.conversation);$("rename-conversation").onclick=()=>{const value=prompt("Conversation name",state.conversation.title);if(value?.trim()){state.conversation.title=value.trim().slice(0,120);state.conversation.titleMode="manual";saveConversation();renderAll();}};$("delete-conversation").onclick=async()=>{if(!confirm(`Delete “${state.conversation.title}”?`))return;if(state.conversation?.studio?.running)pauseStudio();const id=state.conversation.id;state.deletedIds.add(id);clearTimeout(state.saving.get(id));state.saving.delete(id);state.conversations=state.conversations.filter(c=>c.id!==id);await dbDelete(id);state.conversation=state.conversations[0]||null;if(!state.conversation)await createConversation();else{localStorage.setItem(ACTIVE_CONVERSATION_KEY,state.conversation.id);syncControls();renderAll();}};
+$("new-conversation").onclick=()=>createConversation();$("duplicate-conversation").onclick=()=>createConversation(state.conversation);$("rename-conversation").onclick=()=>{const value=prompt("Conversation name",state.conversation.title);if(value?.trim()){state.conversation.title=value.trim().slice(0,120);state.conversation.titleMode="manual";saveConversation();renderAll();}};$("delete-conversation").onclick=async()=>{if(!confirm(`Delete “${state.conversation.title}”?`))return;if(state.conversation?.studio?.running)pauseStudio();const id=state.conversation.id;state.deletedIds.add(id);clearTimeout(state.saving.get(id));state.saving.delete(id);state.conversations=state.conversations.filter(c=>c.id!==id);await dbDelete(id).catch((error)=>toast(`Local copy could not be deleted: ${error.message}`));state.conversation=state.conversations[0]||null;if(!state.conversation)await createConversation();else{localStorage.setItem(ACTIVE_CONVERSATION_KEY,state.conversation.id);syncControls();renderAll();}};
 $("conversation-search").oninput=renderLibrary;$("model-search").oninput=renderCatalog;$("free-only").onchange=renderCatalog;$("image-only").onchange=renderCatalog;$("add-lane").onclick=()=>{const c=state.conversation;if(c.lineup.length<state.maxLanes){c.lineup.push({id:uid("lane"),model:c.lineup.at(-1)?.model||state.catalog[0]?.id});saveConversation();renderLineup();renderConversation();}};
 $("scratchpad").oninput=()=>{const scratchpad=scratchpadState();scratchpad.text=$("scratchpad").value;scratchpad.revision+=1;renderScratchpadStatus();renderBudget();saveConversation();};$("scratchpad-auto-apply").onchange=()=>{scratchpadState().autoApplyRoom=$("scratchpad-auto-apply").checked;saveConversation();};$("copy-scratchpad").onclick=()=>navigator.clipboard.writeText(scratchpadState().text).then(()=>toast("Scratchpad copied"));$("download-scratchpad").onclick=()=>exportFile(`${safeName(state.conversation.title)}-scratchpad.txt`,"text/plain",scratchpadState().text);$("clear-scratchpad").onclick=()=>{if(!scratchpadState().text||confirm("Clear the shared scratchpad?")){scratchpadState().text="";scratchpadState().revision+=1;$("scratchpad").value="";renderScratchpadStatus();renderBudget();saveConversation();}};
 [["chat-personality","chatPersonality"],["system-prompt","systemPrompt"],["max-tokens","maxTokens"],["max-output-mib","maxOutputMiB"],["temperature","temperature"],["top-p","topP"]].forEach(([id,key])=>$(id).oninput=()=>{if(key==="systemPrompt"||key==="chatPersonality")state.conversation[key]=$(id).value;else state.conversation.parameters[key]=$(id).value;renderBudget();saveConversation();});$("provider-default").onchange=()=>{state.conversation.parameters.providerDefault=$("provider-default").checked;$("max-tokens").disabled=$("provider-default").checked;renderBudget();saveConversation();};$("tools-enabled").onchange=()=>{conversationTools().enabled=$("tools-enabled").checked;renderToolSettings();saveConversation();};
@@ -1240,4 +1277,4 @@ $("studio-javascript").onchange=()=>{studioState().javascriptEnabled=$("studio-j
 $("studio-snapshot").onclick=()=>{snapshotStudio();renderStudio();saveConversation();toast("Project snapshot saved")};$("studio-rollback").onclick=()=>{const studio=studioState();const snapshot=studio.snapshots.at(-1);if(!snapshot)return toast("No snapshot is available");if(!confirm(`Roll back to “${snapshot.label}”? Current unsnapshotted edits will be replaced.`))return;pauseStudio(false);studio.snapshots.pop();const before=studio.revision;studio.files=clone(snapshot.files);studio.activeFile=studio.files[snapshot.activeFile]!==undefined?snapshot.activeFile:Object.keys(studio.files)[0];studio.revision+=1;studio.nextAgent=Number.isInteger(snapshot.nextAgent)?snapshot.nextAgent:studio.nextAgent;studio.handoff=snapshot.handoff||studio.handoff;studio.failedTurn=null;studio.ledger.push({id:uid("studioLedger"),createdAt:now(),agent:"User",tool:"restore_snapshot",status:"applied",baseRevision:before,resultRevision:studio.revision,files:Object.keys(studio.files),summary:`Restored ${snapshot.label}`});renderStudio();saveConversation();toast("Rolled back to latest snapshot")};$("studio-download").onclick=()=>{const studio=studioState();exportFile(`${safeName(state.conversation.title)}-project.json`,"application/json",JSON.stringify({format:"routetok-iteration-studio",version:1,exportedAt:now(),brief:studio.brief,files:studio.files},null,2));};$("studio-reset").onclick=()=>{if(!confirm("Reset all virtual project files to the starter?"))return;pauseStudio(false);const studio=studioState();snapshotStudio("Before project reset",studio);const before=studio.revision;studio.files=clone(STUDIO_STARTER);studio.activeFile="index.html";studio.revision+=1;studio.failedTurn=null;studio.handoff=null;studio.ledger.push({id:uid("studioLedger"),createdAt:now(),agent:"User",tool:"reset_project",status:"applied",baseRevision:before,resultRevision:studio.revision,files:Object.keys(studio.files),summary:"Reset virtual project"});renderStudio();saveConversation();toast("Virtual project reset")};
 $("studio-canvas-resizer").onpointerdown=(event)=>{if(innerWidth<=900)return;const startX=event.clientX;const startWidth=state.studioCanvasWidth;$("studio-canvas-resizer").setPointerCapture(event.pointerId);$("studio-canvas-resizer").onpointermove=(move)=>setStudioCanvasWidth(startWidth+startX-move.clientX);$("studio-canvas-resizer").onpointerup=()=>{$("studio-canvas-resizer").onpointermove=null;$("studio-canvas-resizer").onpointerup=null;};};$("studio-canvas-resizer").onkeydown=(event)=>{if(event.key==="ArrowLeft"){event.preventDefault();setStudioCanvasWidth(state.studioCanvasWidth+24);}else if(event.key==="ArrowRight"){event.preventDefault();setStudioCanvasWidth(state.studioCanvasWidth-24);}else if(event.key==="Home"){event.preventDefault();setStudioCanvasWidth(320);}else if(event.key==="End"){event.preventDefault();setStudioCanvasWidth(1000);}};
 document.addEventListener("keydown",(e)=>{if(e.key==="Escape"){if(contextBroker.hasPickerOpen())contextBroker.closePicker();else if(panelManager.closeDrawer()){}else if(state.studioController)pauseStudio();else if(state.roomController)pauseRoom();else if(state.controllers.size)stopAll();else closePanels();}if((e.ctrlKey||e.metaKey)&&e.key==="Enter"&&!$("chat-view").hidden){e.preventDefault();$("composer").requestSubmit();}if((e.ctrlKey||e.metaKey)&&e.key==="Enter"&&!$("room-view").hidden){e.preventDefault();$("room-composer").requestSubmit();}if((e.ctrlKey||e.metaKey)&&e.key==="Enter"&&!$("studio-view").hidden&&document.activeElement===$("studio-chat-draft")){e.preventDefault();$("studio-chat-composer").requestSubmit();}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="n"){e.preventDefault();createConversation();}if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="k"){e.preventDefault();closePanels();$("library").classList.add("open");$("toggle-library").setAttribute("aria-expanded","true");$("conversation-search").focus();}});
-window.addEventListener("pagehide",()=>{studioChat?.stop();if(state.conversation){if(state.conversation.studio)state.conversation.studio.running=false;void dbPut(clone(state.conversation));}state.studioController?.abort();state.controllers.forEach(c=>c.abort());state.imageController?.abort();state.imageUrls.forEach((url)=>URL.revokeObjectURL(url));});setScratchpadWidth(state.scratchpadWidth);setStudioCanvasWidth(state.studioCanvasWidth);initWithShowcases();
+window.addEventListener("pagehide",()=>{studioChat?.stop();if(state.conversation){if(state.conversation.studio)state.conversation.studio.running=false;void dbPut(clone(state.conversation)).catch(()=>{});}state.studioController?.abort();state.controllers.forEach(c=>c.abort());state.imageController?.abort();state.imageUrls.forEach((url)=>URL.revokeObjectURL(url));});setScratchpadWidth(state.scratchpadWidth);setStudioCanvasWidth(state.studioCanvasWidth);initWithShowcases();
