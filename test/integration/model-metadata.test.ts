@@ -213,10 +213,26 @@ test("model metadata is explicit, compatible, complete, and locally sourced", as
     assert.equal(entries.get("local-cascade")?.context_window_tokens, null);
     assert.equal(entries.get("local-cascade")?.capabilities.tools, null);
 
-    const status = await fetch(`${base}/admin/api/status`, { headers: dashboardHeaders }).then((response) => response.json()) as { catalog: { models: Array<Record<string, any>> } };
-    const statusRich = status.catalog.models.find((model) => model.id === "openrouter:vendor/rich");
+    const status = await fetch(`${base}/admin/api/status`, { headers: dashboardHeaders }).then((response) => response.json()) as {
+      catalog: { revision: number; modelCount: number; models?: Array<Record<string, any>> }
+    };
+    assert.ok(status.catalog.revision > 0);
+    assert.ok(status.catalog.modelCount > 0);
+    assert.equal(status.catalog.models, undefined, "the status embed must not carry the full catalog");
+
+    const catalogFetch = await fetch(`${base}/admin/api/catalog`, { headers: dashboardHeaders }) as Response;
+    const catalogPayload = await catalogFetch.json() as { revision: number; models: Array<Record<string, any>> };
+    assert.ok(catalogFetch.headers.get("etag")?.includes(String(catalogPayload.revision)));
+    assert.equal(catalogPayload.revision, status.catalog.revision);
+    const statusRich = catalogPayload.models.find((model) => model.id === "openrouter:vendor/rich");
     assert.equal(statusRich?.metadataSource, "provider");
     assert.equal(statusRich?.pricing.unit, "per_million_tokens");
+
+    const etag = catalogFetch.headers.get("etag");
+    const conditionalHeaders: Record<string, string> = { ...dashboardHeaders };
+    if (etag) conditionalHeaders["if-none-match"] = etag;
+    const notModified = await fetch(`${base}/admin/api/catalog`, { headers: conditionalHeaders });
+    assert.equal(notModified.status, 304, "an unchanged catalog revision must answer 304");
 
     const sandbox = await fetch(`${base}/admin/api/sandbox/catalog`, { headers: dashboardHeaders }).then((response) => response.json()) as { models: Array<Record<string, any>> };
     const sandboxRich = sandbox.models.find((model) => model.id === "openrouter:vendor/rich");

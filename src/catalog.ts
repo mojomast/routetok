@@ -373,6 +373,7 @@ function deepFreezeModel(model: CatalogModel): CatalogModel {
 
 export class CatalogService {
   private models: readonly CatalogModel[] = [];
+  private revisionValue = 0;
   private readonly providers: ProviderRuntime[];
   private readonly states = new Map<ProviderId, ProviderCatalogState>();
   private refreshPromise: Promise<CatalogModel[]> | null = null;
@@ -401,6 +402,10 @@ export class CatalogService {
 
   resolve(model: string, protocol?: Protocol): CatalogModel | undefined {
     return this.models.find((entry) => entry.id === model && (!protocol || entry.protocols.includes(protocol)));
+  }
+
+  revision(): number {
+    return this.revisionValue;
   }
 
   status(): {
@@ -547,6 +552,7 @@ export class CatalogService {
   }
 
   private rebuild(): void {
+    this.revisionValue += 1;
     this.models = Object.freeze([...this.states.values()].flatMap((state) => state.models).map(deepFreezeModel));
   }
 }

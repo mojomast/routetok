@@ -61,6 +61,8 @@ const state = {
   historyLastFetch: 0,
   historyUnavailable: false,
   liveVisuals: new Map(),
+  catalog: [],
+  catalogRevision: null,
   metricAnimations: new Map(),
   liveTimer: null,
   liveUpdatesAvailable: false,
@@ -1342,7 +1344,7 @@ function syncDraftInputs() {
 }
 
 function catalogModels() {
-  return Array.isArray(state.status?.catalog?.models) ? state.status.catalog.models : [];
+  return Array.isArray(state.catalog) ? state.catalog : [];
 }
 
 function catalogProviders() {
@@ -1938,7 +1940,7 @@ function render(payload) {
   byId("failure-count").textContent = totals.requests
     ? `${compactNumber(totals.failures)} / ${(totals.failures / totals.requests * 100).toFixed(1)}%`
     : "0";
-  byId("model-count").textContent = String(payload.catalog.models.length);
+  byId("model-count").textContent = String(Array.isArray(state.catalog) ? state.catalog.length : 0);
   byId("catalog-source").textContent = payload.catalog.lastError
     ? "catalog sync error"
     : `${payload.catalog.source} data`;
@@ -1954,7 +1956,7 @@ function render(payload) {
       ? new Date(payload.catalog.lastRefresh).toLocaleString()
       : "NOT YET SYNCED";
 
-  renderHealth(payload.catalog, payload.metrics, payload.config);
+  renderHealth({ ...payload.catalog, models: Array.isArray(state.catalog) ? state.catalog : [] }, payload.metrics, payload.config);
   renderLiveTelemetry(inFlight, payload.metrics.recent || []);
   renderRecent(payload.metrics.recent || []);
   if (!state.configDirty) fillConfig(payload.config);
@@ -3138,6 +3140,7 @@ async function load(silent = false) {
   state.statusLoadBusy = true;
   try {
     const payload = await api("/admin/api/status");
+    await syncCatalog(payload).catch(() => {});
     render(payload);
     state.lastSuccessfulLoad = Date.now();
     setConnectionState(document.visibilityState === "visible" ? "online" : "paused");
@@ -3154,6 +3157,14 @@ async function load(silent = false) {
   } finally {
     state.statusLoadBusy = false;
   }
+}
+
+async function syncCatalog(payload) {
+  const revision = payload?.catalog?.revision ?? null;
+  if (!revision || revision === state.catalogRevision) return;
+  const catalogPayload = await api("/admin/api/catalog");
+  state.catalog = Array.isArray(catalogPayload.models) ? catalogPayload.models : [];
+  state.catalogRevision = revision;
 }
 
 async function refreshDashboard() {
@@ -4444,7 +4455,7 @@ motionMedia.addEventListener("change", () => {
 document.addEventListener("routetok:preferenceschange", () => {
   if (state.status && byId("history-range")) {
     renderHistory();
-    renderHealth(state.status.catalog, state.status.metrics, state.status.config);
+    renderHealth({ ...state.status.catalog, models: Array.isArray(state.catalog) ? state.catalog : [] }, state.status.metrics, state.status.config);
   }
 });
 

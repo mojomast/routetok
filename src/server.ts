@@ -1344,6 +1344,22 @@ const server = createServer(
         return;
       }
 
+      if (request.method === "GET" && pathname === "/admin/api/catalog") {
+        const etag = `"${catalog.revision()}"`;
+        response.setHeader("etag", etag);
+        if (request.headers["if-none-match"] === etag) {
+          response.writeHead(304);
+          response.end();
+          return;
+        }
+        json(response, 200, {
+          ...catalog.status(),
+          revision: catalog.revision(),
+          models: catalog.getModels()
+        });
+        return;
+      }
+
       if (request.method === "GET" && pathname === "/admin/api/status") {
         json(response, 200, {
           runtime: {
@@ -1361,7 +1377,8 @@ const server = createServer(
           configRevision: config.revision(),
           catalog: {
             ...catalog.status(),
-            models: catalog.getModels()
+            revision: catalog.revision(),
+            modelCount: catalog.getModels().length
           },
           providers: providerStatus(),
           metrics: metrics.snapshot(router.snapshot())

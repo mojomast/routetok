@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The dashboard status poll no longer re-downloads the full model catalog: `GET /admin/api/status` now carries only catalog discovery metadata plus a monotonic `revision` and `modelCount`, while the new authenticated `GET /admin/api/catalog` serves the full model list under an `etag` and answers `304` to matching `If-None-Match` requests; the dashboard fetches the catalog only when its stored revision changes (steady-state polls dropped from ~570 KB to ~85 KB per tab).
 - Client-path in-flight shedding is now configurable via `maxInflightRequests` (default 64): concurrent client `/v1` requests beyond the bound receive a terminal `429` with `retry-after: 1` instead of stacking on upstream providers; internal Fieldbook/sandbox lanes are exempt.
 - Virtual routes (`auto`/`best`/`free` and named custom cascades) now continue on upstream `429` while a different-provider candidate remains in the chain; explicit routes stay strict, and an exhausted chain surfaces a terminal `429` with the upstream `retry-after` preserved.
 - Candidate-chain bookkeeping is now index-based rather than attempt-count-based, and the most recent upstream `retry-after` is forwarded on a terminal `fallback_exhausted` response, so a rate limit observed mid-chain is never dropped when the chain ends in transient failures or when a candidate was skipped.

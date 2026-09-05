@@ -85,7 +85,8 @@ Admin endpoints under `/admin/api/` require `DASHBOARD_TOKEN` when configured. T
 
 Model-bearing admin responses expose corresponding normalized metadata fields, but their scopes and compatibility shapes differ from `/v1/models`:
 
-- `GET /admin/api/status` is the raw operational control-plane view. It can describe normalized catalog and routing state, including routes that are not advertised to proxy clients, together with safe health and configuration context; optional unknown catalog collections can be omitted.
+- `GET /admin/api/status` is the raw operational control-plane view. It can describe normalized catalog and routing state, including routes that are not advertised to proxy clients, together with safe health and configuration context; optional unknown catalog collections can be omitted. Its `catalog` object carries discovery metadata plus `revision` (a monotonic catalog revision) and `modelCount`, but not the full model list — the dashboard polls this endpoint frequently without re-downloading the catalog.
+- `GET /admin/api/catalog` returns the full catalog (`models` plus discovery metadata) under an `etag` derived from the same monotonic `revision`; a matching `If-None-Match` request answers `304` without a body. Clients should fetch it only when the `revision` they last stored differs from the one in `/admin/api/status`.
 - `GET /admin/api/sandbox/catalog` is the Fieldbook selection view. It contains only models eligible for the authenticated sandbox's text workflows and includes sandbox-specific presentation or eligibility fields; unknown collections are returned as `null`.
 - `GET /admin/api/images/capabilities` is the image-generation view. It contains only currently eligible image-output models and generation options, not the text proxy catalog; unknown collections are returned as `null`.
 
