@@ -112,3 +112,24 @@ test("inspector refuses an unterminated event past the pending-buffer cap", () =
   assert.ok(overflowed, "an unterminated event beyond ~4 MiB must throw");
   assert.match(overflowed?.message ?? "", /SSE event exceeded/);
 });
+
+test("unknown Anthropic event types are dropped and logged once per type", (t) => {
+  const warns: string[] = [];
+  t.mock.method(console, "warn", (message: unknown) => { warns.push(String(message)); });
+
+  const wire = (type: string) => `event: ${type}\ndata: ${JSON.stringify({ type, x: 1 })}\n\n`;
+
+  const first = new StreamSanitizer("anthropic", "/v1/messages", "m");
+  assert.equal(first.push(Buffer.from(wire("message_research_start"))).length, 0);
+  assert.equal(first.push(Buffer.from(wire("message_research_start"))).length, 0);
+
+  const second = new StreamSanitizer("anthropic", "/v1/messages", "m");
+  assert.equal(second.push(Buffer.from(wire("message_research_start"))).length, 0);
+
+  assert.equal(warns.length, 1, "the first drop of a type warns exactly once across streams");
+  assert.match(warns[0] ?? "", /message_research_start/);
+
+  assert.equal(second.push(Buffer.from(wire("message_another_new_type"))).length, 0);
+  assert.equal(warns.length, 2, "a different unknown type warns again");
+  assert.match(warns[1] ?? "", /message_another_new_type/);
+});

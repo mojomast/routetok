@@ -610,6 +610,18 @@ function sseFields(block: string): { event: string; data: string } {
   };
 }
 
+const droppedAnthropicEventCounts = new Map<string, number>();
+
+function recordDroppedAnthropicEvent(type: string): void {
+  const seen = (droppedAnthropicEventCounts.get(type) ?? 0) + 1;
+  droppedAnthropicEventCounts.set(type, seen);
+  if (seen === 1) {
+    console.warn(
+      `Dropping unknown Anthropic stream event type "${type}"; new Anthropic event types stay invisible until allowlisted`
+    );
+  }
+}
+
 export class StreamSanitizer {
   private readonly decoder = new TextDecoder();
   private pending = "";
@@ -689,7 +701,10 @@ export class StreamSanitizer {
       "ping",
       "error"
     ]);
-    if (!allowedTypes.has(type)) return [];
+    if (!allowedTypes.has(type)) {
+      if (type) recordDroppedAnthropicEvent(type);
+      return [];
+    }
     if (type === "message_start" && value.message && typeof value.message === "object") {
       (value.message as Record<string, unknown>).model = this.model;
     }
