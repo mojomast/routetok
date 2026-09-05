@@ -1208,6 +1208,9 @@ const server = createServer(
 
     if (request.method === "GET" && pathname === "/v1/models") {
       const protocol: Protocol = request.headers["anthropic-version"] ? "anthropic" : "openai";
+      if (!proxyApiKey && !clientApiKeys.hasKeys() && !browserOriginAllowed(request)) {
+        return json(response, 403, { error: "Cross-origin access is not allowed" });
+      }
       if (!inferenceAuthorized(request)) return unauthorized(response, protocol);
       const includes = url.searchParams.getAll("include");
       if (includes.length > 1 || (includes.length === 1 && includes[0] !== "routetok")) {
@@ -1257,6 +1260,7 @@ const server = createServer(
     }
 
     if (request.method === "GET" && pathname === "/metrics") {
+      if (!dashboardToken && !browserOriginAllowed(request)) return json(response, 403, { error: "Cross-origin access is not allowed" });
       if (!dashboardAuthorized(request)) return json(response, 401, { error: "Unauthorized" });
       const body = metrics.prometheus(router.snapshot());
       response.writeHead(200, {

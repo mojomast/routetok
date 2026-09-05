@@ -5,6 +5,7 @@ RouteTok is designed for a trusted single-user host and defaults to loopback.
 ## Boundaries
 
 - Set both `PROXY_API_KEY` and `DASHBOARD_TOKEN` before network exposure.
+- The no-credential fallback binds service surfaces to loopback connections and additionally rejects cross-origin browser requests: while a service credential is unset, `GET /v1/models`, `/v1` inference POSTs, `/admin/api/*`, and `GET /metrics` answer `403` to any `Origin` header that is not the loopback service's own origin, so web pages from other origins cannot read or drive the fallback surface. With credentials configured the `Origin` header is ignored and key checks govern.
 - Provider keys are replaced server-side and never accepted from inference callers.
 - Managed proxy client keys are generated with high entropy, shown once, and persisted only as SHA-256 digests. Individual revocation is immediate.
 - Dashboard key ingress is write-only and persists plaintext under owner-only permissions.
