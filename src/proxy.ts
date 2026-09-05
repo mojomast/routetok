@@ -703,6 +703,27 @@ function hasSemanticValue(value: unknown): boolean {
   return Boolean(value && typeof value === "object" && Object.keys(value).length > 0);
 }
 
+const OUTPUT_METADATA_KEYS = new Set([
+  "type",
+  "index",
+  "id",
+  "item_id",
+  "call_id",
+  "response_id",
+  "previous_item_id",
+  "sequence_number",
+  "role",
+  "status",
+  "model",
+  "logprobs"
+]);
+
+function hasOutputPayload(value: Record<string, unknown>): boolean {
+  return Object.entries(value).some(
+    ([key, entry]) => !OUTPUT_METADATA_KEYS.has(key) && hasSemanticValue(entry)
+  );
+}
+
 export class StreamInspector {
   private readonly decoder = new TextDecoder();
   private pending = "";
@@ -774,8 +795,7 @@ export class StreamInspector {
         const block = value.content_block && typeof value.content_block === "object"
           ? value.content_block as Record<string, unknown>
           : {};
-        this.meaningful ||= block.type === "tool_use" ||
-          hasSemanticValue(block.text) || hasSemanticValue(block.thinking) || hasSemanticValue(block.data);
+        this.meaningful ||= block.type === "tool_use" || hasOutputPayload(block);
         this.captureText(block.text);
         this.captureText(block.thinking);
       }
@@ -783,13 +803,7 @@ export class StreamInspector {
         const delta = value.delta && typeof value.delta === "object"
           ? value.delta as Record<string, unknown>
           : {};
-        this.meaningful ||= [
-          delta.text,
-          delta.partial_json,
-          delta.thinking,
-          delta.signature,
-          delta.data
-        ].some(hasSemanticValue);
+        this.meaningful ||= hasOutputPayload(delta);
         this.captureText(delta.text);
         this.captureText(delta.thinking);
       }
@@ -802,25 +816,19 @@ export class StreamInspector {
         const delta = choiceObject.delta && typeof choiceObject.delta === "object"
           ? choiceObject.delta as Record<string, unknown>
           : {};
-        this.meaningful ||= [
-          delta.content,
-          delta.reasoning,
-          delta.reasoning_content,
-          delta.refusal,
-          delta.tool_calls,
-          delta.function_call
-        ].some(hasSemanticValue);
+        this.meaningful ||= hasOutputPayload(delta);
         this.captureText(delta.content);
         this.captureText(typeof delta.reasoning_content === "string" ? delta.reasoning_content : delta.reasoning);
         this.captureText(delta.refusal);
       }
       if (/\.delta$/.test(type)) {
-        this.meaningful ||= hasSemanticValue(value.delta);
+        this.meaningful ||= hasOutputPayload(value);
         if (/output_text|reasoning/i.test(type)) this.captureText(value.delta);
       }
       if (type === "response.output_item.added") {
         const item = value.item && typeof value.item === "object" ? value.item as Record<string, unknown> : {};
-        this.meaningful ||= item.type === "function_call" || item.type === "tool_call";
+        const itemType = typeof item.type === "string" ? item.type : "";
+        this.meaningful ||= itemType.endsWith("_call") || hasOutputPayload(item);
       }
       if (["response.completed", "response.failed", "response.incomplete"].includes(type)) {
         this.terminal = true;
