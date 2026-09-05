@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -41,6 +42,48 @@ test("persisted metrics normalize malformed numeric fields and discard invalid r
     assert.equal(snapshot.recent[0]?.error, null);
     assert.equal(store.history().samples[0]?.status, 0);
     assert.equal(store.history().samples[0]?.durationMs, 0);
+  } finally {
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("record persistence is debounced and coalesced under mock timers", async (t) => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "routetok-metrics-debounce-"));
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const file = path.join(dataDir, "metrics.json");
+    const store = new MetricsStore(dataDir);
+    await store.load();
+    const base = {
+      timestamp: "2026-09-05T00:00:00.000Z",
+      protocol: "openai" as const,
+      path: "/v1/chat/completions",
+      requestedModel: "m",
+      selectedModel: "m" as string | null,
+      stream: false,
+      status: 200,
+      durationMs: 1,
+      ttftMs: null as number | null,
+      generationDurationMs: null as number | null,
+      outputTokensPerSecond: null as number | null,
+      attempts: [] as Array<{ model: string; status: number | null; durationMs: number; outcome: string; error: string | null; providerId: string }>,
+      usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, costCny: 0, estimatedCostUsd: 0 },
+      error: null as string | null,
+      trafficClass: "client" as const
+    };
+    store.record({ ...base, id: "debounce-1" });
+    store.record({ ...base, id: "debounce-2" });
+    assert.equal(existsSync(file), false, "no save may fire before the debounce window");
+    await t.mock.timers.tick(500);
+    assert.equal(existsSync(file), false, "the debounce must not fire at half the window");
+    await t.mock.timers.tick(500);
+    for (let attempt = 0; attempt < 5_000 && !existsSync(file); attempt++) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    assert.equal(existsSync(file), true, "the coalesced save must persist after one debounce window");
+    const persisted = JSON.parse(readFileSync(file, "utf8"));
+    assert.equal(persisted.totals.requests, 2, "both records must be present in the single coalesced write");
+    await store.close();
   } finally {
     await rm(dataDir, { recursive: true, force: true });
   }

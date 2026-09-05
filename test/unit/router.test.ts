@@ -632,3 +632,24 @@ test("score band boundaries keep exact requests and cascade orderings untouched"
     "backup-model", "best-model", "openai-only"
   ]);
 });
+
+test("circuit open windows expire and re-open under mocked time", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"] });
+  const router = new HealthRouter();
+  const timeTravelling = { ...config, circuitFailureThreshold: 1, circuitOpenMs: 60_000 };
+  router.recordTransientFailure("openai", "best-model", timeTravelling);
+  assert.ok(!router.candidates("openai", "auto", catalog, config).includes("best-model"), "the opened circuit excludes the model");
+  await t.mock.timers.tick(59_999);
+  assert.ok(!router.candidates("openai", "auto", catalog, config).includes("best-model"), "the circuit stays open until the window expires");
+  await t.mock.timers.tick(1);
+  assert.ok(router.candidates("openai", "auto", catalog, config).includes("best-model"), "expiry admits the half-open probe");
+  router.startAttempt("openai", "best-model");
+  assert.ok(!router.candidates("openai", "auto", catalog, config).includes("best-model"), "the in-flight probe blocks concurrent admission");
+  router.finishAttempt("openai", "best-model");
+  router.recordTransientFailure("openai", "best-model", timeTravelling);
+  const reopened = router.snapshot().find((entry) => entry.model === "best-model");
+  assert.equal(reopened?.circuitState, "open");
+  assert.equal(reopened?.consecutiveFailures, 0);
+  await t.mock.timers.tick(60_000);
+  assert.ok(router.candidates("openai", "auto", catalog, config).includes("best-model"), "the re-opened window expires into a fresh probe");
+});
