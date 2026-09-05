@@ -635,7 +635,7 @@ function toolStudioPatch(args, conversation) {
   saveConversation(false, conversation);
   return { applied: true, files, revision: studio.revision, summary: String(args.summary || "Chat tool patch").slice(0, 1200) };
 }
-async function toolImageRequest(args) {
+async function toolImageRequest(args, signal) {
   const model = state.imageCatalog.find((entry) => entry.id === args.model);
   if (!model) throw new Error(`Image model is not enabled: ${String(args.model)}`);
   const prompt = String(args.prompt || "").trim();
@@ -646,6 +646,7 @@ async function toolImageRequest(args) {
   }
   const payload = await jsonFetch("/admin/api/images/generations", {
     method: "POST",
+    signal,
     body: JSON.stringify({ model: model.id, prompt, ...imageRequestOptions(model, { aspectRatio: args.aspectRatio || "auto", quality: args.quality || "auto", outputFormat: args.outputFormat || "auto" }) })
   });
   const media = [];
@@ -660,7 +661,7 @@ async function toolImageRequest(args) {
   const cost = typeof usage.cost === "number" ? ` · ${detailedUsd(usage.cost)} reported` : "";
   return { content: `Generated image (${media[0].mediaType}); preview is ephemeral and disappears on reload${cost}.`, media };
 }
-async function executeChatTool(name, args, conversation) {
+async function executeChatTool(name, args, conversation, signal) {
   switch (name) {
     case "time_now": return JSON.stringify({ now: now() });
     case "catalog_lookup": return JSON.stringify(toolCatalogLookup(args));
@@ -670,7 +671,7 @@ async function executeChatTool(name, args, conversation) {
     case "scratchpad_read": { const scratchpad = scratchpadState(conversation); return JSON.stringify({ revision: scratchpad.revision, text: scratchpad.text }); }
     case "scratchpad_write": return JSON.stringify(toolScratchpadWrite(args, conversation));
     case "studio_apply_patch": return JSON.stringify(toolStudioPatch(args, conversation));
-    case "image_request": return toolImageRequest(args);
+    case "image_request": return toolImageRequest(args, signal);
     default: throw new Error(`${name} is not a supported browser tool`);
   }
 }
@@ -708,7 +709,7 @@ async function runChatToolPrompt(conversation, turn, lane, chatTools, prompt, at
   const agent = createToolAgent({
     dispatch,
     authorize: (call) => authorizeChatTool(call, conversation),
-    execute: (name, args, context) => executeChatTool(name, args, context),
+    execute: (name, args, context, signal) => executeChatTool(name, args, context, signal),
     requestApproval: (call) => {
       result.pendingToolCall = { call, note: conversation.id };
       scheduleLoopRender();

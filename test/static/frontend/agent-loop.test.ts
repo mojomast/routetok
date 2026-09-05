@@ -115,6 +115,75 @@ test("agent loop halts on abort", async () => {
   assert.equal(outcome.status, "aborted");
 });
 
+test("an abort mid-batch stubs every unanswered call instead of dropping them", async () => {
+  const controller = new AbortController();
+  const executed: string[] = [];
+  const loop = createToolAgent({
+    dispatch: async () => result("", [
+      { id: "call_a", name: "time_now", args: {} },
+      { id: "call_b", name: "catalog_lookup", args: { query: "x" } },
+      { id: "call_c", name: "note_search", args: { query: "y" } }
+    ]),
+    authorize: (call: Record<string, unknown>) => ({ allowed: true, approval: call.id === "call_b" }),
+    execute: async (name: string) => { executed.push(name); return '{"ok":true}'; },
+    requestApproval: async () => { controller.abort(); throw Object.assign(new Error("stopped"), { name: "AbortError" }); }
+  });
+  const outcome = await loop.run({ messages: [{ role: "user", content: "go" }], tools: [], signal: controller.signal });
+  assert.equal(outcome.status, "aborted");
+  assert.deepEqual(executed, ["time_now"], "calls after the abort point must not execute");
+  for (const id of ["call_a", "call_b", "call_c"]) {
+    assert.equal(outcome.transcript.some((message: WireMessage) => message.role === "tool" && (message as { tool_call_id: string }).tool_call_id === id), true,
+      `every batch call needs a tool turn for the transcript to stay valid (${id})`);
+  }
+  assert.equal(outcome.transcript.filter((message: WireMessage) => message.role === "tool").length, 3);
+});
+
+test("a throwing authorizer aborts the run cleanly when the signal fired", async () => {
+  const controller = new AbortController();
+  const executed: string[] = [];
+  const loop = createToolAgent({
+    dispatch: async () => result("", [
+      { id: "call_d", name: "time_now", args: {} },
+      { id: "call_e", name: "note_search", args: { query: "x" } }
+    ]),
+    authorize: async () => { controller.abort(); throw Object.assign(new Error("authorization stopped"), { name: "AbortError" }); },
+    execute: async (name: string) => { executed.push(name); return "ran"; },
+    requestApproval: async () => true
+  });
+  const outcome = await loop.run({ messages: [{ role: "user", content: "go" }], tools: [], signal: controller.signal });
+  assert.equal(outcome.status, "aborted");
+  assert.deepEqual(executed, []);
+  assert.equal(outcome.transcript.filter((message: WireMessage) => message.role === "tool").length, 2);
+});
+
+test("a signal that fires between authorization and execution cancels the pending call", async () => {
+  const controller = new AbortController();
+  const executed: string[] = [];
+  const loop = createToolAgent({
+    dispatch: async () => result("", [{ id: "call_f", name: "time_now", args: {} }]),
+    authorize: async () => { controller.abort(); return { allowed: true, approval: false }; },
+    execute: async (name: string) => { executed.push(name); return "ran"; },
+    requestApproval: async () => true
+  });
+  const outcome = await loop.run({ messages: [{ role: "user", content: "go" }], tools: [], signal: controller.signal });
+  assert.equal(outcome.status, "aborted");
+  assert.deepEqual(executed, [], "auto-approved calls must not execute after an abort");
+  assert.equal(outcome.transcript.some((message: WireMessage) => message.role === "tool" && /stopped before this tool call/.test(String(message.content))), true);
+});
+
+test("execute receives the abort signal as its fourth argument", async () => {
+  const controller = new AbortController();
+  let receivedSignal: AbortSignal | null = null;
+  const loop = createToolAgent({
+    dispatch: async () => result("", [{ id: "call_g", name: "time_now", args: {} }]),
+    authorize: () => ({ allowed: true, approval: false }),
+    execute: async (_name: string, _args: unknown, _context: unknown, signal?: AbortSignal) => { receivedSignal = signal ?? null; return '{"ok":true}'; },
+    requestApproval: async () => true
+  });
+  await loop.run({ messages: [{ role: "user", content: "go" }], tools: [], signal: controller.signal });
+  assert.equal(receivedSignal, controller.signal);
+});
+
 test("tool registry normalizes per-note policy and classifies every declaration", async () => {
   assert.equal(DEFAULT_MAX_TOOL_TURNS, 8);
   assert.equal(TOOL_DEFINITIONS.length, 9);

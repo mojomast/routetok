@@ -66,9 +66,30 @@ export function createToolAgent({ dispatch, authorize, execute, requestApproval,
       }
       appendTurn(transcript, { role: "assistant", content, tool_calls: calls.map(callToWire) });
       record({ step: "model", content, toolCalls: calls.map(callToWire), metrics });
-      for (const call of calls) {
+      for (let callIndex = 0; callIndex < calls.length; callIndex++) {
+        const call = calls[callIndex];
         pendingCalls.length = 0;
-        const decision = await authorize(call, context);
+        const abortBatch = () => {
+          for (let index = callIndex; index < calls.length; index++) pendingCalls.push(calls[index]);
+          status = "aborted";
+        };
+        let decision;
+        try {
+          decision = await authorize(call, context);
+        } catch (authorizeError) {
+          if (signal?.aborted || authorizeError?.name === "AbortError") {
+            abortBatch();
+            break;
+          }
+          const reason = authorizeError?.message || `${call.name} could not be authorized`;
+          appendTurn(transcript, { role: "tool", tool_call_id: call.id, content: reason, is_error: true });
+          record({ step: "result", call, content: reason, isError: true });
+          continue;
+        }
+        if (signal?.aborted) {
+          abortBatch();
+          break;
+        }
         if (!decision || decision.allowed === false) {
           const reason = decision?.reason || `${call.name} is not allowed in this note`;
           appendTurn(transcript, { role: "tool", tool_call_id: call.id, content: reason, is_error: true });
@@ -80,9 +101,8 @@ export function createToolAgent({ dispatch, authorize, execute, requestApproval,
           try {
             approved = await requestApproval(call, context);
           } catch (approvalError) {
-            if (signal?.aborted) {
-              pendingCalls.push(call);
-              status = "aborted";
+            if (signal?.aborted || approvalError?.name === "AbortError") {
+              abortBatch();
               break;
             }
             const reason = approvalError?.message || "Approval was not completed";
@@ -100,11 +120,15 @@ export function createToolAgent({ dispatch, authorize, execute, requestApproval,
         } else {
           record({ step: "approval", call, approved: true, automatic: true });
         }
+        if (signal?.aborted) {
+          abortBatch();
+          break;
+        }
         let resultContent;
         let isError = false;
         let media = null;
         try {
-          const executed = await execute(call.name, call.args || {}, context);
+          const executed = await execute(call.name, call.args || {}, context, signal);
           if (typeof executed === "string") {
             resultContent = executed;
           } else if (executed && typeof executed === "object") {
@@ -114,6 +138,10 @@ export function createToolAgent({ dispatch, authorize, execute, requestApproval,
             resultContent = String(executed);
           }
         } catch (executeError) {
+          if (signal?.aborted || executeError?.name === "AbortError") {
+            abortBatch();
+            break;
+          }
           isError = true;
           resultContent = executeError?.message || String(executeError);
         }
