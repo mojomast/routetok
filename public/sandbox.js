@@ -32,7 +32,17 @@ const STUDIO_STARTER = Object.freeze({
   "app.js": `const button = document.querySelector("#hello");\nconst message = document.querySelector("#message");\nbutton?.addEventListener("click", () => {\n  message.textContent = "The next iteration starts with one clear choice.";\n});\n`
 });
 
-const uid = (prefix) => `${prefix}_${Date.now().toString(36)}_${crypto.randomUUID().slice(0, 8)}`;
+function randomUuid() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+const uid = (prefix) => `${prefix}_${Date.now().toString(36)}_${randomUuid().slice(0, 8)}`;
 const now = () => new Date().toISOString();
 const clone = (value) => structuredClone(value);
 const toastQueue = [];

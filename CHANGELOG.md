@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The dashboard and Fieldbook no longer depend on `crypto.randomUUID`: both bundles generate v4 ids through `crypto.getRandomValues` (available in every context) when the secure-context-only `randomUUID` is absent, so the UI boots over plain-HTTP origins such as a Tailscale address instead of throwing on first id creation. Both HTML entries also declare an empty inline favicon to silence `/favicon.ico` 404s.
+
 - AgentRouter upstream calls now present as the opencode client: a genuine incoming `opencode/*` user-agent is preserved, while any foreign or missing client user-agent is replaced with the opencode identifier before reaching `agentrouter` (the gateway answers `unauthorized_client` to unrecognized clients). Other providers keep the incoming user-agent with the `routetok/0.1` fallback.
 
 - The Fieldbook workspace column no longer enforces a 25rem floor in the base three-column shell, so the settings rail stays fully visible down to the 901 px breakpoint instead of being pushed offscreen between 901 and ~976 px; the scratchpad-closed wide-shell floor is unchanged.

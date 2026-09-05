@@ -6,12 +6,22 @@ const AUDIO_MAX_MS = 3 * 60 * 1000;
 const DEFAULT_TTS_MODEL = "openrouter:deepgram/flux-tts:free";
 const DEFAULT_TTS_VOICE = "flux-alexis-en";
 
+function randomUuid() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 function createArenaWorkspace(mode, saved = {}) {
   const parameters = saved.parameters && typeof saved.parameters === "object" ? saved.parameters : {};
   return {
     mode,
     turns: [],
-    runId: typeof saved.runId === "string" ? saved.runId : crypto.randomUUID(),
+    runId: typeof saved.runId === "string" ? saved.runId : randomUuid(),
     draft: typeof saved.draft === "string" ? saved.draft : "",
     selectedModels: new Set(Array.isArray(saved.selectedModels) ? saved.selectedModels.slice(0, 4) : []),
     modelLineup: Array.isArray(saved.modelLineup) ? saved.modelLineup.filter((model) => typeof model === "string").slice(0, 4) : [],
@@ -2906,7 +2916,7 @@ async function openSavedRun(id) {
   if (workspace.busy) return notify("Support is still running. Stop it before opening another saved run.");
   stopTts();
   setSandboxMode("diagnose", true);
-  workspace.runId = run.mode === "diagnose" ? run.id : crypto.randomUUID();
+  workspace.runId = run.mode === "diagnose" ? run.id : randomUuid();
   workspace.turns = structuredClone(run.turns || []);
   workspace.selectedModels = new Set((run.models || []).slice(0, 4));
   workspace.modelLineup = (run.modelLineup || run.models || []).filter((model) => typeof model === "string").slice(0, 4);
