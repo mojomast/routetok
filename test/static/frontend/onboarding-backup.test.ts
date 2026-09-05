@@ -137,3 +137,23 @@ test("fieldbook backup warns about origin-bound storage with namespaced keys", a
   assert.match(script, /docs\/troubleshooting\.md#fieldbook-state-looks-stale/);
   assert.doesNotMatch(script, /routetok-dashboard-token/);
 });
+
+test("fieldbook requests persistent storage once and surfaces grant state beside the quota meter", async () => {
+  const [html, fieldbook, backup] = await Promise.all([
+    readFile("public/sandbox.html", "utf8"),
+    readFile(files.fieldbook, "utf8"),
+    readFile(files.backup, "utf8")
+  ]);
+  assert.match(html, /id="storage-status"/);
+  assert.match(html, /id="storage-meter"/);
+  assert.match(html, /id="storage-state"/);
+  assert.match(fieldbook, /navigator\.storage/);
+  assert.match(fieldbook, /storage\.persist\(\)/, "the Fieldbook must request persistent storage");
+  assert.match(fieldbook, /storagePersisted/, "the grant result must be remembered");
+  assert.match(fieldbook, /refreshStorageStatus\(\)/, "the quota meter must refresh after init");
+  assert.match(fieldbook, /estimateQuota/, "the meter must read the backup module's quota estimate");
+  assert.match(fieldbook, /storagePersisted\s*===\s*true/, "granted state must be phrased distinctly");
+  assert.match(fieldbook, /storagePersisted\s*===\s*false/, "denied state must be phrased distinctly");
+  assert.match(backup, /async function estimateQuota\(\)/);
+});
+

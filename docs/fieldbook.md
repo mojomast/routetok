@@ -94,6 +94,7 @@ Chat, Room, and Studio each provide a setup-only Roster Architect. A catalog-con
 ## Storage And Limits
 
 - Browser state: `routetok-model-fieldbook` IndexedDB
+- The Fieldbook requests the [Persistent Storage](https://developer.mozilla.org/en-US/docs/Web/API/StorageManager/persist) grant once at startup so the browser keeps the database under storage pressure. The library sidebar shows a storage meter plus the grant state (granted, denied, or unsupported); a denied grant means the browser may evict the database when space runs low — export JSON backups regularly in that case.
 - Server conversation window: at most 40 messages after client-side bounding
 - Studio files: safe virtual paths and bounded file count/project size
 - Studio snapshots: latest 30

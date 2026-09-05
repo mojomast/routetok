@@ -37,6 +37,10 @@
           <button id="import-json" type="button">Import</button><input id="import-file" type="file" accept="application/json" hidden>
           <button id="export-json" type="button">JSON</button><button id="export-markdown" type="button">Markdown</button>
         </div>
+        <div class="library-storage" id="storage-status" hidden>
+          <meter id="storage-meter" min="0" max="100" value="0" aria-label="Fieldbook storage usage"></meter>
+          <span id="storage-state" class="muted">Storage status</span>
+        </div>
       </aside>
 
       <main id="workspace" class="workspace" tabindex="-1">
