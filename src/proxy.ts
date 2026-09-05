@@ -17,6 +17,7 @@ import type {
 
 const MAX_REQUEST_BYTES = 16 * 1024 * 1024;
 const MAX_PRESTREAM_BYTES = 256 * 1024;
+const MAX_SSE_PENDING_BYTES = 4 * 1024 * 1024;
 const MAX_JSON_RESPONSE_BYTES = 64 * 1024 * 1024;
 const MAX_ERROR_RESPONSE_BYTES = 8 * 1024 * 1024;
 const MAX_RETAINED_REQUEST_BYTES = 2 * 1024 * 1024;
@@ -621,6 +622,9 @@ export class StreamSanitizer {
 
   push(chunk: Uint8Array): Uint8Array[] {
     this.pending += this.decoder.decode(chunk, { stream: true });
+    if (this.pending.length > MAX_SSE_PENDING_BYTES) {
+      throw new Error("upstream SSE event exceeded the 4 MiB pending buffer");
+    }
     const { blocks, remainder } = streamEventBlocks(this.pending);
     this.pending = remainder;
     return blocks.flatMap((block) => this.sanitize(block));
@@ -720,6 +724,9 @@ export class StreamInspector {
 
   push(chunk: Uint8Array): void {
     this.pending += this.decoder.decode(chunk, { stream: true });
+    if (this.pending.length > MAX_SSE_PENDING_BYTES) {
+      throw new Error("upstream SSE event exceeded the 4 MiB pending buffer");
+    }
     const { blocks, remainder } = streamEventBlocks(this.pending);
     this.pending = remainder;
     for (const block of blocks) this.inspectBlock(block);
@@ -941,6 +948,7 @@ type StreamErrorReason = "idle_timeout" | "deadline" | "reader_abort" | "upstrea
 function streamErrorReason(message: string): StreamErrorReason {
   if (message.includes("idle")) return "idle_timeout";
   if (message.includes("deadline")) return "deadline";
+  if (message.includes("SSE event exceeded")) return "upstream_error";
   return "reader_abort";
 }
 

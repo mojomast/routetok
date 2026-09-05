@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { StreamSanitizer } from "../../src/proxy.js";
+import { StreamInspector, StreamSanitizer } from "../../src/proxy.js";
 
 function run(protocol: "openai" | "anthropic", path: string, model: string, wire: string): string {
   const sanitizer = new StreamSanitizer(protocol, path, model);
@@ -81,4 +81,34 @@ test("error frames on the responses wire are relayed and rewritten inside a nest
   ].join("\n")));
   assert.equal(failedEvents[0]?.event, "response.failed");
   assert.equal((failedEvents[0]?.data?.response as Record<string, unknown>)?.model, "routed-model");
+});
+
+test("sanitizer refuses an unterminated event past the pending-buffer cap", () => {
+  const sanitizer = new StreamSanitizer("openai", "/v1/chat/completions", "routed-model");
+  const chunk = Buffer.from(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "x".repeat(64 * 1024) } }] })}`);
+  const secondChunk = Buffer.from("x".repeat(64 * 1024));
+  assert.doesNotThrow(() => sanitizer.push(chunk));
+  let overflowed: Error | null = null;
+  try {
+    while (true) sanitizer.push(secondChunk);
+  } catch (error) {
+    overflowed = error as Error;
+  }
+  assert.ok(overflowed, "an unterminated event beyond ~4 MiB must throw");
+  assert.match(overflowed?.message ?? "", /SSE event exceeded/);
+  assert.ok(sanitizer.finish().length === 0, "the terminal flush must not emit the oversized tail");
+});
+
+test("inspector refuses an unterminated event past the pending-buffer cap", () => {
+  const inspector = new StreamInspector("openai");
+  const chunk = Buffer.from(`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "x".repeat(64 * 1024) } }] })}`);
+  assert.doesNotThrow(() => inspector.push(chunk));
+  let overflowed: Error | null = null;
+  try {
+    while (true) inspector.push(Buffer.from("x".repeat(64 * 1024)));
+  } catch (error) {
+    overflowed = error as Error;
+  }
+  assert.ok(overflowed, "an unterminated event beyond ~4 MiB must throw");
+  assert.match(overflowed?.message ?? "", /SSE event exceeded/);
 });
