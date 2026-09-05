@@ -430,6 +430,12 @@ test("bounded dashboard audio APIs discover and proxy without retaining content"
     assert.equal(afterStatus.metrics.totals.requests, beforeStatus.metrics.totals.requests);
     assert.deepEqual(afterStatus.metrics.recent, beforeStatus.metrics.recent);
     assert.deepEqual({ samples: afterHistory.samples, retained: afterHistory.retained }, { samples: beforeHistory.samples, retained: beforeHistory.retained });
+    assert.match(prometheus, /^# HELP agentrouter_router_requests_total/m, "metrics expose the historical prefix");
+    assert.match(prometheus, /^# TYPE agentrouter_router_requests_total counter/m, "HELP and TYPE lines are paired");
+    assert.match(prometheus, /^# HELP routetok_requests_total/m, "metrics expose the canonical routetok_ prefix");
+    assert.match(prometheus, /^routetok_requests_total /m, "dual prefixes carry the same value");
+    assert.match(prometheus, /^# TYPE routetok_ttft_seconds_sum counter/m);
+    assert.match(prometheus, /^agentrouter_router_inflight_requests /m, "the in-flight gauge is present");
     for (const output of [capabilities, afterStatus, afterHistory, prometheus]) {
       assert.doesNotMatch(typeof output === "string" ? output : JSON.stringify(output), /local-stt-secret|upstream-local-secret|private-local|\/local\/v1/i);
     }
