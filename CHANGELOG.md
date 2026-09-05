@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Every JSON response from the generic `json()` helper (proxy, admin, sandbox, and auth error paths) now carries `x-content-type-options: nosniff`, matching the static-file and media responses.
 - The Fieldbook requests the browser Persistent Storage grant once at startup and shows the outcome in the library sidebar next to a storage-quota meter (usage of quota plus granted/denied/unsupported wording), so notes in IndexedDB are kept under storage pressure when the browser honors the grant.
 - The generic provider's private-access flag now means what it says: with `GENERIC_OPENAI_ALLOW_PRIVATE=true`, the configured base URL host must resolve exclusively to private addresses (RFC 1918, loopback, link-local, CGNAT, ULA, or multicast) at startup; hosts that resolve to any public address or that cannot be resolved prevent the service from starting. HTTPS base URLs without the flag keep the documented trusted-operator posture.
 - The passive-SVG gate on provider image output is tightened: `xml-stylesheet` processing instructions, `style` elements and CSS `@import`, and any non-fragment `href`/`src`/`xlink:href` on `a`, `image`, `use`, or `feImage` (external references including `javascript:` and `data:` values) are rejected alongside the existing script/handler/entity negatives; internal `#fragment` and `url(#...)` references stay allowed.

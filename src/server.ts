@@ -188,7 +188,8 @@ function json(response: ServerResponse, status: number, value: object): void {
   response.writeHead(status, {
     "content-type": "application/json; charset=utf-8",
     "content-length": String(bytes.length),
-    "cache-control": "no-store"
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff"
   });
   response.end(bytes);
 }

@@ -109,6 +109,7 @@ test("no-credential loopback fallback rejects cross-origin browsers on models, m
 
     const modelsWithoutOrigin = await fetch(`${base}/v1/models`);
     assert.equal(modelsWithoutOrigin.status, 200, "loopback model listing without an Origin header stays allowed");
+    assert.equal(modelsWithoutOrigin.headers.get("x-content-type-options"), "nosniff", "JSON responses must carry nosniff");
 
     const modelsSameOrigin = await fetch(`${base}/v1/models`, { headers: { origin: sameOrigin } });
     assert.equal(modelsSameOrigin.status, 200, "same-origin loopback model listing stays allowed");
@@ -231,6 +232,9 @@ test("configured credentials ignore Origin headers and enforce env-key, managed-
     assert.equal(metricsNone.status, 401);
     const metricsValid = await fetch(`${base}/metrics`, { headers: { "x-dashboard-token": "dash-secret", ...foreignHeaders } });
     assert.equal(metricsValid.status, 200, "a valid dashboard credential passes even with a foreign Origin header");
+    const metricsBody = await metricsValid.text();
+    assert.match(metricsBody, /# HELP routetok_requests_total/);
+    assert.match(metricsBody, /# HELP agentrouter_router_requests_total/);
 
     const adminWrong = await fetch(`${base}/admin/api/status`, { headers: { "x-dashboard-token": "wrong" } });
     assert.equal(adminWrong.status, 401);
