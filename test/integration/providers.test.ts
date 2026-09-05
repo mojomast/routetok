@@ -211,6 +211,16 @@ test("multi-provider inference and credits keep credentials and model IDs separa
       { url: "/openrouter/v1/chat/completions", authorization: "Bearer rotated-secret", apiKey: undefined, anthropicVersion: undefined, model: "vendor/or-model" }
     ]);
 
+    const legacyAlias = await fetch(`http://127.0.0.1:${proxyPort}/messages`, { method: "POST",
+      headers: { "x-api-key": "local", "content-type": "application/json", "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: "requesty:vendor/rq-model", messages: [{ role: "user", content: "legacy alias" }] }) });
+    assert.equal(legacyAlias.status, 200, "the legacy /messages alias must proxy like /v1/messages");
+    assert.equal(legacyAlias.headers.get("x-router-provider"), "requesty");
+    assert.equal(legacyAlias.headers.get("x-router-route"), "requesty:vendor/rq-model");
+    await legacyAlias.text();
+    assert.deepEqual(inference.at(-1), { url: "/requesty/v1/messages", authorization: undefined, apiKey: "requesty-secret", anthropicVersion: "2023-06-01", model: "vendor/rq-model" },
+      "the alias must reach the same upstream endpoint with the same headers as /v1/messages");
+
     const credits = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/providers/credits/refresh`, {
       method: "POST", headers: { ...dashboardHeaders, "content-type": "application/json" }, body: "{}"
     }).then((r) => r.json()) as { providers: Array<{ providerId: string; remainingUsd: number | null }> };
