@@ -583,18 +583,21 @@ export function normalizeAgentRouterDeepSeekThinking(
   return next;
 }
 
+export type StructuredOutputMode = "auto" | "forced";
+
 export function translateAgentRouterDeepSeekStructuredOutput(
   body: Record<string, unknown>,
   providerId: ProviderId,
   protocol: Protocol,
   path: string,
-  model: string
-): { body: Record<string, unknown>; toolName: string | null } {
-  if (!isAgentRouterDeepSeekChat(providerId, protocol, path, model)) return { body, toolName: null };
+  model: string,
+  force = false
+): { body: Record<string, unknown>; toolName: string | null; mode: StructuredOutputMode | null } {
+  if (!isAgentRouterDeepSeekChat(providerId, protocol, path, model)) return { body, toolName: null, mode: null };
   const responseFormat = objectRecord(body.response_format);
-  if (responseFormat?.type !== "json_schema") return { body, toolName: null };
+  if (responseFormat?.type !== "json_schema") return { body, toolName: null, mode: null };
   const schema = objectRecord(objectRecord(responseFormat.json_schema)?.schema);
-  if (!schema) return { body, toolName: null };
+  if (!schema) return { body, toolName: null, mode: null };
 
   const existingTools = Array.isArray(body.tools) ? body.tools : [];
   const usedNames = new Set(existingTools.map((tool) => {
@@ -612,14 +615,21 @@ export function translateAgentRouterDeepSeekStructuredOutput(
     ...existingTools,
     { type: "function", function: { name: toolName, parameters: schema } }
   ];
+  if (!force) {
+    // Preferred path: let the model call the schema tool on its own so the
+    // caller's thinking setting is preserved (DeepSeek rejects a forced
+    // tool_choice while thinking mode is active).
+    next.tool_choice = "auto";
+    return { body: next, toolName, mode: "auto" };
+  }
+  // Bounded fallback: force the tool and disable thinking to guarantee the schema.
   next.tool_choice = { type: "function", function: { name: toolName } };
-  // DeepSeek v4 rejects a forced tool_choice while thinking mode is active.
   delete next.thinking;
   delete next.enable_thinking;
   delete next.chat_template_kwargs;
   delete next.reasoning_effort;
   next.thinking = { type: "disabled" };
-  return { body: next, toolName };
+  return { body: next, toolName, mode: "forced" };
 }
 
 export function unwrapAgentRouterDeepSeekStructuredOutput(value: Record<string, unknown>, toolName: string): void {
@@ -639,6 +649,25 @@ export function unwrapAgentRouterDeepSeekStructuredOutput(value: Record<string, 
     if (calls.length === 0) delete message.tool_calls;
     if (choiceObject.finish_reason === "tool_calls") choiceObject.finish_reason = "stop";
   }
+}
+
+export function structuredOutputUsable(value: Record<string, unknown>, toolName: string): boolean {
+  const choices = value.choices;
+  if (!Array.isArray(choices)) return false;
+  return choices.some((choice) => {
+    const message = objectRecord(objectRecord(choice)?.message);
+    if (!message) return false;
+    const calls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+    if (calls.some((call) => objectRecord(objectRecord(call)?.function)?.name === toolName)) return true;
+    const content = message.content;
+    if (typeof content !== "string" || content.trim().length === 0) return false;
+    try {
+      JSON.parse(content);
+      return true;
+    } catch {
+      return false;
+    }
+  });
 }
 
 export function flattenAgentRouterDeepSeekToolHistory(body: Record<string, unknown>): Record<string, unknown> {
@@ -1435,10 +1464,12 @@ export class ProxyHandler {
         if (providerId === "agentrouter" && protocol === "anthropic" && model.startsWith("deepseek-")) {
           attemptBody = flattenAgentRouterDeepSeekToolHistory(attemptBody);
         }
-        const structured = translateAgentRouterDeepSeekStructuredOutput(attemptBody, providerId, protocol, path, upstreamModel);
+        const structuredBaseBody = attemptBody;
+        const structured = translateAgentRouterDeepSeekStructuredOutput(structuredBaseBody, providerId, protocol, path, upstreamModel);
         attemptBody = structured.body;
         attemptBody = normalizeAgentRouterDeepSeekThinking(attemptBody, providerId, protocol, path, upstreamModel);
         const structuredToolName = structured.toolName;
+        const structuredMode = structured.mode;
         const body = JSON.stringify({ ...attemptBody, model: upstreamModel });
         let upstream: Response;
         try {
@@ -1733,6 +1764,20 @@ export class ProxyHandler {
           break;
         }
 
+        if (structuredMode === "auto" && structuredToolName && !structuredOutputUsable(payload.value, structuredToolName)) {
+          const forcedPayload = await this.fetchStructuredFallback(
+            provider,
+            path,
+            request,
+            protocol,
+            stripThinking,
+            providerId,
+            structuredBaseBody,
+            upstreamModel,
+            attemptSignal
+          );
+          if (forcedPayload) payload = forcedPayload;
+        }
         selectedModel = model;
         payload.value.model = model;
         if (structuredToolName) unwrapAgentRouterDeepSeekStructuredOutput(payload.value, structuredToolName);
@@ -1813,6 +1858,49 @@ export class ProxyHandler {
         trafficClass: internalSandbox ? "sandbox" : "client"
       };
       this.options.metrics.record(record);
+    }
+  }
+
+  private async fetchStructuredFallback(
+    provider: ProviderRuntime,
+    path: string,
+    request: IncomingMessage,
+    protocol: Protocol,
+    stripThinking: boolean,
+    providerId: ProviderId,
+    baseBody: Record<string, unknown>,
+    upstreamModel: string,
+    signal: AbortSignal
+  ): Promise<JsonPayload | null> {
+    const forced = translateAgentRouterDeepSeekStructuredOutput(baseBody, providerId, protocol, path, upstreamModel, true);
+    if (!forced.toolName) return null;
+    const headers = buildUpstreamHeaders(request.headers, protocol, provider.apiKey, stripThinking, providerId);
+    if (provider.auth === "none") delete headers.authorization;
+    let upstream: Response;
+    try {
+      upstream = await this.fetchImpl(this.endpoint(provider, path), {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ ...forced.body, model: upstreamModel }),
+        redirect: "manual",
+        signal
+      });
+    } catch {
+      return null;
+    }
+    if (!upstream.ok) {
+      await upstream.body?.cancel().catch(() => {});
+      return null;
+    }
+    try {
+      const bytes = await readResponseBuffer(upstream, MAX_JSON_RESPONSE_BYTES);
+      const contentType = (upstream.headers.get("content-type") ?? "").toLowerCase();
+      if (contentType.includes("text/html")) return null;
+      const payload = parseSuccessfulJson(bytes);
+      unwrapAgentRouterDeepSeekStructuredOutput(payload.value, forced.toolName);
+      return payload;
+    } catch {
+      return null;
     }
   }
 

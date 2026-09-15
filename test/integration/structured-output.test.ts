@@ -67,10 +67,12 @@ test("AgentRouter DeepSeek structured output is shimmed through the HTTP proxy",
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const payload = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
     calls.push(payload);
-    const choice = (payload.tool_choice as Record<string, unknown> | undefined)?.type === "function"
-      ? (payload.tool_choice as { function: { name: string } }).function.name
-      : null;
-    if (choice === null) {
+    const tools = Array.isArray(payload.tools) ? payload.tools as Array<{ function?: { name?: string } }> : [];
+    const schemaTool = tools.map((tool) => tool.function?.name)
+      .find((name): name is string => typeof name === "string" && name.startsWith("routetok_json_schema")) ?? null;
+    const forced = Boolean(payload.tool_choice && typeof payload.tool_choice === "object" &&
+      (payload.tool_choice as Record<string, unknown>).type === "function");
+    if (schemaTool === null) {
       if (payload.stream) {
         sse(response, [
           { choices: [{ index: 0, delta: { role: "assistant", content: "ok" }, finish_reason: null }] },
@@ -87,17 +89,25 @@ test("AgentRouter DeepSeek structured output is shimmed through the HTTP proxy",
     if (payload.stream) {
       sse(response, [
         { choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }] },
-        { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: choice, arguments: "" } }] }, finish_reason: null }] },
+        { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: schemaTool, arguments: "" } }] }, finish_reason: null }] },
         { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: "{\"ok\":" } }] }, finish_reason: null }] },
         { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: "true}" } }] }, finish_reason: null }] },
         { choices: [{ index: 0, delta: { content: "" }, finish_reason: "tool_calls" }] }
       ]);
+    } else if (!forced && payload.test_auto_empty === true) {
+      response.end(JSON.stringify({
+        id: "chat-local", object: "chat.completion",
+        choices: [{ index: 0, message: { role: "assistant", content: "", reasoning_content: "Budget spent thinking." }, finish_reason: "length" }]
+      }));
     } else {
       response.end(JSON.stringify({
         id: "chat-local", object: "chat.completion",
         choices: [{
           index: 0,
-          message: { role: "assistant", content: "", tool_calls: [{ id: "call_1", type: "function", function: { name: choice, arguments: "{\"ok\": true}" } }] },
+          message: {
+            role: "assistant", content: "", reasoning_content: "Reasoned about the schema.",
+            tool_calls: [{ id: "call_1", type: "function", function: { name: schemaTool, arguments: "{\"ok\": true}" } }]
+          },
           finish_reason: "tool_calls"
         }]
       }));
@@ -137,7 +147,7 @@ test("AgentRouter DeepSeek structured output is shimmed through the HTTP proxy",
     });
     assert.equal(configured.status, 200, await configured.text());
 
-    await suite.test("non-stream json_schema returns content JSON with a stop finish", async () => {
+    await suite.test("non-stream json_schema prefers auto and keeps thinking enabled", async () => {
       calls.length = 0;
       const response = await request(structuredRequest);
       const text = await response.text();
@@ -145,17 +155,38 @@ test("AgentRouter DeepSeek structured output is shimmed through the HTTP proxy",
       const payload = JSON.parse(text) as { choices: Array<{ message: Record<string, unknown>; finish_reason: string }> };
       assert.equal(payload.choices[0]?.message.content, "{\"ok\": true}");
       assert.equal(payload.choices[0]?.message.tool_calls, undefined);
+      assert.equal(payload.choices[0]?.message.reasoning_content, "Reasoned about the schema.");
       assert.equal(payload.choices[0]?.finish_reason, "stop");
       assert.equal(response.headers.get("x-router-model"), "deepseek-v4-flash");
-      const sent = calls.at(-1);
+      assert.equal(calls.length, 1, "a usable auto response must not trigger the fallback");
+      const sent = calls[0];
       assert(sent);
       assert.equal(sent.response_format, undefined, "upstream must not receive response_format");
-      assert.equal(sent.tool_choice && (sent.tool_choice as Record<string, unknown>).type, "function");
-      assert.deepEqual(sent.thinking, { type: "disabled" });
+      assert.equal(sent.tool_choice, "auto");
+      assert.equal(Object.hasOwn(sent, "thinking"), false, "thinking must stay enabled for the auto path");
       const tools = sent.tools as Array<{ function: { name: string; parameters: unknown } }>;
       assert.equal(tools.length, 1);
       assert.equal(tools[0]?.function.name, "routetok_json_schema");
       assert.deepEqual(tools[0]?.function.parameters, SCHEMA);
+    });
+
+    await suite.test("an unusable auto response falls back once to a forced non-thinking tool call", async () => {
+      calls.length = 0;
+      const response = await request({ ...structuredRequest, test_auto_empty: true });
+      const text = await response.text();
+      assert.equal(response.status, 200, text);
+      const payload = JSON.parse(text) as { choices: Array<{ message: Record<string, unknown>; finish_reason: string }> };
+      assert.equal(payload.choices[0]?.message.content, "{\"ok\": true}");
+      assert.equal(payload.choices[0]?.message.tool_calls, undefined);
+      assert.equal(payload.choices[0]?.finish_reason, "stop");
+      assert.equal(calls.length, 2, "exactly one bounded fallback attempt");
+      assert.equal(calls[0]?.tool_choice, "auto");
+      assert.equal(Object.hasOwn(calls[0] ?? {}, "thinking"), false);
+      const forced = calls[1];
+      assert(forced);
+      assert.equal((forced.tool_choice as Record<string, unknown>).type, "function");
+      assert.deepEqual(forced.thinking, { type: "disabled" });
+      assert.equal(Object.hasOwn(forced, "reasoning_effort"), false);
     });
 
     await suite.test("streamed json_schema becomes content deltas and [DONE]", async () => {
@@ -173,6 +204,7 @@ test("AgentRouter DeepSeek structured output is shimmed through the HTTP proxy",
       assert.equal(content, "{\"ok\":true}");
       assert.match(wire, /"finish_reason":"stop"/);
       assert.match(wire, /data: \[DONE\]/);
+      assert.equal(calls[0]?.tool_choice, "auto");
     });
 
     await suite.test("thinking:false is normalized to the structured shape", async () => {

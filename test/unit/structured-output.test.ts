@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   normalizeAgentRouterDeepSeekThinking,
   StreamSanitizer,
+  structuredOutputUsable,
   translateAgentRouterDeepSeekStructuredOutput,
   unwrapAgentRouterDeepSeekStructuredOutput
 } from "../../src/proxy.js";
@@ -23,25 +24,63 @@ function structuredBody(extra: Record<string, unknown> = {}): Record<string, unk
   };
 }
 
-test("json_schema is translated into a single forced tool with thinking disabled", () => {
-  const { body, toolName } = translateAgentRouterDeepSeekStructuredOutput(
+test("json_schema prefers a single auto schema tool without disabling thinking", () => {
+  const { body, toolName, mode } = translateAgentRouterDeepSeekStructuredOutput(
     structuredBody(),
     "agentrouter",
     "openai",
     "/v1/chat/completions",
     "deepseek-v4-flash"
   );
+  assert.equal(mode, "auto");
   assert.ok(toolName);
   assert.equal(toolName, "routetok_json_schema");
   assert.equal(body.response_format, undefined);
-  assert.equal(body.tool_choice === undefined, false);
-  assert.deepEqual(body.tool_choice, { type: "function", function: { name: toolName } });
-  assert.deepEqual(body.thinking, { type: "disabled" });
+  assert.equal(body.tool_choice, "auto");
+  assert.equal(Object.hasOwn(body, "thinking"), false, "thinking must stay enabled for the auto path");
   const tools = body.tools as Array<Record<string, unknown>>;
   assert.equal(tools.length, 1);
   const fn = tools[0]?.function as Record<string, unknown>;
   assert.equal(fn.name, toolName);
   assert.deepEqual(fn.parameters, schema);
+});
+
+test("caller thinking settings survive the auto translation", () => {
+  const { body, mode } = translateAgentRouterDeepSeekStructuredOutput(
+    structuredBody({ thinking: { type: "enabled" }, reasoning_effort: "high" }),
+    "agentrouter",
+    "openai",
+    "/v1/chat/completions",
+    "deepseek-v4-flash"
+  );
+  assert.equal(mode, "auto");
+  assert.deepEqual(body.thinking, { type: "enabled" });
+  assert.equal(body.reasoning_effort, "high");
+});
+
+test("force mode forces the tool and disables thinking", () => {
+  const { body, toolName, mode } = translateAgentRouterDeepSeekStructuredOutput(
+    structuredBody({ reasoning_effort: "high" }),
+    "agentrouter",
+    "openai",
+    "/v1/chat/completions",
+    "deepseek-v4-flash",
+    true
+  );
+  assert.equal(mode, "forced");
+  assert.deepEqual(body.tool_choice, { type: "function", function: { name: toolName } });
+  assert.deepEqual(body.thinking, { type: "disabled" });
+  assert.equal(Object.hasOwn(body, "reasoning_effort"), false);
+});
+
+test("structured output usability gates the bounded fallback", () => {
+  const tool = "routetok_json_schema";
+  assert.equal(structuredOutputUsable({ choices: [{ message: { content: "", tool_calls: [{ function: { name: tool, arguments: "{\"ok\":true}" } }] }, finish_reason: "tool_calls" }] }, tool), true);
+  assert.equal(structuredOutputUsable({ choices: [{ message: { content: "{\"ok\": true}" }, finish_reason: "stop" }] }, tool), true);
+  assert.equal(structuredOutputUsable({ choices: [{ message: { content: "", reasoning_content: "thinking" }, finish_reason: "length" }] }, tool), false);
+  assert.equal(structuredOutputUsable({ choices: [{ message: { content: "{\"ok\":" }, finish_reason: "length" }] }, tool), false);
+  assert.equal(structuredOutputUsable({ choices: [{ message: { content: "", tool_calls: [{ function: { name: "lookup", arguments: "{}" } }] }, finish_reason: "tool_calls" }] }, tool), false);
+  assert.equal(structuredOutputUsable({}, tool), false);
 });
 
 test("a colliding tool name is suffixed instead of duplicated", () => {
@@ -64,8 +103,9 @@ test("structured-output translation is scoped away from other providers, models,
     ["missing schema", { model: "deepseek-v4-flash", messages: [], response_format: { type: "json_schema", json_schema: { name: "x" } } }, "agentrouter", "/v1/chat/completions", "deepseek-v4-flash"]
   ];
   for (const [name, input, providerId, path, model] of cases) {
-    const { body, toolName } = translateAgentRouterDeepSeekStructuredOutput(input, providerId, "openai", path, model);
+    const { body, toolName, mode } = translateAgentRouterDeepSeekStructuredOutput(input, providerId, "openai", path, model);
     assert.equal(toolName, null, name);
+    assert.equal(mode, null, name);
     assert.deepEqual(body, input, name);
   }
 });
