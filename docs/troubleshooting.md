@@ -14,6 +14,12 @@ If a `400` has `x-request-id` but no `x-router-model`, `x-router-route`, or `x-r
 
 RouteTok intentionally does not locally validate tool schemas, `oneOf`, `enum`, or `tool_choice`. A rejection involving those fields after routing is provider behavior; inspect the selected-route headers and attempt summary.
 
+## DeepSeek v4 structured output returns 400
+
+The AgentRouter `deepseek-v4-*` adapter rejects both strict and non-strict `response_format: {"type": "json_schema", …}` with `400 This response_format type is unavailable now`, even with thinking disabled. For AgentRouter OpenAI Chat Completions attempts targeting `deepseek-v4-*`, RouteTok translates the request per attempt into a forced single function tool whose `parameters` is the caller's schema with `thinking: { "type": "disabled" }`, then unwraps the returned tool-call arguments back into `message.content` (or streamed `delta.content`) with `finish_reason: "stop"`. The client therefore reads normal content JSON and does not see the synthetic tool.
+
+`response_format: {"type": "json_object"}` is passed through unchanged and still requires the literal word "json" in the prompt, per the OpenAI-compatible contract. Any forced `tool_choice` (`"required"` or an explicit function) against `deepseek-v4-*` fails with `400 Thinking mode does not support this tool_choice` unless thinking is disabled; RouteTok disables thinking automatically for the `json_schema` translation but does not override an explicit forced-tool request that omits thinking controls. Boolean `thinking: false`, `enable_thinking: false`, and `chat_template_kwargs.enable_thinking: false` are normalized to `thinking: { "type": "disabled" }`, and `reasoning_effort: "none"` is preserved, so clients can opt out of thinking for schema- or tool-constrained calls.
+
 ## Verify one exact Qwen attempt
 
 Temporarily set `maxAttempts` to `1`, send a minimal non-stream Chat Completions request to the exact enabled `openrouter:` Qwen model ID, and omit tools and optional generation fields. Confirm `x-router-route` equals that ID, `x-router-provider` is `openrouter`, `x-router-attempts` is `1`, and `x-router-terminal` explains the terminal result. Decode `x-router-attempt-summary` with a base64url-aware decoder and verify its sole `a` entry (`p`, `m`, `s`, and `o`).

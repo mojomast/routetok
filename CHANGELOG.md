@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- AgentRouter DeepSeek v4 OpenAI Chat Completions now shims structured output and thinking controls: `response_format` `json_schema` requests (rejected upstream with `400`) are translated per attempt into a forced single function tool with thinking disabled and the upstream tool call is unwrapped back into `message.content`/streamed `delta.content` with `finish_reason: "stop"`; boolean `thinking: false`, `enable_thinking: false`, and `chat_template_kwargs.enable_thinking: false` normalize to `thinking: { "type": "disabled" }` while `reasoning_effort: "none"` is preserved. Scoped to AgentRouter `deepseek-v4-*` Chat Completions; other models, providers, endpoints, and formats are unchanged. A forced `tool_choice` without thinking disabled still receives the upstream `400`.
+
 - The dashboard and Fieldbook no longer depend on `crypto.randomUUID`: both bundles generate v4 ids through `crypto.getRandomValues` (available in every context) when the secure-context-only `randomUUID` is absent, so the UI boots over plain-HTTP origins such as a Tailscale address instead of throwing on first id creation. Both HTML entries also declare an empty inline favicon to silence `/favicon.ico` 404s.
 
 - AgentRouter upstream calls now present as the opencode client: a genuine incoming `opencode/*` user-agent is preserved, while any foreign or missing client user-agent is replaced with the opencode identifier before reaching `agentrouter` (the gateway answers `unauthorized_client` to unrecognized clients). Other providers keep the incoming user-agent with the `routetok/0.1` fallback.

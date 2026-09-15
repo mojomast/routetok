@@ -533,6 +533,114 @@ export function stripThinkingForFallback(body: Record<string, unknown>): Record<
   return transformed;
 }
 
+const STRUCTURED_OUTPUT_TOOL_NAME = "routetok_json_schema";
+
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function isAgentRouterDeepSeekChat(
+  providerId: ProviderId,
+  protocol: Protocol,
+  path: string,
+  model: string
+): boolean {
+  return providerId === "agentrouter" &&
+    protocol === "openai" &&
+    path === "/v1/chat/completions" &&
+    /^deepseek-v4-/.test(model);
+}
+
+export function normalizeAgentRouterDeepSeekThinking(
+  body: Record<string, unknown>,
+  providerId: ProviderId,
+  protocol: Protocol,
+  path: string,
+  model: string
+): Record<string, unknown> {
+  if (!isAgentRouterDeepSeekChat(providerId, protocol, path, model)) return body;
+  const chatTemplate = objectRecord(body.chat_template_kwargs);
+  const thinkingOff = body.thinking === false ||
+    body.enable_thinking === false ||
+    chatTemplate?.enable_thinking === false;
+  if (!thinkingOff) return body;
+  const next = { ...body };
+  delete next.thinking;
+  delete next.enable_thinking;
+  if (chatTemplate) {
+    const remaining = { ...chatTemplate };
+    delete remaining.enable_thinking;
+    if (Object.keys(remaining).length) next.chat_template_kwargs = remaining;
+    else delete next.chat_template_kwargs;
+  }
+  // reasoning_effort:"none" is already an accepted switch upstream; the structured
+  // ThinkingOptions shape is the equivalent when no effort value was supplied.
+  if (next.reasoning_effort === "none") {
+    return next;
+  }
+  delete next.reasoning_effort;
+  next.thinking = { type: "disabled" };
+  return next;
+}
+
+export function translateAgentRouterDeepSeekStructuredOutput(
+  body: Record<string, unknown>,
+  providerId: ProviderId,
+  protocol: Protocol,
+  path: string,
+  model: string
+): { body: Record<string, unknown>; toolName: string | null } {
+  if (!isAgentRouterDeepSeekChat(providerId, protocol, path, model)) return { body, toolName: null };
+  const responseFormat = objectRecord(body.response_format);
+  if (responseFormat?.type !== "json_schema") return { body, toolName: null };
+  const schema = objectRecord(objectRecord(responseFormat.json_schema)?.schema);
+  if (!schema) return { body, toolName: null };
+
+  const existingTools = Array.isArray(body.tools) ? body.tools : [];
+  const usedNames = new Set(existingTools.map((tool) => {
+    const name = objectRecord(objectRecord(tool)?.function)?.name;
+    return typeof name === "string" ? name : "";
+  }));
+  let toolName = STRUCTURED_OUTPUT_TOOL_NAME;
+  for (let suffix = 1; usedNames.has(toolName); suffix++) toolName = `${STRUCTURED_OUTPUT_TOOL_NAME}_${suffix}`;
+
+  const next = { ...body };
+  delete next.response_format;
+  // Descriptions that mention a JSON object/schema make DeepSeek wrap the
+  // arguments as {"parameters": …}; a bare function schema emits clean arguments.
+  next.tools = [
+    ...existingTools,
+    { type: "function", function: { name: toolName, parameters: schema } }
+  ];
+  next.tool_choice = { type: "function", function: { name: toolName } };
+  // DeepSeek v4 rejects a forced tool_choice while thinking mode is active.
+  delete next.thinking;
+  delete next.enable_thinking;
+  delete next.chat_template_kwargs;
+  delete next.reasoning_effort;
+  next.thinking = { type: "disabled" };
+  return { body: next, toolName };
+}
+
+export function unwrapAgentRouterDeepSeekStructuredOutput(value: Record<string, unknown>, toolName: string): void {
+  const choices = value.choices;
+  if (!Array.isArray(choices)) return;
+  for (const choice of choices) {
+    const choiceObject = objectRecord(choice);
+    const message = objectRecord(choiceObject?.message);
+    if (!choiceObject || !message || !Array.isArray(message.tool_calls)) continue;
+    const calls = message.tool_calls;
+    const index = calls.findIndex((call) => objectRecord(objectRecord(call)?.function)?.name === toolName);
+    if (index < 0) continue;
+    const target = objectRecord(calls[index]);
+    const args = objectRecord(target?.function)?.arguments;
+    if (typeof args === "string") message.content = args;
+    calls.splice(index, 1);
+    if (calls.length === 0) delete message.tool_calls;
+    if (choiceObject.finish_reason === "tool_calls") choiceObject.finish_reason = "stop";
+  }
+}
+
 export function flattenAgentRouterDeepSeekToolHistory(body: Record<string, unknown>): Record<string, unknown> {
   const transformed = structuredClone(body);
   if (!Array.isArray(transformed.messages)) return transformed;
@@ -629,10 +737,15 @@ export class StreamSanitizer {
   private readonly decoder = new TextDecoder();
   private pending = "";
 
+  private structuredIndex: number | null = null;
+  private structuredForeign = false;
+  private structuredFinished = false;
+
   constructor(
     private readonly protocol: Protocol,
     private readonly path: string,
-    private readonly model: string
+    private readonly model: string,
+    private readonly structuredToolName: string | null = null
   ) {}
 
   push(chunk: Uint8Array): Uint8Array[] {
@@ -656,7 +769,14 @@ export class StreamSanitizer {
     const { event, data } = sseFields(block);
     if (!data) return [];
     if (data === "[DONE]") {
-      return this.protocol === "openai" ? [Buffer.from("data: [DONE]\n\n")] : [];
+      if (this.protocol !== "openai") return [];
+      if (this.structuredToolName && this.structuredIndex !== null && !this.structuredForeign && !this.structuredFinished) {
+        // DeepSeek sometimes ends the unwrapped tool stream without a finish frame.
+        this.structuredFinished = true;
+        const finish = { choices: [{ index: this.structuredIndex, delta: {}, finish_reason: "stop" }] };
+        return [Buffer.from(`data: ${JSON.stringify(finish)}\n\n`), Buffer.from("data: [DONE]\n\n")];
+      }
+      return [Buffer.from("data: [DONE]\n\n")];
     }
 
     let parsed: unknown;
@@ -689,6 +809,7 @@ export class StreamSanitizer {
         if (responseObject) responseObject.model = this.model;
       } else {
         value.model = this.model;
+        this.unwrapStructured(value);
       }
       const prefix = responsesWire && event ? `event: ${event}\n` : "";
       return [Buffer.from(`${prefix}data: ${JSON.stringify(value)}\n\n`)];
@@ -712,6 +833,50 @@ export class StreamSanitizer {
       (value.message as Record<string, unknown>).model = this.model;
     }
     return [Buffer.from(`event: ${type}\ndata: ${JSON.stringify(value)}\n\n`)];
+  }
+
+  private unwrapStructured(value: Record<string, unknown>): void {
+    const toolName = this.structuredToolName;
+    if (!toolName || !Array.isArray(value.choices)) return;
+    for (const choice of value.choices) {
+      const choiceObject = objectRecord(choice);
+      if (!choiceObject) continue;
+      const delta = objectRecord(choiceObject.delta);
+      if (delta && Array.isArray(delta.tool_calls) && !this.structuredForeign && this.structuredIndex === null) {
+        for (const call of delta.tool_calls) {
+          const callObject = objectRecord(call);
+          const name = objectRecord(callObject?.function)?.name;
+          if (typeof name === "string" && name !== toolName) {
+            this.structuredForeign = true;
+            break;
+          }
+          if (name === toolName && typeof callObject?.index === "number") this.structuredIndex = callObject.index;
+        }
+      }
+      if (delta && Array.isArray(delta.tool_calls) && this.structuredIndex !== null && !this.structuredForeign) {
+        let argumentsText = "";
+        const remaining: unknown[] = [];
+        for (const call of delta.tool_calls) {
+          const callObject = objectRecord(call);
+          if (callObject?.index === this.structuredIndex) {
+            const fragment = objectRecord(callObject.function)?.arguments;
+            if (typeof fragment === "string") argumentsText += fragment;
+          } else {
+            remaining.push(call);
+          }
+        }
+        if (argumentsText) {
+          const existing = typeof delta.content === "string" ? delta.content : "";
+          delta.content = existing + argumentsText;
+        }
+        if (remaining.length) delta.tool_calls = remaining;
+        else delete delta.tool_calls;
+      }
+      if (this.structuredIndex !== null && !this.structuredForeign && choiceObject.finish_reason === "tool_calls") {
+        choiceObject.finish_reason = "stop";
+        this.structuredFinished = true;
+      }
+    }
   }
 }
 
@@ -1265,11 +1430,16 @@ export class ProxyHandler {
           config.thinkingFallbackMode === "strip" &&
           (stripThinkingOnFirstAttempt || pinnedModel && model !== pinnedModel)
         );
+        const upstreamModel = catalogModel.upstreamId ?? model;
         let attemptBody = stripThinking ? stripThinkingForFallback(parsed.raw) : parsed.raw;
         if (providerId === "agentrouter" && protocol === "anthropic" && model.startsWith("deepseek-")) {
           attemptBody = flattenAgentRouterDeepSeekToolHistory(attemptBody);
         }
-        const body = JSON.stringify({ ...attemptBody, model: catalogModel.upstreamId ?? model });
+        const structured = translateAgentRouterDeepSeekStructuredOutput(attemptBody, providerId, protocol, path, upstreamModel);
+        attemptBody = structured.body;
+        attemptBody = normalizeAgentRouterDeepSeekThinking(attemptBody, providerId, protocol, path, upstreamModel);
+        const structuredToolName = structured.toolName;
+        const body = JSON.stringify({ ...attemptBody, model: upstreamModel });
         let upstream: Response;
         try {
           const upstreamHeaders = buildUpstreamHeaders(request.headers, protocol, provider.apiKey, stripThinking, providerId);
@@ -1484,6 +1654,7 @@ export class ProxyHandler {
               config.streamIdleTimeoutMs,
               path,
               providerId,
+              structuredToolName,
               () => clearTimeout(timeout)
           );
           const streamCompletedAt = Date.now();
@@ -1564,6 +1735,7 @@ export class ProxyHandler {
 
         selectedModel = model;
         payload.value.model = model;
+        if (structuredToolName) unwrapAgentRouterDeepSeekStructuredOutput(payload.value, structuredToolName);
         payload.bytes = Buffer.from(JSON.stringify(payload.value));
         usage = payload.usage;
         const pricing = this.options.catalog.getModels().find((entry) => entry.id === model);
@@ -1698,6 +1870,7 @@ export class ProxyHandler {
     idleTimeoutMs: number,
     path: string,
     providerId: ProviderId,
+    structuredToolName: string | null,
     onCommit: () => void
   ): Promise<{ usage: TokenUsage; error: string | null }> {
     const headerAttempts: DiagnosticAttempt[] = [
@@ -1709,7 +1882,7 @@ export class ProxyHandler {
       upstream.status,
       responseHeaders(upstream.headers, requestId, model, headerAttempts, "stream_committed", providerId)
     );
-    const sanitizer = new StreamSanitizer(protocol, path, model);
+    const sanitizer = new StreamSanitizer(protocol, path, model, structuredToolName);
     const appendChatDone = protocol === "openai" && !path.endsWith("/responses");
     try {
       for (const chunk of prepared.buffered) {
