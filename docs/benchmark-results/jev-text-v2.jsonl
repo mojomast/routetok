@@ -1,0 +1,12 @@
+{"id":"0","selected":"openrouter:google/gemini-2.5-flash-lite","ms":366,"input":520,"output":73,"family":"writing"}
+{"id":"1","selected":"openrouter:google/gemini-2.5-flash-lite","ms":344,"input":524,"output":73,"family":"writing"}
+{"id":"2","selected":"openrouter:deepseek/deepseek-v4.1-flash","ms":135,"input":522,"output":75,"family":"reasoning"}
+{"id":"3","selected":"openrouter:deepseek/deepseek-v4.1-flash","ms":172,"input":526,"output":75,"family":"reasoning"}
+{"id":"4","selected":"openrouter:deepseek/deepseek-v4.1-flash","ms":201,"input":532,"output":75,"family":"reasoning"}
+{"id":"5","selected":"openrouter:deepseek/deepseek-v4.1-flash","ms":167,"input":527,"output":75,"family":"reasoning"}
+{"id":"6","error":"jev_routing_uncertain","ms":225,"input":530,"output":73,"family":"coding"}
+{"id":"7","error":"jev_routing_uncertain","ms":153,"input":530,"output":73,"family":"coding"}
+{"id":"8","selected":"openrouter:google/gemini-2.5-flash-lite","ms":164,"input":519,"output":73,"family":"writing"}
+{"id":"9","selected":"openrouter:google/gemini-2.5-flash-lite","ms":135,"input":518,"output":73,"family":"writing"}
+{"id":"10","selected":"openrouter:google/gemini-2.5-flash-lite","ms":137,"input":521,"output":73,"family":"writing"}
+{"id":"11","selected":"openrouter:google/gemini-2.5-flash-lite","ms":204,"input":518,"output":73,"family":"writing"}
