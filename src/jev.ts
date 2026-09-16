@@ -8,7 +8,7 @@ export interface JevPolicy {
   routes: Record<string, string[]>;
 }
 const families = { coding: "Programming or debugging", writing: "Writing, rewriting or summarization", reasoning: "Mathematical or analytical reasoning", mixed: "Multiple task families", unknown: "Insufficient information" };
-export async function jevSelect(body: Record<string, unknown>, eligible: string[], signal?: AbortSignal, transport: typeof fetch = fetch): Promise<string> {
+export async function jevSelect(body: Record<string, unknown>, eligible: string[], signal?: AbortSignal, transport: typeof fetch = fetch, observe?: (usage: {input:number;output:number;family:string})=>void): Promise<string> {
   const file = process.env.JEV_POLICY_FILE;
   if (!file) throw new Error("jev_disabled");
   const policy: JevPolicy = JSON.parse(readFileSync(file, "utf8"));
@@ -37,6 +37,7 @@ export async function jevSelect(body: Record<string, unknown>, eligible: string[
   if (Object.keys(data.answers).sort().join()!=="ambiguous,family" || a?.type!=="choice" || ambiguity?.type!=="noul" || !probability(ambiguity.noul) || !probability(a.confidence) || !a.probabilities || Object.keys(a.probabilities).sort().join()!==Object.keys(families).sort().join()) throw new Error("jev_schema_invalid");
   const ps=Object.values(a.probabilities);
   if (!ps.every(probability) || Math.abs((ps as number[]).reduce((x,y)=>x+y,0)-1)>1e-5 || !(a.choice in families) || a.probabilities[a.choice]!==Math.max(...ps as number[])) throw new Error("jev_distribution_invalid");
+  observe?.({input:data.usage.input_tokens,output:data.usage.output_tokens,family:a.choice});
   if (ambiguity.noul>=0.5 || a.confidence<policy.minConfidence || a.choice==="unknown" || a.choice==="mixed") throw new Error("jev_abstain");
   const approved=policy.routes?.[a.choice];
   if (!Array.isArray(approved)) throw new Error("jev_no_validated_route");

@@ -1600,6 +1600,10 @@ const server = createServer(
         return;
       }
 
+      if (request.method === "GET" && pathname === "/admin/api/jev") {
+        const {jevSummary}=await import('./jev-metrics.js');
+        json(response,200,jevSummary(metrics.history(500).samples,process.env.JEV_BASELINE_INPUT_USD_TOKEN ? Number(process.env.JEV_BASELINE_INPUT_USD_TOKEN):undefined,process.env.JEV_BASELINE_OUTPUT_USD_TOKEN ? Number(process.env.JEV_BASELINE_OUTPUT_USD_TOKEN):undefined));return;
+      }
       if (request.method === "GET" && pathname === "/admin/api/live") {
         json(response, 200, metrics.live());
         return;
