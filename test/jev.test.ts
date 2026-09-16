@@ -11,7 +11,7 @@ test('Jev contract fixture: constrained selection, malformed response and contex
  process.env.JEV_POLICY_FILE=join(dir,'policy');process.env.TYPESAFE_API_KEY='synthetic';
  writeFileSync(process.env.JEV_POLICY_FILE,JSON.stringify({authorizeExternal:true,acceptedModels:['fixture'],timeoutMs:1000,minConfidence:.8,routes:{coding:['approved']}}));
  const reply={model:'fixture',usage:{input_tokens:10,output_tokens:0},answers:{family:{type:'choice',choice:'coding',confidence:.9,probabilities:{coding:1,writing:0,reasoning:0,mixed:0,unknown:0}},ambiguous:{type:'noul',noul:0}}};
- const transport=(async()=>new Response(JSON.stringify(reply))) as typeof fetch;
+ const transport=(async(_input,init)=>{ const sent=JSON.parse(String(init?.body)); assert.equal(typeof sent.questions.ambiguous.instructions,'string'); assert.equal(sent.questions.ambiguous.criteria,undefined); return new Response(JSON.stringify(reply)); }) as typeof fetch;
  const body={messages:[{role:'user',content:'synthetic'}]};
  assert.equal(await jevSelect(body,['approved'],undefined,transport),'approved');
  await assert.rejects(jevSelect(body,['other'],undefined,transport),/feasible/);
