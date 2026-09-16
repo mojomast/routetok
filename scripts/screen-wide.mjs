@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 const key=process.env.OPENROUTER_API_KEY,out=process.env.BENCH_OUTPUT;if(!key||!out||fs.existsSync(out))throw Error('key and fresh output required');
-const models=['deepseek/deepseek-v4.1-flash','qwen/qwen3.8-flash','qwen/qwen3.7-flash','inclusionai/ling-3.0-flash','openai/gpt-oss-120b','openai/gpt-oss-20b','inception/mercury-2.5','amazon/nova-micro-v1','cohere/command-r7b-12-2024','microsoft/phi-4','mistralai/mistral-nemo','google/gemma-4-26b-a4b-it:free','nvidia/nemotron-3.5-lightning:free','poolside/laguna-xs-2.1:free'];
-const cases=JSON.parse(fs.readFileSync('docs/benchmark-results/paired-v1/cases.json','utf8'));
+const models=process.env.BENCH_MODELS?JSON.parse(process.env.BENCH_MODELS):['deepseek/deepseek-v4.1-flash','qwen/qwen3.8-flash','qwen/qwen3.7-flash','inclusionai/ling-3.0-flash','openai/gpt-oss-120b','openai/gpt-oss-20b','inception/mercury-2.5','amazon/nova-micro-v1','cohere/command-r7b-12-2024','microsoft/phi-4','mistralai/mistral-nemo','google/gemma-4-26b-a4b-it:free','nvidia/nemotron-3.5-lightning:free','poolside/laguna-xs-2.1:free'];
+const cases=JSON.parse(fs.readFileSync(process.env.BENCH_CASES||'docs/benchmark-results/paired-v1/cases.json','utf8'));
 const catalog=await (await fetch('https://openrouter.ai/api/v1/models')).json();
 for(const model of models){const m=catalog.data.find(m=>m.id===model);if(!m||+m.pricing.prompt<0||+m.pricing.completion<0||+m.pricing.prompt>.00000015||+m.pricing.completion>.0000006)throw Error('price gate '+model);}
 fs.writeFileSync(out+'.manifest.json',JSON.stringify({models,cases,max_tokens:2048,timeout:90000,concurrency:4,noRetries:true,priceCap:{prompt:.15,completion:.6},catalog:catalog.data.filter(m=>models.includes(m.id))},null,2));
