@@ -13,7 +13,7 @@ Explicit paid OpenRouter requests have a dedicated provider-tiered fallback path
 
 The intended Qwen policy is conceptually requested Qwen -> Nex N2 Mini -> OpenRouter DeepSeek V4 Flash -> Solar Pro 4 -> AgentRouter. It is not a hard-coded route mapping: operators select and enable the exact deployed `openrouter:` IDs, while catalog availability, compatibility, health, and `maxAttempts` still apply.
 
-Each attempt receives the original request fields with only the physical `model` substituted. Anthropic Messages retains its thinking pin/strip and AgentRouter DeepSeek historical-tool compatibility transformations; OpenAI Chat Completions applies only its own scoped AgentRouter `deepseek-v4-*` adjustments (thinking-control normalization and a `json_schema` structured-output translation that prefers thinking-on `tool_choice: "auto"` with a bounded forced non-thinking fallback). Terminal routing headers identify the selected route and expose only a bounded base64url attempt projection of model, provider, status, and outcome.
+Each attempt receives the original request fields with only the physical `model` substituted. Anthropic Messages retains its thinking pin/strip and AgentRouter DeepSeek historical-tool compatibility transformations; OpenAI Chat Completions applies only its own scoped AgentRouter `deepseek-v4-*` adjustments (thinking-replay safeguard, thinking-control normalization, and a `json_schema` structured-output translation that prefers thinking-on `tool_choice: "auto"` with a bounded forced non-thinking fallback). Terminal routing headers identify the selected route and expose only a bounded base64url attempt projection of model, provider, status, and outcome.
 
 ## Product Surfaces
 

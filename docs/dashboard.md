@@ -27,6 +27,8 @@ The client-facing `/v1/models` response is narrower than the operational catalog
 
 Provider credentials entered through the dashboard are write-only. RouteTok stores them under `DATA_DIR/secrets/provider-credentials.json` with an owner-only directory and file permissions and never returns key material to the browser.
 
+OAuth providers (`openai-codex`, `github-copilot`) appear as connect rows in the same dialog. A **CONNECT**/**DEVICE CODE** button opens the provider sign-in, the dialog polls connection state, and **DISCONNECT** removes the stored tokens. Tokens live in `DATA_DIR/secrets/provider-oauth.json` with the same write-only posture; see [Provider OAuth](oauth.md).
+
 The Model Manager's Paid OpenRouter Fallback order accepts only paid or unknown-price `openrouter:` routes. Add and order alternatives there, then enable each model separately to approve spending. AgentRouter models are not placed in this editor; eligible AgentRouter entries from the normal protocol order are appended automatically after all healthy OpenRouter alternatives. This applies to exact paid OpenRouter requests even when `fallbackExplicitModels` is off and remains bounded by `maxAttempts`.
 
 For Qwen, the intended conceptual order is requested Qwen, Nex N2 Mini, OpenRouter DeepSeek V4 Flash, Solar Pro 4, then AgentRouter. The dashboard does not hard-code display names to IDs: choose the exact currently deployed catalog IDs and account for enablement, health, protocol compatibility, and attempt limits.
@@ -60,7 +62,7 @@ The dashboard loads `window.AttemptInspector` from `/attempt-inspector.js` and m
 
 ## API Setup Test Request
 
-The dashboard loads `window.ApiSetup` from `/api-setup.js` and mounts it in the Guide dialog. The Connect Applications drawer pastes a client key once, sends a `GET /v1/models` test request with `Authorization: Bearer <key>`, and reports the advertised model count. An HTTP 401 shows key-remediation guidance without ever displaying secret values.
+The dashboard loads `window.ApiSetup` from `/api-setup.js` and mounts it in the Guide dialog. Its Connect Applications panel accepts a client key once, sends a `GET /v1/models` test request with `Authorization: Bearer <key>`, and reports the advertised model count. This test sends no dashboard token. An HTTP 401 shows client-key remediation in the panel without opening the dashboard login dialog or displaying secret values. The key field is cleared on submission, and the field and test button remain disabled until the request finishes to prevent overlapping tests.
 
 ## Onboarding Wizard
 

@@ -146,6 +146,7 @@
       }
     });
     async function sendTest() {
+      if (sendButton.disabled) return;
       let currentKey = keyInput.value.trim();
       keyInput.value = "";
       if (!currentKey) {
@@ -154,6 +155,7 @@
       }
       testResult.textContent = "Sending test request...";
       sendButton.disabled = true;
+      keyInput.disabled = true;
       try {
         const response = await fetchWithAuth(baseUrl + "/models", {
           method: "GET",
@@ -176,6 +178,7 @@
         keyInput.value = "";
         currentKey = "";
         sendButton.disabled = false;
+        keyInput.disabled = false;
       }
     }
     sendButton.addEventListener("click", () => void sendTest());

@@ -26,7 +26,9 @@ Compose overrides `HOST`, `PORT`, and `DATA_DIR` inside the container with `0.0.
 
 These variables do not alter native deployment settings. Containerized local-provider URLs must use `host.docker.internal` rather than `127.0.0.1`; see [Deployment](deployment.md#local-providers).
 
-Every provider has an `*_API_KEY` and optional `*_BASE_URL`; see `.env.example`. Dashboard-managed keys override environment values. Deleting a stored key creates a tombstone that suppresses environment fallback, except OpenCode which returns to `public`.
+Every API-key provider has an `*_API_KEY` and optional `*_BASE_URL`; see `.env.example`. Dashboard-managed keys override environment values. Deleting a stored key creates a tombstone that suppresses environment fallback, except OpenCode which returns to `public`.
+
+OAuth providers (`openai-codex`, `github-copilot`) carry no environment keys: they are connected from the dashboard and store tokens under `DATA_DIR/secrets`. Optional endpoint overrides and the Codex callback port are documented in [Provider OAuth](oauth.md#configuration-overrides).
 
 ## Local Transcription
 

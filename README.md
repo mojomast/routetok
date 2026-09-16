@@ -151,6 +151,7 @@ Read the [security model](docs/security-model.md) before exposing RouteTok over 
 - [Architecture](docs/architecture.md)
 - [Configuration](docs/configuration.md)
 - [Providers](docs/providers.md)
+- [Provider OAuth](docs/oauth.md)
 - [API reference](docs/api.md)
 - [Deployment](docs/deployment.md)
 - [Security model](docs/security-model.md)

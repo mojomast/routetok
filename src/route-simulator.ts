@@ -129,8 +129,7 @@ export function simulateRoute(input: SimulateRouteInput, snapshot: SimulateRoute
   const freeModels = catalog
     .filter((model) => model.protocols.includes(protocol))
     .filter((model) => model.providerId && model.providerId !== "agentrouter")
-    .filter((model) => isFreeExternalCatalogModel(model) && isTextGenerationModel(model, protocol))
-    .filter((model) => available.has(model.id));
+    .filter((model) => isFreeExternalCatalogModel(model) && isTextGenerationModel(model, protocol));
   const freeIds = new Set(freeModels.map((model) => model.id));
   const freeOrder = [
     ...config.freeModelOrder.filter((model) => freeIds.has(model)),
@@ -143,18 +142,20 @@ export function simulateRoute(input: SimulateRouteInput, snapshot: SimulateRoute
     .filter((model) => (model.providerId ?? "agentrouter") === "agentrouter")
     .map((model) => model.id);
   const standardOrder = [
-    ...configuredOrder.filter((model) => available.has(model)),
-    ...unorderedAgentRouter.filter((model) => available.has(model) && !configuredOrder.includes(model)).sort()
+    ...configuredOrder,
+    ...unorderedAgentRouter.filter((model) => !configuredOrder.includes(model)).sort()
   ];
-  const ordered = customCascade ? customCascade.members.filter((model) => available.has(model)) : freeVirtual ? freeOrder : standardOrder;
+  const ordered = customCascade ? customCascade.members : freeVirtual ? freeOrder : standardOrder;
+  // Retain excluded routes for diagnostics, but score the same available order as HealthRouter.
+  const scoringOrder = ordered.filter((model) => available.has(model));
   const paidOpenRouterFallbacks = [
     ...config.paidOpenRouterFallbackOrder.filter((id) => {
       const model = catalog.find((entry) => entry.id === id);
-      return model?.providerId === "openrouter" && !isFreeExternalCatalogModel(model) && available.has(id) && id !== requestedModel;
+      return model?.providerId === "openrouter" && !isFreeExternalCatalogModel(model) && id !== requestedModel;
     }),
     ...standardOrder.filter((id) => {
       const model = catalog.find((entry) => entry.id === id);
-      return available.has(id) && (model?.providerId ?? "agentrouter") === "agentrouter";
+      return (model?.providerId ?? "agentrouter") === "agentrouter";
     })
   ].filter((id, index, values) => values.indexOf(id) === index);
   const explicitFallbackOrder = paidOpenRouterRequest ? paidOpenRouterFallbacks : ordered;
@@ -209,7 +210,7 @@ export function simulateRoute(input: SimulateRouteInput, snapshot: SimulateRoute
     sortedPassed = sortedPassed.sort((left, right) => {
       if (exact && left === exact) return -1;
       if (exact && right === exact) return 1;
-      return rankDifference(protocol, left, right, ordered, health);
+      return rankDifference(protocol, left, right, scoringOrder, health);
     });
   }
   const eligibleIds = sortedPassed.slice(0, config.maxAttempts);

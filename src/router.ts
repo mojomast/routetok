@@ -168,8 +168,19 @@ export class HealthRouter {
       : state.latencyEwmaMs * 0.8 + latencyMs * 0.2;
   }
 
-  startAttempt(protocol: Protocol, model: string): void {
-    this.get(protocol, model).inflight += 1;
+  startAttempt(protocol: Protocol, model: string): boolean {
+    const state = this.get(protocol, model);
+    const now = Date.now();
+    // Candidate lists can become stale while earlier upstream attempts are pending.
+    if (state.entitlementBlocked) return false;
+    if (state.rateLimitedUntil !== null && state.rateLimitedUntil > now) return false;
+    if (state.circuitState === "open") {
+      if (state.circuitOpenUntil === null || state.circuitOpenUntil > now) return false;
+      state.circuitState = "half-open";
+    }
+    if (state.circuitState === "half-open" && state.inflight > 0) return false;
+    state.inflight += 1;
+    return true;
   }
 
   finishAttempt(protocol: Protocol, model: string): void {

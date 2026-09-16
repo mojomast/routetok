@@ -93,6 +93,12 @@ test("paid openrouter chain prefers openrouter fallbacks then agentrouter tail",
   const simulated = simulateRoute({ model: "openrouter:qwen/primary", protocol: "openai" }, { config, catalogModels: catalog, health: [] });
   assert.deepEqual(eligibleIds(simulated), ["openrouter:qwen/primary", "openrouter:nex/backup", "deepseek-v4-flash", "glm-5.3"]);
   assert.equal(simulated[0]?.providerId, "openrouter");
+  const disabledConfig = { ...config, disabledModels: ["openrouter:nex/backup", "deepseek-v4-flash"] };
+  checkMatchesRouter("openai", "openrouter:qwen/primary", catalog, disabledConfig, []);
+  const disabled = simulateRoute({ model: "openrouter:qwen/primary" }, { config: disabledConfig, catalogModels: catalog, health: [] });
+  for (const id of disabledConfig.disabledModels) {
+    assert.equal(disabled.find((entry) => entry.id === id)?.strikeReason, "disabled");
+  }
 });
 
 test("maxAttempts truncates with over-attempt-budget strikes", () => {
@@ -120,6 +126,28 @@ test("disabled models are struck as disabled", () => {
   checkMatchesRouter("openai", "auto", catalog, config, []);
   const simulated = simulateRoute({ model: "auto", protocol: "openai" }, { config, catalogModels: catalog, health: [] });
   assert.ok(!eligibleIds(simulated).includes("backup"));
+  assert.equal(simulated.find((entry) => entry.id === "backup")?.strikeReason, "disabled");
+});
+
+test("excluded cascade and protocol-order members retain strike reasons without changing eligible ranks", () => {
+  const catalog = baseCatalog();
+  const members = ["backup", "missing", "openai-only", "primary", "no-tools"];
+  const config: RouterConfig = {
+    ...baseConfig(),
+    disabledModels: ["backup"],
+    anthropicOrder: members,
+    customCascades: [{ name: "diagnostic-chain", members }]
+  };
+  const router = new HealthRouter();
+  router.startAttempt("anthropic", "primary");
+  const health = router.snapshot();
+  for (const model of ["auto", "diagnostic-chain"]) {
+    checkMatchesRouter("anthropic", model, catalog, config, health);
+    const simulated = simulateRoute({ model, protocol: "anthropic" }, { config, catalogModels: catalog, health });
+    assert.equal(simulated.find((entry) => entry.id === "backup")?.strikeReason, "disabled");
+    assert.equal(simulated.find((entry) => entry.id === "missing")?.strikeReason, "unconfigured-provider");
+    assert.equal(simulated.find((entry) => entry.id === "openai-only")?.strikeReason, "incompatible");
+  }
 });
 
 test("unhealthy circuits are struck as unhealthy", () => {
@@ -189,4 +217,8 @@ test("free virtual route only includes zero-cost external models", () => {
   checkMatchesRouter("openai", "free", catalog, config, []);
   const simulated = simulateRoute({ model: "free", protocol: "openai" }, { config, catalogModels: catalog, health: [] });
   assert.deepEqual(eligibleIds(simulated), ["openrouter:best-free:free"]);
+  const disabledConfig = { ...config, disabledModels: ["openrouter:best-free:free"] };
+  checkMatchesRouter("openai", "free", catalog, disabledConfig, []);
+  const disabled = simulateRoute({ model: "free" }, { config: disabledConfig, catalogModels: catalog, health: [] });
+  assert.equal(disabled.find((entry) => entry.id === "openrouter:best-free:free")?.strikeReason, "disabled");
 });

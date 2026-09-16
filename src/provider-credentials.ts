@@ -10,7 +10,8 @@ interface PersistedCredentials { version: 1; providers: Partial<Record<ProviderI
 
 const FIELDS: Record<ProviderId, CredentialField[]> = {
   agentrouter: ["apiKey"], openrouter: ["apiKey", "managementKey"], requesty: ["apiKey"], opencode: ["apiKey"], kimi: ["apiKey"],
-  groq: ["apiKey"], together: ["apiKey"], fireworks: ["apiKey"], deepinfra: ["apiKey"], cerebras: ["apiKey"], mistral: ["apiKey"], generic: ["apiKey"]
+  groq: ["apiKey"], together: ["apiKey"], fireworks: ["apiKey"], deepinfra: ["apiKey"], cerebras: ["apiKey"], mistral: ["apiKey"], generic: ["apiKey"],
+  "openai-codex": [], "github-copilot": []
 };
 
 export interface CredentialStatus {
@@ -81,6 +82,7 @@ export class ProviderCredentialStore {
   }
 
   private apply(providerId: ProviderId): void {
+    if (!FIELDS[providerId].length) return;
     const provider = this.providers.find((entry) => entry.id === providerId)!;
     const apiKey = this.effective(providerId, "apiKey");
     provider.apiKey = apiKey ?? "";

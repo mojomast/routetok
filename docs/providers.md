@@ -16,6 +16,10 @@ All external routes are namespaced and unknown-price routes require explicit opt
 | `cerebras` | `https://api.cerebras.ai/v1` | Chat |
 | `mistral` | `https://api.mistral.ai/v1` | Chat |
 | `generic` | operator configured | Chat; Responses opt-in |
+| `openai-codex` | `https://chatgpt.com/backend-api/codex` | Responses (streaming only); OAuth |
+| `github-copilot` | `https://api.individual.githubcopilot.com` | Chat and Responses; OAuth |
+
+`openai-codex` and `github-copilot` authenticate with OAuth rather than an API key and are connected from the dashboard; see [Provider OAuth](oauth.md). Their models are namespaced (`openai-codex:<id>`, `github-copilot:<id>`) and, like every external provider, require explicit enablement before entering routing.
 
 Catalog metadata varies by provider. RouteTok keeps missing capability and pricing data unknown rather than guessing. New providers never enter automatic or free routing unless explicitly configured.
 

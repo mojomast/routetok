@@ -1,5 +1,5 @@
 export type Protocol = "openai" | "anthropic";
-export type ProviderId = "agentrouter" | "openrouter" | "requesty" | "opencode" | "kimi" | "groq" | "together" | "fireworks" | "deepinfra" | "cerebras" | "mistral" | "generic";
+export type ProviderId = "agentrouter" | "openrouter" | "requesty" | "opencode" | "kimi" | "groq" | "together" | "fireworks" | "deepinfra" | "cerebras" | "mistral" | "generic" | "openai-codex" | "github-copilot";
 export type EndpointKind = "chat" | "responses" | "messages";
 
 export interface ProviderRuntime {
@@ -11,6 +11,7 @@ export interface ProviderRuntime {
   managementBaseUrl?: string;
   auth?: "bearer" | "none";
   endpoints?: EndpointKind[];
+  oauthHeaders?: Record<string, string>;
 }
 
 export interface ModelCapabilities {

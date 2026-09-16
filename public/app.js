@@ -1519,10 +1519,73 @@ function renderProviderCards() {
   }
 }
 
+function renderOAuthRow(container, provider) {
+  const oauth = provider.oauth;
+  const row = document.createElement("section");
+  row.className = "api-key-row";
+  const identity = document.createElement("div");
+  const title = document.createElement("strong");
+  title.textContent = `${provider.providerId} / OAuth`;
+  const source = document.createElement("small");
+  const flow = oauth.flow || {};
+  let detail = oauth.connected
+    ? `CONNECTED / EXPIRES ${oauth.expiresAt ? new Date(oauth.expiresAt).toLocaleString() : "UNKNOWN"}`
+    : "NOT CONNECTED";
+  if (flow.state === "pending") detail = `PENDING / ${flow.instructions || "WAITING FOR AUTHORIZATION"}`;
+  else if (flow.state === "error" || flow.state === "expired") detail = `${String(flow.state).toUpperCase()} / ${flow.error || "CONNECTION FAILED"}`;
+  source.textContent = detail;
+  source.dataset.oauthStatus = provider.providerId;
+  identity.append(title, source);
+  row.append(identity);
+  const actions = document.createElement("div");
+  actions.className = "provider-actions";
+  const pending = flow.state === "pending";
+  if (!pending) {
+    const connect = document.createElement("button");
+    connect.type = "button";
+    connect.className = "button primary-button";
+    connect.dataset.oauthStart = provider.providerId;
+    connect.dataset.oauthMethod = provider.providerId === "github-copilot" ? "device" : "browser";
+    connect.textContent = oauth.connected ? "RECONNECT" : "CONNECT";
+    actions.append(connect);
+  }
+  if (provider.providerId === "openai-codex" && !pending) {
+    const device = document.createElement("button");
+    device.type = "button";
+    device.className = "button secondary";
+    device.dataset.oauthStart = provider.providerId;
+    device.dataset.oauthMethod = "device";
+    device.textContent = "DEVICE CODE";
+    actions.append(device);
+  }
+  if (pending) {
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "button secondary";
+    cancel.dataset.oauthCancel = provider.providerId;
+    cancel.textContent = "CANCEL";
+    actions.append(cancel);
+  }
+  if (oauth.connected && !pending) {
+    const disconnect = document.createElement("button");
+    disconnect.type = "button";
+    disconnect.className = "button secondary";
+    disconnect.dataset.oauthDisconnect = provider.providerId;
+    disconnect.textContent = "DISCONNECT";
+    actions.append(disconnect);
+  }
+  row.append(actions);
+  container.append(row);
+}
+
 function renderApiKeyManager() {
   const container = byId("api-key-manager");
   container.replaceChildren();
   for (const provider of state.status?.providers || []) {
+    if (provider.oauth?.supported) {
+      renderOAuthRow(container, provider);
+      continue;
+    }
     for (const field of ["apiKey", ...(provider.providerId === "openrouter" ? ["managementKey"] : [])]) {
       const status = provider.credentials?.[field] || { configured: false, source: "unset" };
       const row = document.createElement("section");
@@ -4089,7 +4152,6 @@ mountDashboardModule("Onboarding", "onboarding-root", {
   })
 });
 mountDashboardModule("ApiSetup", "api-setup-root", {
-  fetchWithAuth: moduleFetch,
   onManageProviderCredentials: () => byId("open-api-keys")?.click()
 });
 mountDashboardModule("AttemptInspector", "attempt-inspector-root", {
@@ -4153,7 +4215,77 @@ byId("api-curl-example").textContent = normalizedApiCurlExample;
 document.querySelectorAll("[data-copy-api]").forEach((button) => button.addEventListener("click", async () => {
   await copyToClipboard(normalizedApiCurlExample, "API example copied.", "Clipboard access was unavailable. Select the example manually.");
 }));
+async function startProviderOAuth(providerId, method) {
+  try {
+    const payload = await api(`/admin/api/providers/${encodeURIComponent(providerId)}/oauth/start`, {
+      method: "POST",
+      body: JSON.stringify({ method })
+    });
+    const started = payload.started || {};
+    if (started.url) window.open(started.url, "_blank", "noopener,noreferrer");
+    if (started.userCode) notify(`${providerId}: enter code ${started.userCode} at ${started.url}`, true);
+    else notify(`${providerId}: complete sign-in in the window that opened.`, true);
+    renderApiKeyManager();
+    void pollProviderOAuth(providerId);
+  } catch (error) {
+    notify(error.message);
+  }
+}
+
+async function pollProviderOAuth(providerId) {
+  const deadline = Date.now() + 6 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    let payload;
+    try {
+      payload = await api(`/admin/api/providers/${encodeURIComponent(providerId)}/oauth/status`);
+    } catch {
+      continue;
+    }
+    const flow = payload.flow || {};
+    if (flow.state === "connected") {
+      await load(true);
+      renderApiKeyManager();
+      notify(`${providerId} connected.`, true);
+      return;
+    }
+    if (flow.state === "error" || flow.state === "expired" || flow.state === "idle") {
+      renderApiKeyManager();
+      if (flow.state !== "idle") notify(`${providerId} connection ${flow.state}${flow.error ? `: ${flow.error}` : ""}`, false);
+      return;
+    }
+    renderApiKeyManager();
+  }
+}
+
 byId("api-key-manager").addEventListener("click", async (event) => {
+  const oauthStart = event.target.closest("[data-oauth-start]");
+  if (oauthStart) {
+    oauthStart.disabled = true;
+    await startProviderOAuth(oauthStart.dataset.oauthStart, oauthStart.dataset.oauthMethod);
+    oauthStart.disabled = false;
+    return;
+  }
+  const oauthCancel = event.target.closest("[data-oauth-cancel]");
+  if (oauthCancel) {
+    try {
+      await api(`/admin/api/providers/${encodeURIComponent(oauthCancel.dataset.oauthCancel)}/oauth/cancel`, { method: "POST", body: "{}" });
+      renderApiKeyManager();
+    } catch (error) { notify(error.message); }
+    return;
+  }
+  const oauthDisconnect = event.target.closest("[data-oauth-disconnect]");
+  if (oauthDisconnect) {
+    const providerId = oauthDisconnect.dataset.oauthDisconnect;
+    if (!confirm(`Disconnect ${providerId}? RouteTok will stop using the stored tokens.`)) return;
+    try {
+      await api(`/admin/api/providers/${encodeURIComponent(providerId)}/oauth`, { method: "DELETE" });
+      await load(true);
+      renderApiKeyManager();
+      notify(`${providerId} disconnected.`, true);
+    } catch (error) { notify(error.message); }
+    return;
+  }
   const target = event.target.closest("[data-credential-update], [data-credential-delete]");
   if (!target) return;
   const descriptor = target.dataset.credentialUpdate || target.dataset.credentialDelete;

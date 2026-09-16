@@ -5,7 +5,43 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { MetricsStore } from "../../src/metrics.js";
+import { HealthRouter } from "../../src/router.js";
+import { DEFAULT_CONFIG } from "../../src/config.js";
 import type { RequestRecord } from "../../src/types.js";
+
+test("Prometheus families have metadata and prefix aliases preserve escaped model labels", async () => {
+  const dataDir = await mkdtemp(path.join(tmpdir(), "routetok-metrics-prometheus-"));
+  const store = new MetricsStore(dataDir);
+  try {
+    const model = 'agentrouter_router_model"\\\n';
+    const router = new HealthRouter();
+    router.recordSuccess("openai", model, 250, DEFAULT_CONFIG);
+    store.record({
+      id: "prometheus-1", timestamp: new Date().toISOString(), protocol: "openai",
+      path: "/v1/chat/completions", requestedModel: model, selectedModel: model,
+      stream: false, status: 200, durationMs: 250, ttftMs: null,
+      generationDurationMs: null, outputTokensPerSecond: null,
+      attempts: [{ model, status: 200, durationMs: 250, firstOutputMs: null, outcome: "success" }],
+      usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, costCny: 0, estimatedCostUsd: 0 },
+      error: null
+    });
+    const lines = store.prometheus(router.snapshot()).trim().split("\n");
+    for (const line of lines.filter((line) => !line.startsWith("#"))) {
+      const name = line.split(/[ {]/)[0]!;
+      assert.equal(lines.filter((entry) => entry.startsWith(`# HELP ${name} `)).length, 1, name);
+      assert.equal(lines.filter((entry) => entry.startsWith(`# TYPE ${name} `)).length, 1, name);
+    }
+    const legacy = lines.filter((line) => line.startsWith("agentrouter_router_"));
+    for (const line of legacy) {
+      assert.ok(lines.includes(line.replace(/^agentrouter_router_/, "routetok_")), "alias must preserve values and labels");
+    }
+    const escaped = model.replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("\n", "\\n");
+    assert.ok(lines.includes(`routetok_model_attempts_total{model="${escaped}",protocol="openai"} 1`));
+  } finally {
+    await store.close();
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
 
 test("persisted metrics normalize malformed numeric fields and discard invalid records", async () => {
   const dataDir = await mkdtemp(path.join(tmpdir(), "routetok-metrics-normalize-"));

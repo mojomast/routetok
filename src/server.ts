@@ -18,6 +18,7 @@ import { MetricsStore } from "./metrics.js";
 import { serializeModelMetadata } from "./model-metadata.js";
 import { ProxyHandler } from "./proxy.js";
 import { ProviderCredentialStore } from "./provider-credentials.js";
+import { ProviderOAuthStore, type OAuthConnectionStatus, type OAuthFlowStatus, type OAuthProviderId } from "./provider-oauth.js";
 import { HealthRouter } from "./router.js";
 import type { CatalogModel, ModelHealth, Protocol, ProviderId, ProviderRuntime, RequestRecord, RouterConfig, SandboxTool, SandboxTranscriptTurn } from "./types.js";
 import {
@@ -119,7 +120,9 @@ const providers: ProviderRuntime[] = [
   { id: "deepinfra", configured: Boolean(deepInfraApiKey), apiKey: deepInfraApiKey, baseUrl: (process.env.DEEPINFRA_BASE_URL?.trim() || "https://api.deepinfra.com/v1/openai").replace(/\/$/, ""), endpoints: ["chat"] },
   { id: "cerebras", configured: Boolean(cerebrasApiKey), apiKey: cerebrasApiKey, baseUrl: (process.env.CEREBRAS_BASE_URL?.trim() || "https://api.cerebras.ai/v1").replace(/\/$/, ""), endpoints: ["chat"] },
   { id: "mistral", configured: Boolean(mistralApiKey), apiKey: mistralApiKey, baseUrl: (process.env.MISTRAL_BASE_URL?.trim() || "https://api.mistral.ai/v1").replace(/\/$/, ""), endpoints: ["chat"] },
-  { id: "generic", configured: Boolean(genericOpenAiBaseUrl) && (genericOpenAiAuth === "none" || Boolean(genericOpenAiApiKey)), apiKey: genericOpenAiApiKey, baseUrl: genericOpenAiBaseUrl, auth: genericOpenAiAuth, endpoints: genericSupportsResponses ? ["chat", "responses"] : ["chat"] }
+  { id: "generic", configured: Boolean(genericOpenAiBaseUrl) && (genericOpenAiAuth === "none" || Boolean(genericOpenAiApiKey)), apiKey: genericOpenAiApiKey, baseUrl: genericOpenAiBaseUrl, auth: genericOpenAiAuth, endpoints: genericSupportsResponses ? ["chat", "responses"] : ["chat"] },
+  { id: "github-copilot", configured: false, apiKey: "", baseUrl: "https://api.individual.githubcopilot.com", endpoints: ["chat", "responses"] },
+  { id: "openai-codex", configured: false, apiKey: "", baseUrl: "https://chatgpt.com/backend-api/codex", endpoints: ["responses"] }
 ];
 const credentialStore = new ProviderCredentialStore(dataDir, providers, {
   agentrouter: { apiKey: apiKey || null },
@@ -130,11 +133,20 @@ const credentialStore = new ProviderCredentialStore(dataDir, providers, {
   ,groq: { apiKey: groqApiKey || null }, together: { apiKey: togetherApiKey || null }, fireworks: { apiKey: fireworksApiKey || null }, deepinfra: { apiKey: deepInfraApiKey || null }, cerebras: { apiKey: cerebrasApiKey || null }, mistral: { apiKey: mistralApiKey || null }, generic: { apiKey: genericOpenAiApiKey || null }
 });
 await credentialStore.load();
-const catalog = new CatalogService(providers);
+const oauthStore = new ProviderOAuthStore(dataDir, providers, {
+  onConnected: async (providerId: OAuthProviderId) => {
+    router.resetWhere((_protocol, model) => catalog.resolve(model)?.providerId === providerId);
+    adminAudio.invalidate(providerId);
+    await Promise.allSettled([catalog.providerChanged(providerId), credits.providerChanged(providerId)]);
+    reportCascadeCollisions(`${providerId} OAuth connection`);
+  }
+});
+await oauthStore.load();
+const catalog = new CatalogService(providers, fetch, (provider) => oauthStore.prepare(provider));
 const credits = new CreditsService(providers);
 const router = new HealthRouter();
 let activeProxyInference = 0;
-const proxy = new ProxyHandler({ providers, catalog, config, router, metrics, internalToken: internalSandboxToken });
+const proxy = new ProxyHandler({ providers, catalog, config, router, metrics, internalToken: internalSandboxToken, prepareProvider: (provider) => oauthStore.prepare(provider) });
 const adminAudio = new AdminAudioService(providers, { baseUrl: localSttBaseUrl, model: localSttModel, apiKey: localSttApiKey });
 const adminImages = new AdminImageService(providers, catalog, config);
 await catalog.refresh();
@@ -1037,16 +1049,23 @@ function modelIds(protocol: Protocol): string[] {
     .filter((id, index, values) => values.indexOf(id) === index);
 }
 
-function providerStatus(): Array<{ providerId: ProviderId; configured: boolean; baseUrl: string; credentials: ReturnType<ProviderCredentialStore["status"]>[number]["credentials"]; credits: ReturnType<CreditsService["get"]>[number] | null }> {
+function providerStatus(): Array<{ providerId: ProviderId; configured: boolean; baseUrl: string; credentials: ReturnType<ProviderCredentialStore["status"]>[number]["credentials"]; credits: ReturnType<CreditsService["get"]>[number] | null; oauth: (OAuthConnectionStatus & { supported: true; flow: OAuthFlowStatus }) | null }> {
   const cached = credits.get();
   const credentialStatuses = credentialStore.status();
-  return providers.map((provider) => ({
-    providerId: provider.id,
-    configured: provider.configured,
-    baseUrl: provider.baseUrl,
-    credentials: credentialStatuses.find((entry) => entry.providerId === provider.id)?.credentials ?? {},
-    credits: cached.find((entry) => entry.providerId === provider.id) ?? null
-  }));
+  const oauthStatuses = oauthStore.status();
+  return providers.map((provider) => {
+    const connection = ProviderOAuthStore.isOAuthProvider(provider.id)
+      ? oauthStatuses.find((entry) => entry.providerId === provider.id) ?? null
+      : null;
+    return {
+      providerId: provider.id,
+      configured: provider.configured,
+      baseUrl: provider.baseUrl,
+      credentials: credentialStatuses.find((entry) => entry.providerId === provider.id)?.credentials ?? {},
+      credits: cached.find((entry) => entry.providerId === provider.id) ?? null,
+      oauth: connection ? { ...connection, supported: true, flow: oauthStore.flow(connection.providerId) } : null
+    };
+  });
 }
 
 interface ModelMetadataContext {
@@ -1526,6 +1545,47 @@ const server = createServer(
           });
         } catch (error) {
           json(response, (error as Error).message.includes("Unknown") ? 404 : 400, { error: (error as Error).message });
+        }
+        return;
+      }
+
+      const oauthMatch = pathname.match(/^\/admin\/api\/providers\/([a-z0-9-]+)\/oauth(?:\/(start|status|cancel))?$/);
+      if (oauthMatch) {
+        const providerId = oauthMatch[1]!;
+        if (!ProviderOAuthStore.isOAuthProvider(providerId)) return json(response, 404, { error: "Unknown OAuth provider" });
+        if (!dashboardToken) return json(response, 503, { error: "OAuth connection management requires DASHBOARD_TOKEN" });
+        const action = oauthMatch[2];
+        try {
+          if (request.method === "GET" && (action === undefined || action === "status")) {
+            json(response, 200, { oauth: oauthStore.status(providerId)[0] ?? null, flow: oauthStore.flow(providerId) });
+            return;
+          }
+          if (request.method === "POST" && action === "start") {
+            const body = await readJson(request).catch(() => ({})) as Record<string, unknown>;
+            const method = body.method === "device" || body.method === "browser" ? body.method : undefined;
+            const enterpriseUrl = typeof body.enterpriseUrl === "string" ? body.enterpriseUrl : undefined;
+            const started = await oauthStore.startLogin(providerId, {
+              ...(method ? { method } : {}),
+              ...(enterpriseUrl ? { enterpriseUrl } : {})
+            });
+            json(response, 202, { started, flow: oauthStore.flow(providerId) });
+            return;
+          }
+          if (request.method === "POST" && action === "cancel") {
+            json(response, 200, { flow: oauthStore.cancelLogin(providerId) });
+            return;
+          }
+          if (request.method === "DELETE" && action === undefined) {
+            await oauthStore.disconnect(providerId);
+            router.resetWhere((_protocol, model) => catalog.resolve(model)?.providerId === providerId);
+            adminAudio.invalidate(providerId);
+            await catalog.providerChanged(providerId);
+            json(response, 200, { disconnected: true, oauth: oauthStore.status(providerId)[0] ?? null });
+            return;
+          }
+          json(response, 405, { error: "Unsupported OAuth action" });
+        } catch (error) {
+          json(response, 400, { error: (error as Error).message });
         }
         return;
       }

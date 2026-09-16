@@ -495,7 +495,19 @@ export class MetricsStore {
       `agentrouter_router_generation_seconds_sum ${this.state.totals.totalGenerationDurationMs / 1_000}`,
       "# HELP agentrouter_router_generation_output_tokens_total Output tokens with measured generation duration.",
       "# TYPE agentrouter_router_generation_output_tokens_total counter",
-      `agentrouter_router_generation_output_tokens_total ${this.state.totals.generationOutputTokens}`
+      `agentrouter_router_generation_output_tokens_total ${this.state.totals.generationOutputTokens}`,
+      "# HELP agentrouter_router_model_attempts_total Upstream attempts by model and protocol.",
+      "# TYPE agentrouter_router_model_attempts_total counter",
+      "# HELP agentrouter_router_model_successes_total Successful upstream attempts by model and protocol.",
+      "# TYPE agentrouter_router_model_successes_total counter",
+      "# HELP agentrouter_router_model_failures_total Failed upstream attempts by model and protocol.",
+      "# TYPE agentrouter_router_model_failures_total counter",
+      "# HELP agentrouter_router_model_cancellations_total Cancelled upstream attempts by model and protocol.",
+      "# TYPE agentrouter_router_model_cancellations_total counter",
+      "# HELP agentrouter_router_circuit_state Circuit state: closed=0, half-open=0.5, open=1.",
+      "# TYPE agentrouter_router_circuit_state gauge",
+      "# HELP agentrouter_router_model_latency_ewma_seconds Exponentially weighted successful upstream latency.",
+      "# TYPE agentrouter_router_model_latency_ewma_seconds gauge"
     );
 
     for (const [aggregateKey, model] of Object.entries(this.state.byModel)) {
@@ -522,7 +534,7 @@ export class MetricsStore {
         );
       }
     }
-    const routetok = lines.map((line) => line.replaceAll("agentrouter_router_", "routetok_"));
+    const routetok = lines.map((line) => line.replace(/^(# (?:HELP|TYPE) )?agentrouter_router_/, "$1routetok_"));
     return `${routetok.join("\n")}\n${lines.join("\n")}\n`;
   }
 

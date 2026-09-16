@@ -146,6 +146,71 @@ test("an expired open circuit admits exactly one half-open probe and reopens on 
   assert.ok(!router.candidates("openai", "best-model", catalog, config).includes("best-model"));
 });
 
+test("stale candidate lists cannot dispatch concurrent half-open probes", () => {
+  const router = seededRouter([{
+    model: "best-model", protocol: "openai", circuitState: "open", circuitOpenUntil: Date.now() - 1
+  }]);
+  const first = router.candidates("openai", "backup-model", catalog, config);
+  const second = router.candidates("openai", "backup-model", catalog, config);
+  assert.equal(first[1], "best-model");
+  assert.equal(second[1], "best-model");
+  assert.equal(router.startAttempt("openai", first[1]!), true);
+  assert.equal(router.startAttempt("openai", second[1]!), false);
+  assert.equal(router.snapshot()[0]?.inflight, 1, "refused admission must not increment the probe count");
+  router.recordSuccess("openai", "best-model", 100, config);
+  router.finishAttempt("openai", "best-model");
+  assert.equal(router.snapshot()[0]?.inflight, 0);
+  assert.equal(router.startAttempt("openai", second[1]!), true);
+  assert.equal(router.startAttempt("openai", "best-model"), true, "closed circuits allow concurrency");
+  router.finishAttempt("openai", "best-model");
+  router.finishAttempt("openai", "best-model");
+  assert.equal(router.snapshot()[0]?.inflight, 0);
+});
+
+test("dispatch rejects circuits reopened after selection and admits one probe at expiry", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 1_000 });
+  const router = new HealthRouter();
+  const bounded = { ...config, circuitFailureThreshold: 1, circuitOpenMs: 100 };
+  const selected = router.candidates("openai", "best-model", catalog, bounded)[0]!;
+  router.recordTransientFailure("openai", selected, bounded);
+  assert.equal(router.startAttempt("openai", selected), false);
+  assert.equal(router.snapshot()[0]?.inflight, 0);
+  t.mock.timers.tick(100);
+  assert.equal(router.startAttempt("openai", selected), true, "admission itself must handle expiry without reselection");
+  assert.equal(router.snapshot()[0]?.circuitState, "half-open");
+  assert.equal(router.startAttempt("openai", selected), false);
+  router.recordTransientFailure("openai", selected, bounded);
+  router.finishAttempt("openai", selected);
+  assert.equal(router.snapshot()[0]?.inflight, 0);
+  assert.equal(router.startAttempt("openai", selected), false, "failed probe reopens the circuit");
+  t.mock.timers.tick(100);
+  assert.equal(router.startAttempt("openai", selected), true);
+  router.finishAttempt("openai", selected);
+  assert.equal(router.startAttempt("openai", selected), true, "release without a health outcome permits a replacement probe");
+  router.finishAttempt("openai", selected);
+});
+
+test("dispatch rechecks cooldown and entitlement changes after candidate selection", (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 1_000 });
+  const router = new HealthRouter();
+  const selected = router.candidates("openai", "best-model", catalog, config)[0]!;
+  router.recordRateLimit("openai", selected, 100, config);
+  assert.equal(router.startAttempt("openai", selected), false);
+  assert.equal(router.snapshot()[0]?.inflight, 0);
+  t.mock.timers.tick(100);
+  assert.equal(router.startAttempt("openai", selected), true);
+  router.finishAttempt("openai", selected);
+  router.recordEntitlementFailure("openai", selected, config);
+  assert.equal(router.startAttempt("openai", selected), false);
+  assert.equal(router.snapshot()[0]?.inflight, 0);
+  assert.equal(router.startAttempt("anthropic", selected), true, "admission is protocol-specific");
+  router.finishAttempt("anthropic", selected);
+  const indefinite = seededRouter([{
+    model: selected, protocol: "openai", circuitState: "open", circuitOpenUntil: null
+  }]);
+  assert.equal(indefinite.startAttempt("openai", selected), false);
+});
+
 test("a successful half-open probe closes the circuit and clears the inherited streak", () => {
   const router = seededRouter([{
     model: "best-model", protocol: "openai", circuitState: "open", circuitOpenUntil: Date.now() - 1,

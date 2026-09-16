@@ -127,6 +127,34 @@ function zenFreeCatalog(payload: unknown): CatalogModel[] {
   }));
 }
 
+function codexCatalog(): CatalogModel[] {
+  return [
+    { id: "gpt-5.1-codex", context: 400_000, output: 128_000 },
+    { id: "gpt-5.1-codex-max", context: 400_000, output: 128_000 },
+    { id: "gpt-5.1-codex-mini", context: 400_000, output: 128_000 },
+    { id: "gpt-5.2", context: 400_000, output: 128_000 },
+    { id: "gpt-5.2-codex", context: 400_000, output: 128_000 },
+    { id: "gpt-5.3-codex", context: 400_000, output: 128_000 }
+  ].map((model) => ({
+    id: `openai-codex:${model.id}`,
+    providerId: "openai-codex" as const,
+    upstreamId: model.id,
+    displayName: `Codex: ${model.id}`,
+    protocols: ["openai"] as Protocol[],
+    endpoints: ["responses"] as NonNullable<CatalogModel["endpoints"]>,
+    source: "live" as const,
+    metadataSource: "curated" as const,
+    modelRatio: 0,
+    completionRatio: 0,
+    contextTokens: model.context,
+    maxOutputTokens: model.output,
+    inputModalities: ["text", "image"],
+    outputModalities: ["text"],
+    capabilities: { tools: true, vision: true, audio: false, reasoning: true, caching: true, webSearch: false },
+    pricing: nullablePricing()
+  }));
+}
+
 function kimiCodingCatalog(): CatalogModel[] {
   return [
     { id: "k3", context: 1_048_576, output: 131_072 },
@@ -299,6 +327,10 @@ export function parseOpenAiCompatibleCatalog(payload: unknown, provider: Provide
     const id = typeof entry.id === "string" ? entry.id : typeof entry.name === "string" ? entry.name : null;
     if (!id || id.length > 512 || /[\0-\x1f\x7f]/.test(id)) return [];
     if (provider.id === "groq" && (entry.active === false || /whisper|tts|playai/i.test(id))) return [];
+    if (provider.id === "github-copilot") {
+      const policy = object(entry.policy);
+      if (entry.model_picker_enabled === false || policy.state === "disabled") return [];
+    }
     if (provider.id === "together" && typeof entry.type === "string" && !["chat", "language", "code"].includes(entry.type.toLowerCase())) return [];
     if (provider.id === "mistral") {
       const capabilities = object(entry.capabilities);
@@ -379,7 +411,11 @@ export class CatalogService {
   private refreshPromise: Promise<CatalogModel[]> | null = null;
   private refreshingProviders = new Set<ProviderId>();
 
-  constructor(input: string | ProviderRuntime[], private readonly fetchImpl: typeof fetch = fetch) {
+  constructor(
+    input: string | ProviderRuntime[],
+    private readonly fetchImpl: typeof fetch = fetch,
+    private readonly prepareProvider?: (provider: ProviderRuntime) => Promise<void>
+  ) {
     this.providers = typeof input === "string" ? [{ id: "agentrouter", configured: true, baseUrl: input, apiKey: "" }] : input;
     for (const provider of this.providers) {
       this.states.set(provider.id, {
@@ -492,8 +528,16 @@ export class CatalogService {
     if (!provider.configured) return;
     state.lastAttempt = Date.now();
     try {
+      await this.prepareProvider?.(provider);
       if (provider.id === "kimi") {
         state.models = kimiCodingCatalog();
+        state.lastRefresh = Date.now();
+        state.lastError = null;
+        this.rebuild();
+        return;
+      }
+      if (provider.id === "openai-codex") {
+        state.models = codexCatalog();
         state.lastRefresh = Date.now();
         state.lastError = null;
         this.rebuild();
@@ -502,6 +546,7 @@ export class CatalogService {
       const endpoint = provider.id === "agentrouter" ? "/api/pricing" : provider.id === "openrouter" ? "/models?output_modalities=all" : "/models";
       const headers: Record<string, string> = { accept: "application/json", "user-agent": "routetok/0.1" };
       if (provider.id !== "agentrouter" && provider.auth !== "none") headers.authorization = `Bearer ${provider.apiKey}`;
+      if (provider.oauthHeaders) Object.assign(headers, provider.oauthHeaders);
       const response = await this.fetchImpl(`${provider.baseUrl}${endpoint}`, {
         headers: {
           ...headers
@@ -517,7 +562,7 @@ export class CatalogService {
       const models = provider.id === "openrouter" ? parseOpenRouterCatalog(payload)
         : provider.id === "requesty" ? parseRequestyCatalog(payload)
         : provider.id === "opencode" ? zenFreeCatalog(payload)
-        : ["groq", "together", "fireworks", "deepinfra", "cerebras", "mistral", "generic"].includes(provider.id) ? parseOpenAiCompatibleCatalog(payload, provider)
+        : ["groq", "together", "fireworks", "deepinfra", "cerebras", "mistral", "generic", "github-copilot"].includes(provider.id) ? parseOpenAiCompatibleCatalog(payload, provider)
         : (((payload as PricingResponse).data ?? []).flatMap<CatalogModel>((entry) => {
         if (typeof entry.model_name !== "string" || !Array.isArray(entry.supported_endpoint_types)) {
           return [];

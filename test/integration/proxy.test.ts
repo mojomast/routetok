@@ -260,7 +260,7 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
       headers: {
         authorization: "Bearer local-client-key",
         "content-type": "application/json",
-        "user-agent": "opencode-real-client/1.2.3",
+        "user-agent": "opencode/1.2.3",
         "x-api-key": "must-not-reach-upstream"
       },
       body: JSON.stringify({
@@ -276,7 +276,7 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
 
     assert.deepEqual(calls.map((call) => call.model), ["bad-model", "good-model"]);
     assert(calls.every((call) => call.authorization === "Bearer test-upstream-key"));
-    assert(calls.every((call) => call.userAgent === "opencode-real-client/1.2.3"));
+    assert(calls.every((call) => call.userAgent === "opencode/1.2.3"));
     assert(calls.every((call) => call.clientApiKey === undefined));
 
     const status = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/status`);
@@ -546,6 +546,8 @@ test("proxy preserves client identity, replaces credentials, and falls back befo
     assert.equal(lightweightLive.inFlight.length, 1);
     assert.equal(lightweightLive.completedRequests, liveDashboard.metrics.totals.requests);
     assert(lightweightLive.recent.length > 0);
+    // Hold the observed stream long enough for the generation-duration assertion below.
+    await new Promise((resolve) => setTimeout(resolve, 25));
     releaseLiveStream?.();
     const streamText = await streamResponse.text();
     assert.match(streamText, /FALLBACK-OK/);

@@ -9,6 +9,7 @@ RouteTok is designed for a trusted single-user host and defaults to loopback.
 - Provider keys are replaced server-side and never accepted from inference callers.
 - Managed proxy client keys are generated with high entropy, shown once, and persisted only as SHA-256 digests. Individual revocation is immediate.
 - Dashboard key ingress is write-only and persists plaintext under owner-only permissions.
+- OAuth tokens and refresh tokens are stored write-only under `DATA_DIR/secrets/provider-oauth.json`. Connection management requires `DASHBOARD_TOKEN`, no token material is returned to the browser, and the Codex browser callback listener binds to loopback, validates `state`, serves static HTML, and closes on completion or timeout.
 - Base URL environment overrides are trusted operator configuration and can exfiltrate provider credentials if malicious.
 - The generic endpoint remains startup-only; private HTTP access requires explicit opt-in (`GENERIC_OPENAI_ALLOW_PRIVATE=true`), and with the opt-in set the configured host must resolve exclusively to private addresses at startup (RFC 1918, loopback, link-local, CGNAT, ULA, or multicast); unresolvable or public-resolving names prevent startup. HTTPS base URLs without the opt-in remain trusted operator configuration.
 - Catalog and inference redirects are blocked.

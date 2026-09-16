@@ -183,6 +183,14 @@ export function buildUpstreamHeaders(
   return headers;
 }
 
+function codexRequestBody(body: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...body, store: false, stream: true };
+  if (typeof next.instructions !== "string" || !next.instructions.trim()) {
+    next.instructions = "You are a helpful assistant.";
+  }
+  return next;
+}
+
 function responseHeaders(
   upstream: Headers,
   requestId: string,
@@ -531,6 +539,31 @@ export function stripThinkingForFallback(body: Record<string, unknown>): Record<
     return content.length === 0 ? [] : [value];
   });
   return transformed;
+}
+
+export function safeguardDeepSeekReplay(
+  body: Record<string, unknown>,
+  original: Record<string, unknown>,
+  providerId: ProviderId,
+  protocol: Protocol,
+  path: string,
+  model: string
+): Record<string, unknown> {
+  if (
+    providerId === "agentrouter" && protocol === "openai" && path === "/v1/chat/completions" &&
+    /^deepseek-v4-(?:flash|pro)(?:-|$)/.test(model) &&
+    !Object.hasOwn(original, "thinking") && !Object.hasOwn(original, "reasoning_effort") &&
+    Array.isArray(body.tools) && body.tools.length > 0 &&
+    Array.isArray(body.messages) && body.messages.some((message: unknown) =>
+      message !== null && typeof message === "object" && !Array.isArray(message) &&
+      (message as Record<string, unknown>).role === "assistant" &&
+      typeof (message as Record<string, unknown>).reasoning_content !== "string"
+    )
+  ) {
+    // DeepSeek v4 defaults to thinking and requires reasoning replay even for plain assistant answers.
+    return { ...body, thinking: { type: "disabled" } };
+  }
+  return body;
 }
 
 const STRUCTURED_OUTPUT_TOOL_NAME = "routetok_json_schema";
@@ -1206,6 +1239,7 @@ export interface ProxyHandlerOptions {
   metrics: MetricsStore;
   internalToken?: string;
   fetch?: typeof fetch;
+  prepareProvider?: (provider: ProviderRuntime) => Promise<void>;
 }
 
 export class ProxyHandler {
@@ -1227,7 +1261,10 @@ export class ProxyHandler {
 
   private endpoint(provider: ProviderRuntime, path: string): string {
     if (provider.id === "agentrouter") return `${provider.baseUrl}${path}`;
-    const normalizedPath = path.startsWith("/v1/") && provider.baseUrl.endsWith("/v1") ? path.slice(3) : path;
+    if (provider.id === "openai-codex") return `${provider.baseUrl}/responses`;
+    const normalizedPath = path.startsWith("/v1/") && (provider.baseUrl.endsWith("/v1") || provider.id === "github-copilot")
+      ? path.slice(3)
+      : path;
     return `${provider.baseUrl}${normalizedPath}`;
   }
 
@@ -1369,6 +1406,37 @@ export class ProxyHandler {
     } else if (pinnedModel && candidates.includes(pinnedModel)) {
       candidates = [pinnedModel, ...candidates.filter((model) => model !== pinnedModel)];
     }
+    if (!parsed.stream) {
+      const codexRequested = candidates.some((model) => this.options.catalog.resolve(model, protocol)?.providerId === "openai-codex");
+      candidates = candidates.filter((model) => this.options.catalog.resolve(model, protocol)?.providerId !== "openai-codex");
+      if (codexRequested && candidates.length === 0) {
+        sendJson(
+          response,
+          400,
+          protocolError(protocol, requestId, "Codex ChatGPT models require stream: true", "invalid_request"),
+          { "x-request-id": requestId, ...diagnosticHeaders("invalid_request", []) }
+        );
+        this.options.metrics.record({
+          id: requestId,
+          timestamp: new Date(requestStarted).toISOString(),
+          protocol,
+          path,
+          requestedModel: parsed.model,
+          selectedModel: null,
+          stream: parsed.stream,
+          status: 400,
+          durationMs: Date.now() - requestStarted,
+          ttftMs: null,
+          generationDurationMs: null,
+          outputTokensPerSecond: null,
+          attempts: [],
+          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, costCny: 0, estimatedCostUsd: 0 },
+          error: "codex models require streaming",
+          trafficClass: internalSandbox ? "sandbox" : "client"
+        });
+        return;
+      }
+    }
     if (candidates.length === 0) {
       sendJson(
         response,
@@ -1436,6 +1504,7 @@ export class ProxyHandler {
         const providerId = catalogModel?.providerId ?? "agentrouter";
         const provider = this.provider(providerId);
         if (!catalogModel || !provider) continue;
+        if (!internalSandbox && !this.options.router.startAttempt(protocol, model)) continue;
         const started = Date.now();
         const attemptBudgetMs = model.startsWith("claude-") || providerId === "opencode" || providerId === "kimi"
           ? config.slowModelFirstEventTimeoutMs
@@ -1448,7 +1517,6 @@ export class ProxyHandler {
         );
         attemptTimeout.unref();
         const attemptSignal = AbortSignal.any([controller.signal, attemptController.signal]);
-        if (!internalSandbox) this.options.router.startAttempt(protocol, model);
         this.options.metrics.updateInFlight(requestId, {
           phase: "attempting",
           selectedModel: model,
@@ -1464,17 +1532,21 @@ export class ProxyHandler {
         if (providerId === "agentrouter" && protocol === "anthropic" && model.startsWith("deepseek-")) {
           attemptBody = flattenAgentRouterDeepSeekToolHistory(attemptBody);
         }
+        attemptBody = safeguardDeepSeekReplay(attemptBody, parsed.raw, providerId, protocol, path, upstreamModel);
         const structuredBaseBody = attemptBody;
         const structured = translateAgentRouterDeepSeekStructuredOutput(structuredBaseBody, providerId, protocol, path, upstreamModel);
         attemptBody = structured.body;
         attemptBody = normalizeAgentRouterDeepSeekThinking(attemptBody, providerId, protocol, path, upstreamModel);
+        if (providerId === "openai-codex") attemptBody = codexRequestBody(attemptBody);
         const structuredToolName = structured.toolName;
         const structuredMode = structured.mode;
         const body = JSON.stringify({ ...attemptBody, model: upstreamModel });
         let upstream: Response;
         try {
+          await this.options.prepareProvider?.(provider);
           const upstreamHeaders = buildUpstreamHeaders(request.headers, protocol, provider.apiKey, stripThinking, providerId);
           if (provider.auth === "none") delete upstreamHeaders.authorization;
+          if (provider.oauthHeaders) Object.assign(upstreamHeaders, provider.oauthHeaders);
           upstream = await this.fetchImpl(this.endpoint(provider, path), {
             method: "POST",
             headers: upstreamHeaders,
@@ -1874,8 +1946,10 @@ export class ProxyHandler {
   ): Promise<JsonPayload | null> {
     const forced = translateAgentRouterDeepSeekStructuredOutput(baseBody, providerId, protocol, path, upstreamModel, true);
     if (!forced.toolName) return null;
+    await this.options.prepareProvider?.(provider);
     const headers = buildUpstreamHeaders(request.headers, protocol, provider.apiKey, stripThinking, providerId);
     if (provider.auth === "none") delete headers.authorization;
+    if (provider.oauthHeaders) Object.assign(headers, provider.oauthHeaders);
     let upstream: Response;
     try {
       upstream = await this.fetchImpl(this.endpoint(provider, path), {

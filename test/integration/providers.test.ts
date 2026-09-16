@@ -232,8 +232,8 @@ test("multi-provider inference and credits keep credentials and model IDs separa
     assert(keyUsageAuthorizations.includes("Bearer rotated-secret"), "post-rotation refreshes must use the stored key");
 
     const status = await fetch(`http://127.0.0.1:${proxyPort}/admin/api/status`, { headers: dashboardHeaders }).then((r) => r.json()) as { catalog: { providers: unknown[] }; providers: unknown[]; metrics: { recent: Array<{ provider: string; usage: { reportedCostUsd: number; costUsd: number } }> } };
-    assert.equal(status.catalog.providers.length, 12);
-    assert.equal(status.providers.length, 12);
+    assert.equal(status.catalog.providers.length, 14);
+    assert.equal(status.providers.length, 14);
     assert(status.metrics.recent.some((record) => record.provider === "requesty" && record.usage.costUsd === 0.004));
     assert(status.metrics.recent.some((record) => record.provider === "generic" && record.usage.costUsd === 0.003));
     assert.doesNotMatch(JSON.stringify(status.providers), /secret/);
