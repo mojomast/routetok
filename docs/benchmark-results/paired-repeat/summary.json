@@ -1,0 +1,46 @@
+{
+  "routerReplay": {
+    "passes": 7,
+    "n": 8,
+    "reportedDownstreamUsd": null,
+    "knownReportedUsd": 0.00116790025,
+    "missingBills": 1
+  },
+  "models": {
+    "deepseek/deepseek-v4.1-flash": {
+      "passes": 7,
+      "n": 8,
+      "reportedDownstreamUsd": null,
+      "knownReportedUsd": 0.00126682,
+      "missingBills": 1
+    },
+    "google/gemini-2.5-flash-lite": {
+      "passes": 1,
+      "n": 8,
+      "reportedDownstreamUsd": 0.0005914000000000001,
+      "knownReportedUsd": 0.0005914000000000001,
+      "missingBills": 0
+    },
+    "qwen/qwen3.8-flash": {
+      "passes": 8,
+      "n": 8,
+      "reportedDownstreamUsd": 0.00096513,
+      "knownReportedUsd": 0.00096513,
+      "missingBills": 0
+    },
+    "z-ai/glm-5.3-flash": {
+      "passes": 4,
+      "n": 8,
+      "reportedDownstreamUsd": 0.0005222954999999999,
+      "knownReportedUsd": 0.0005222954999999999,
+      "missingBills": 0
+    }
+  },
+  "discordantQualityLosses": 0,
+  "zeroLossOneSided95UpperBound": 0.31234397806636793,
+  "netSavingsUsd": null,
+  "grossDownstreamDifferenceUsd": null,
+  "totalExperimentalReportedUsd": 0.0033456454999999993,
+  "jevTokens": 4942,
+  "limitations": "Offline replay of independently executed candidates after live frozen decisions; not end-to-end latency. Unknown Jev bill. Small authored development sample, not independent representative holdout."
+}
