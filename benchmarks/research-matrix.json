@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "principle": "Vendor claims propose experiments, never populate observed quality evidence.",
+  "models": [
+    {"id":"z-ai/glm-5.3-flash","source":"https://huggingface.co/zai-org/GLM-5.3-Flash","claim":"Multimodal, coding and agentic workloads; upstream reasoning_effort low/high/max, default max","slices":["repository-repair","tool-workflow","reasoning-budget"],"caveat":"Verify OpenRouter translation of reasoning controls; do not forward upstream fields blindly."},
+    {"id":"qwen/qwen3.8-flash","source":"https://huggingface.co/Qwen/Qwen3.8-Flash-Next","claim":"Related open model reports agentic coding, tool use and long-context capabilities","slices":["repository-repair","tool-workflow","context-position"],"caveat":"Card explicitly distinguishes Flash-Next from hosted Flash; benchmarks are not interchangeable."},
+    {"id":"qwen/qwen3-coder-30b-a3b-instruct","source":"https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct","claim":"Agentic coding, repository-scale understanding; non-thinking model","slices":["repository-repair","context-position"],"caveat":"Our observed code-trace failures remain valid but do not measure agentic repair."},
+    {"id":"deepseek/deepseek-v4.1-flash","source":"https://openrouter.ai/api/v1/models","claim":"Operator-selected reference, not an independently established universal winner","slices":["repository-repair","tool-workflow","reasoning-budget","context-position"],"caveat":"Freeze provider and settings, report failed/truncated trials."}
+  ],
+  "slices": [
+    {"id":"repository-repair","protocol":"same miniature repository, defect and hidden tests; compare one-shot patch vs bounded tool loop","validator":"patch applies and hidden tests pass in isolated container","budgets":[{"mode":"one-shot","maxCalls":1},{"mode":"agentic","maxCalls":6}],"metrics":["test_pass_rate","patch_validity","tool_calls","total_cost","wall_latency"]},
+    {"id":"tool-workflow","protocol":"deterministic simulated inventory/order APIs with validated arguments, retries and duplicate IDs","validator":"expected final state and no forbidden mutation","budgets":[{"mode":"agentic","maxCalls":6}],"metrics":["task_success","invalid_arguments","duplicate_side_effects","total_cost"]},
+    {"id":"context-position","protocol":"identical source fact at beginning/middle/end with distractor-count ladder; source-disjoint heldout documents","validator":"answer and evidence location agree with source oracle","budgets":[{"mode":"short","maxCalls":1},{"mode":"long","maxCalls":1}],"metrics":["answer_accuracy","citation_accuracy","input_tokens","latency"]},
+    {"id":"reasoning-budget","protocol":"same exact-oracle problem with supported effort and output-budget sweeps; freeze provider/revision","validator":"exact answer, separate format/semantic/truncation failures","budgets":[{"mode":"4096","maxCalls":1},{"mode":"8192","maxCalls":1}],"metrics":["task_success","reasoning_tokens","truncation_rate","cost_per_success"]}
+  ]
+}
