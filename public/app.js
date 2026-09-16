@@ -3223,7 +3223,7 @@ async function load(silent = false) {
       const report=await api('/admin/api/evaluation');
       let panel=document.getElementById('evaluation-metrics');
       if(!panel){panel=document.createElement('section');panel.id='evaluation-metrics';panel.className='card';document.querySelector('main')?.prepend(panel);}
-      panel.textContent=report.available?'Measured HTTP evaluation (not a quality guarantee; generation costs exclude classifier unless billed by endpoint): '+report.models.map(m=>`${m.model}: ${m.passes}/${m.attempts} passed; cost/success ${m.costPerSuccessUsd===null?'unknown':'$'+m.costPerSuccessUsd}; missing bills ${m.missingBills}; p50/p95 ${m.p50Ms}/${m.p95Ms} ms`).join(' | '):'No evaluation report configured';
+      panel.textContent=report.available?'Measured HTTP evaluation (not a quality guarantee; generation charges plus configured Jev list-price estimates when available; missing billing stays unknown): '+report.models.map(m=>`${m.model}: ${m.passes}/${m.attempts} passed; cost/success ${m.costPerSuccessUsd===null?'unknown':'$'+m.costPerSuccessUsd}; missing bills ${m.missingBills}; p50/p95 ${m.p50Ms}/${m.p95Ms} ms`).join(' | '):'No evaluation report configured';
     } catch { /* Do not interrupt normal status rendering. */ }
     await syncCatalog(payload).catch(() => {});
     render(payload);

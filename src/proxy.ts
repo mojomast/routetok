@@ -1398,7 +1398,7 @@ export class ProxyHandler {
         if (path !== "/v1/chat/completions" || request.headers["x-routetok-local-only"] === "true") throw new Error("jev_protocol_or_privacy_unsupported");
         const eligible = endpointModels.filter(m => this.options.router.candidates(protocol, m.id, endpointModels, config, routingRequirements(parsed.raw), 0).includes(m.id)).map(m => m.id);
         const { jevSelect } = await import("./jev.js");
-        parsed.model = await jevSelect(parsed.raw, eligible, abort.signal, fetch, usage => Object.assign(event,usage));
+        parsed.model = await jevSelect(parsed.raw, eligible, abort.signal, fetch, usage => {Object.assign(event,usage);response.setHeader('x-routetok-jev-input-tokens',String(usage.input));response.setHeader('x-routetok-jev-output-tokens',String(usage.output));});
         event.status='selected';event.selected=parsed.model;
         parsed.raw.model = parsed.model;
         response.setHeader("x-routetok-decision", "jev-family-experimental");
