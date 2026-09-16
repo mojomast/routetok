@@ -375,6 +375,8 @@ export class MetricsStore {
     });
   }
 
+  endInFlight(id: string): void { this.inFlight.delete(id); }
+
   beginInFlight(request: InFlightRequest): void {
     this.inFlight.set(request.id, structuredClone(request));
   }
