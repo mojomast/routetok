@@ -1402,9 +1402,11 @@ export class ProxyHandler {
         event.status='selected';event.selected=parsed.model;
         parsed.raw.model = parsed.model;
         response.setHeader("x-routetok-decision", "jev-family-experimental");
-      } catch {
+      } catch (error) {
+        const reason = error instanceof Error && /^jev_[a-z_0-9]+$/.test(error.message) ? error.message : 'jev_unavailable';
+        event.status=reason;
         this.options.metrics.endInFlight(requestId);
-        sendJson(response, 503, protocolError(protocol, requestId, "Jev disabled, unavailable, unsupported or abstained; no generation dispatched", "jev_abstain"));
+        sendJson(response, reason==='jev_clarification_required'?422:503, protocolError(protocol, requestId, reason==='jev_clarification_required'?'Essential information may be missing. Please clarify the request.':'Jev routing did not dispatch generation', reason));
         return;
       } finally { response.off("close", onClose); event.ms=Date.now()-startedJev; (await import('./jev-metrics.js')).recordJev(event); }
     }
