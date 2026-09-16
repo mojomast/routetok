@@ -12,7 +12,7 @@ export interface JevPolicy {
   evidence?: {qualityFloor:number; rows: import('./routing-benchmark.js').Evidence[]};
 }
 const families = { coding: "Generating, debugging or interpreting program code. Merely returning JSON or a literal is not programming.", writing: "Natural language writing, rewriting, translation, summarization, extracting supplied facts, or copying/formatting supplied text or literals, including JSON output without programming.", reasoning: "Solving mathematical or logical problems requiring derivation rather than copying supplied facts.", mixed: "Two or more independently requested substantive tasks from different families; output formatting alone does not make a task mixed.", unknown: "No identifiable task; do not use merely because the task is short or simple." };
-export async function jevSelect(body: Record<string, unknown>, eligible: string[], signal?: AbortSignal, transport: typeof fetch = fetch, observe?: (usage: {input:number;output:number;family:string})=>void): Promise<string> {
+export async function jevSelect(body: Record<string, unknown>, eligible: string[], signal?: AbortSignal, transport: typeof fetch = fetch, observe?: (usage: {input:number;output:number;family:string;confidence:number;missingInformationProbability:number;reason?:string})=>void): Promise<string> {
   const file = process.env.JEV_POLICY_FILE;
   if (!file) throw new Error("jev_disabled");
   const policy: JevPolicy = JSON.parse(readFileSync(file, "utf8"));
@@ -41,10 +41,12 @@ export async function jevSelect(body: Record<string, unknown>, eligible: string[
   if (Object.keys(data.answers).sort().join()!=="ambiguous,family" || a?.type!=="choice" || ambiguity?.type!=="noul" || !probability(ambiguity.noul) || !probability(a.confidence) || !a.probabilities || Object.keys(a.probabilities).sort().join()!==Object.keys(families).sort().join()) throw new Error("jev_schema_invalid");
   const ps=Object.values(a.probabilities);
   if (!ps.every(probability) || Math.abs((ps as number[]).reduce((x,y)=>x+y,0)-1)>1e-5 || !(a.choice in families) || a.probabilities[a.choice]!==Math.max(...ps as number[])) throw new Error("jev_distribution_invalid");
-  observe?.({input:data.usage.input_tokens,output:data.usage.output_tokens,family:a.choice});
+  const observation={input:data.usage.input_tokens,output:data.usage.output_tokens,family:a.choice,confidence:a.confidence,missingInformationProbability:ambiguity.noul};
+  observe?.(observation);
   if (policy.clarificationThreshold !== undefined && (!Number.isFinite(policy.clarificationThreshold) || policy.clarificationThreshold < 0.5 || policy.clarificationThreshold > 1)) throw new Error('invalid_jev_policy');
   const fallback = (): string => {
     if (typeof policy.uncertaintyFallback !== 'string' || !eligible.includes(policy.uncertaintyFallback)) throw new Error('jev_routing_uncertain');
+    observe?.({...observation,reason:'uncertainty_fallback'});
     return policy.uncertaintyFallback;
   };
   if (ambiguity.noul >= (policy.clarificationThreshold ?? 0.5)) throw new Error('jev_clarification_required');

@@ -1,0 +1,179 @@
+[
+  {
+    "family": "writing",
+    "status": 200,
+    "ms": 1790,
+    "data": {
+      "id": "gen-1789593863-hE9531baFcV1ZVetQlmj",
+      "object": "chat.completion",
+      "created": 1789593863,
+      "model": "openrouter:z-ai/glm-5.3-flash",
+      "provider": "StreamLake",
+      "system_fingerprint": null,
+      "service_tier": null,
+      "choices": [
+        {
+          "index": 0,
+          "logprobs": null,
+          "finish_reason": "stop",
+          "native_finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "mira@example.org",
+            "refusal": null,
+            "reasoning": "The user wants me to extract the email from the text \"Contact Mira via mira@example.org.\"\n\nThe email is: mira@example.org",
+            "reasoning_details": [
+              {
+                "type": "reasoning.text",
+                "text": "The user wants me to extract the email from the text \"Contact Mira via mira@example.org.\"\n\nThe email is: mira@example.org",
+                "format": "unknown",
+                "index": 0
+              }
+            ]
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 25,
+        "completion_tokens": 32,
+        "total_tokens": 57,
+        "cost": 0.00001380525,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.00001380525,
+          "upstream_inference_prompt_cost": 0.00000262125,
+          "upstream_inference_completions_cost": 0.000011184
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 26,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    }
+  },
+  {
+    "family": "coding",
+    "status": 200,
+    "ms": 5424,
+    "data": {
+      "id": "gen-1789593864-gVYzblURl7tzYbyz8qRT",
+      "object": "chat.completion",
+      "created": 1789593864,
+      "model": "openrouter:deepseek/deepseek-v4.1-flash",
+      "provider": "Fireworks",
+      "system_fingerprint": null,
+      "service_tier": null,
+      "choices": [
+        {
+          "index": 0,
+          "logprobs": null,
+          "finish_reason": "stop",
+          "native_finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "[[2,3],[9,2],[2,3]]",
+            "refusal": null,
+            "reasoning": "We need answer only JSON for b. Need trace Python. Need be careful mutation aliasing. Let's parse.\n\nCode:\na=[1,2]\nb=[a, a[:]]\na.append(3)\nb[1][0]=9\nb.append(b[0])\nb[2].pop(0)\n\nWe need final b.\n\nInitial a = [1,2]. b = [a, a[:]] => b[0] references a, b[1] is copy [1,2] separate.\n\na.append(3) mutates a to [1,2,3]. b[0] references same a, so b becomes [[1,2,3], [1,2]].\n\nb[1][0]=9 modifies copy at b[1], so b[1] becomes [9,2]. b = [[1,2,3], [9,2]].\n\nb.append(b[0]) appends reference to b[0] (which is a). So b[2] references same list as b[0] and a. Now b = [[1,2,3], [9,2], [1,2,3]] but b[0] and b[2] alias same list.\n\nb[2].pop(0): b[2] is same as b[0], so pop(0) removes first element from that shared list. It mutates a from [1,2,3] to [2,3]. Thus b[0] also [2,3], b[2] also [2,3]. b[1] remains [9,2].\n\nFinal b = [ [2,3], [9,2], [2,3] ].\n\nNeed Return only JSON for b. Ensure JSON array. No markdown? \"Return only JSON for b.\" So output exactly [[2,3],[9,2],[2,3]].\n\nNeed consider whether pop returns removed value but expression b[2].pop(0) doesn't change b except list mutation. Yes.\n\nLet's final.",
+            "reasoning_details": [
+              {
+                "type": "reasoning.text",
+                "text": "We need answer only JSON for b. Need trace Python. Need be careful mutation aliasing. Let's parse.\n\nCode:\na=[1,2]\nb=[a, a[:]]\na.append(3)\nb[1][0]=9\nb.append(b[0])\nb[2].pop(0)\n\nWe need final b.\n\nInitial a = [1,2]. b = [a, a[:]] => b[0] references a, b[1] is copy [1,2] separate.\n\na.append(3) mutates a to [1,2,3]. b[0] references same a, so b becomes [[1,2,3], [1,2]].\n\nb[1][0]=9 modifies copy at b[1], so b[1] becomes [9,2]. b = [[1,2,3], [9,2]].\n\nb.append(b[0]) appends reference to b[0] (which is a). So b[2] references same list as b[0] and a. Now b = [[1,2,3], [9,2], [1,2,3]] but b[0] and b[2] alias same list.\n\nb[2].pop(0): b[2] is same as b[0], so pop(0) removes first element from that shared list. It mutates a from [1,2,3] to [2,3]. Thus b[0] also [2,3], b[2] also [2,3]. b[1] remains [9,2].\n\nFinal b = [ [2,3], [9,2], [2,3] ].\n\nNeed Return only JSON for b. Ensure JSON array. No markdown? \"Return only JSON for b.\" So output exactly [[2,3],[9,2],[2,3]].\n\nNeed consider whether pop returns removed value but expression b[2].pop(0) doesn't change b except list mutation. Yes.\n\nLet's final.",
+                "format": "unknown",
+                "index": 0
+              }
+            ]
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 79,
+        "completion_tokens": 445,
+        "total_tokens": 524,
+        "cost": 0.00031108,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.00031108,
+          "upstream_inference_prompt_cost": 0.00001738,
+          "upstream_inference_completions_cost": 0.0002937
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 287,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    }
+  },
+  {
+    "family": "reasoning",
+    "status": 200,
+    "ms": 8344,
+    "data": {
+      "id": "gen-1789593870-wSnjFkIdvJuHJMUcbRW7",
+      "object": "chat.completion",
+      "created": 1789593870,
+      "model": "openrouter:deepseek/deepseek-v4.1-flash",
+      "provider": "DeepInfra",
+      "system_fingerprint": null,
+      "service_tier": null,
+      "choices": [
+        {
+          "index": 0,
+          "logprobs": null,
+          "finish_reason": "stop",
+          "native_finish_reason": "stop",
+          "message": {
+            "role": "assistant",
+            "content": "no",
+            "refusal": null,
+            "reasoning": "We need answer only no or yes. Need reason. Premises: All mips are green. No green things are square. Thus no mips are square. Can a mip be square? No. Return only no or yes. final \"no\".",
+            "reasoning_details": [
+              {
+                "type": "reasoning.text",
+                "text": "We need answer only no or yes. Need reason. Premises: All mips are green. No green things are square. Thus no mips are square. Can a mip be square? No. Return only no or yes. final \"no\".",
+                "format": "unknown",
+                "index": 0
+              }
+            ]
+          }
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 55,
+        "completion_tokens": 55,
+        "total_tokens": 110,
+        "cost": 0.000044,
+        "is_byok": false,
+        "prompt_tokens_details": {
+          "cached_tokens": 0,
+          "cache_write_tokens": 0,
+          "audio_tokens": 0,
+          "video_tokens": 0
+        },
+        "cost_details": {
+          "upstream_inference_cost": 0.000044,
+          "upstream_inference_prompt_cost": 0.000011,
+          "upstream_inference_completions_cost": 0.000033
+        },
+        "completion_tokens_details": {
+          "reasoning_tokens": 52,
+          "image_tokens": 0,
+          "audio_tokens": 0
+        }
+      }
+    }
+  }
+]
