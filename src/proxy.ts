@@ -1143,6 +1143,12 @@ export class ProxyHandler {
     });
 
     const config = this.options.config.get();
+    const jevRequest = parsed.model === "jev-auto";
+    if (jevRequest) {
+      config.maxAttempts = 1;
+      config.fallbackExplicitModels = false;
+      config.thinkingFallbackMode = "pin";
+    }
     if (internalSandbox) {
       config.fallbackExplicitModels = false;
       config.maxAttempts = 1;
@@ -1151,6 +1157,23 @@ export class ProxyHandler {
     const endpointKind = path.endsWith("/responses") ? "responses" : path.endsWith("/messages") ? "messages" : "chat";
     const endpointModels = this.options.catalog.getModels(protocol)
       .filter((model) => !model.endpoints || model.endpoints.includes(endpointKind));
+    if (jevRequest) {
+      const abort = new AbortController();
+      const onClose = () => abort.abort();
+      response.once("close", onClose);
+      try {
+        if (path !== "/v1/chat/completions" || request.headers["x-routetok-local-only"] === "true") throw new Error("jev_protocol_or_privacy_unsupported");
+        const eligible = endpointModels.filter(m => this.options.router.candidates(protocol, m.id, endpointModels, config, routingRequirements(parsed.raw), 0).includes(m.id)).map(m => m.id);
+        const { jevSelect } = await import("./jev.js");
+        parsed.model = await jevSelect(parsed.raw, eligible, abort.signal);
+        parsed.raw.model = parsed.model;
+        response.setHeader("x-routetok-decision", "jev-family-experimental");
+      } catch {
+        this.options.metrics.endInFlight(requestId);
+        sendJson(response, 503, protocolError(protocol, requestId, "Jev disabled, unavailable, unsupported or abstained; no generation dispatched", "jev_abstain"));
+        return;
+      } finally { response.off("close", onClose); }
+    }
     const requestedCatalogModel = endpointModels.find((model) => model.id === parsed.model);
     const paidOpenRouterFallbackActive = requestedCatalogModel?.providerId === "openrouter" &&
       !isFreeExternalCatalogModel(requestedCatalogModel) && config.paidOpenRouterFallbackOrder.length > 0;
