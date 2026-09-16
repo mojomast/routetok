@@ -8,6 +8,7 @@ export interface JevPolicy {
   routes: Record<string, string[]>;
   uncertaintyFallback?: string;
   clarificationThreshold?: number;
+  evidence?: {qualityFloor:number; rows: import('./routing-benchmark.js').Evidence[]};
 }
 const families = { coding: "Programming or debugging", writing: "Writing, rewriting or summarization", reasoning: "Mathematical or analytical reasoning", mixed: "Multiple task families", unknown: "Insufficient information" };
 export async function jevSelect(body: Record<string, unknown>, eligible: string[], signal?: AbortSignal, transport: typeof fetch = fetch, observe?: (usage: {input:number;output:number;family:string})=>void): Promise<string> {
@@ -49,6 +50,13 @@ export async function jevSelect(body: Record<string, unknown>, eligible: string[
   if (a.confidence<policy.minConfidence || a.choice==='unknown' || a.choice==='mixed') return fallback();
   const approved=policy.routes?.[a.choice];
   if (!Array.isArray(approved)) return fallback();
+  if (policy.evidence) {
+    if (!Array.isArray(policy.evidence.rows)) throw new Error('invalid_jev_policy');
+    const {evidenceChoice}=await import('./routing-benchmark.js');
+    const measured=evidenceChoice(a.choice,approved.filter(id=>eligible.includes(id)),policy.evidence.rows,policy.evidence.qualityFloor);
+    if (!measured) throw new Error('jev_insufficient_quality_evidence');
+    return measured;
+  }
   const chosen=approved.find(id=>eligible.includes(id));
   if (!chosen)throw new Error("jev_no_feasible_route");
   return chosen;
