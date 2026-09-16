@@ -1,0 +1,36 @@
+{
+  "routerReplay": {
+    "passes": 8,
+    "n": 8,
+    "reportedDownstreamUsd": 0.00098285925
+  },
+  "models": {
+    "deepseek/deepseek-v4.1-flash": {
+      "passes": 8,
+      "n": 8,
+      "reportedDownstreamUsd": 0.0010738
+    },
+    "google/gemini-2.5-flash-lite": {
+      "passes": 2,
+      "n": 8,
+      "reportedDownstreamUsd": 0.0003258
+    },
+    "qwen/qwen3.8-flash": {
+      "passes": 8,
+      "n": 8,
+      "reportedDownstreamUsd": 0.0015568599999999998
+    },
+    "z-ai/glm-5.3-flash": {
+      "passes": 5,
+      "n": 8,
+      "reportedDownstreamUsd": 0.0006642035999999999
+    }
+  },
+  "discordantQualityLosses": 0,
+  "zeroLossOneSided95UpperBound": 0.31234397806636793,
+  "netSavingsUsd": null,
+  "grossDownstreamDifferenceUsd": 9.09407499999999e-05,
+  "totalExperimentalReportedUsd": 0.0036206635999999994,
+  "jevTokens": 4942,
+  "limitations": "Offline replay of independently executed candidates after live frozen decisions; not end-to-end latency. Unknown Jev bill. Small authored development sample, not independent representative holdout."
+}

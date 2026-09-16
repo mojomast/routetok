@@ -1,0 +1,68 @@
+[
+  {
+    "id": "parse",
+    "family": "writing",
+    "prompt": "Extract the final approved code only. Draft code: AX7. Revision: draft AX8. Approval: use BX9; AX8 is canceled. Return code only.",
+    "expected": "BX9"
+  },
+  {
+    "id": "unicode",
+    "family": "writing",
+    "prompt": "Translate to English, exactly two words without punctuation: buenas noches",
+    "expected": "good night"
+  },
+  {
+    "id": "alias",
+    "family": "coding",
+    "prompt": "Python: x=[[0],[1]]; y=x[:]; y[0].append(2); y[1]=[9]. Return only JSON for x.",
+    "expected": [
+      [
+        0,
+        2
+      ],
+      [
+        1
+      ]
+    ]
+  },
+  {
+    "id": "scope",
+    "family": "coding",
+    "prompt": "Python: nums=[1,2,3]; result=[i*i for i in nums if i%2]; nums[0]=9. Return only JSON for result.",
+    "expected": [
+      1,
+      9
+    ]
+  },
+  {
+    "id": "probability",
+    "family": "reasoning",
+    "prompt": "A bag has 3 red and 2 blue balls. Two draws without replacement. Probability both red? Return only the reduced fraction a/b.",
+    "expected": "3/10"
+  },
+  {
+    "id": "schedule",
+    "family": "reasoning",
+    "prompt": "Tasks A=3h, B=5h start together with separate workers. C=2h starts after both A and B. D=4h starts after A and has another worker. Earliest time all tasks finish? Return only integer hours.",
+    "expected": "7"
+  },
+  {
+    "id": "dedupe",
+    "family": "writing",
+    "prompt": "Rows: id=p,v=1,active=true; id=q,v=3,active=true; id=p,v=2,active=false; id=q,v=2,active=false. Choose highest v per id and retain active only. Return only JSON array of sorted IDs.",
+    "expected": [
+      "q"
+    ]
+  },
+  {
+    "id": "boolean",
+    "family": "coding",
+    "prompt": "Python: bool(\"0\"), bool([]), (0 == False), (0 is False). Return only JSON array of these four booleans.",
+    "expected": [
+      true,
+      false,
+      true,
+      false
+    ]
+  }
+]
