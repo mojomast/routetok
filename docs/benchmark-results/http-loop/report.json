@@ -1,0 +1,41 @@
+{
+  "kind": "measured_http_task_evaluation",
+  "identity": "f742cb60cf6e24d346ee6f03bfc87a627f7aab6c0a8c17d6f230bee348f2cadd",
+  "planned": 6,
+  "attempted": 6,
+  "models": [
+    {
+      "model": "openrouter:inception/mercury-2.5",
+      "attempts": 2,
+      "passes": 2,
+      "missingBills": 0,
+      "knownCostUsd": 0.00014397,
+      "totalCostUsd": 0.00014397,
+      "costPerSuccessUsd": 0.000071985,
+      "p50Ms": 726,
+      "p95Ms": 1066
+    },
+    {
+      "model": "openrouter:qwen/qwen3.8-flash",
+      "attempts": 2,
+      "passes": 2,
+      "missingBills": 0,
+      "knownCostUsd": 0.00011664,
+      "totalCostUsd": 0.00011664,
+      "costPerSuccessUsd": 0.00005832,
+      "p50Ms": 1407,
+      "p95Ms": 2317
+    },
+    {
+      "model": "openrouter:deepseek/deepseek-v4.1-flash",
+      "attempts": 2,
+      "passes": 2,
+      "missingBills": 0,
+      "knownCostUsd": 0.00020307,
+      "totalCostUsd": 0.00020307,
+      "costPerSuccessUsd": 0.000101535,
+      "p50Ms": 2836,
+      "p95Ms": 4626
+    }
+  ]
+}
