@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';import {readFileSync,writeFileSync,append
 export async function evaluate(config:any){
  const {endpoint,models,cases,output,budgetUsd,reservePerRequestUsd}=config;
  if(!Array.isArray(models)||!models.length||!Array.isArray(cases)||!cases.length||!Number.isFinite(budgetUsd)||!Number.isFinite(reservePerRequestUsd)||reservePerRequestUsd<=0||budgetUsd<0)throw Error('invalid_configuration');
- const identity=createHash('sha256').update(JSON.stringify({endpoint,models,cases,reservePerRequestUsd,maxTokens:config.maxTokens??2048,jevInputUsdPerMillion:config.jevInputUsdPerMillion,jevOutputUsdPerMillion:config.jevOutputUsdPerMillion})).digest('hex');mkdirSync(dirname(output),{recursive:true});
+ const identity=createHash('sha256').update(JSON.stringify({endpoint,models,cases,serverConfigFingerprint:config.serverConfigFingerprint,timeoutMs:config.timeoutMs,reservePerRequestUsd,maxTokens:config.maxTokens??2048,jevInputUsdPerMillion:config.jevInputUsdPerMillion,jevOutputUsdPerMillion:config.jevOutputUsdPerMillion})).digest('hex');mkdirSync(dirname(output),{recursive:true});
  const meta=output+'.identity';if(existsSync(meta)&&readFileSync(meta,'utf8')!==identity)throw Error('resume_configuration_mismatch');writeFileSync(meta,identity);
  const rows:any[]=existsSync(output)?readFileSync(output,'utf8').trim().split('\n').filter(Boolean).map(x=>JSON.parse(x)):[];
  const done=new Set(rows.map(r=>r.key));const reservationUnits=Math.ceil(reservePerRequestUsd*1e9),budgetUnits=Math.floor(budgetUsd*1e9);let reserved=done.size*reservationUnits;
