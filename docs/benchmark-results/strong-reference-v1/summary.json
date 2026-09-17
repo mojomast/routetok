@@ -1,0 +1,14 @@
+[
+  {
+    "model": "inception/mercury-2.5",
+    "passed": 6,
+    "costUsd": 0.00146265,
+    "medianMs": 2328.0
+  },
+  {
+    "model": "openai/gpt-4.1",
+    "passed": 6,
+    "costUsd": 0.006057999999999999,
+    "medianMs": 1276.0
+  }
+]
