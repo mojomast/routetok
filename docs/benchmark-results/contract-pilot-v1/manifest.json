@@ -1,0 +1,33 @@
+{
+  "developmentOnly": true,
+  "cases": [
+    {
+      "id": "unset-bit",
+      "contract": "Implement set_left_most_unset_bit(n) for nonnegative integers. Set the most significant zero bit WITHIN the existing binary width. If every bit is one, return n unchanged. For zero return zero.",
+      "reference": "def set_left_most_unset_bit(n):\n for i in range(n.bit_length()-1,-1,-1):\n  if not n & (1<<i): return n | (1<<i)\n return n",
+      "application": "assert set_left_most_unset_bit(10)==14\nassert set_left_most_unset_bit(15)==15\nassert set_left_most_unset_bit(0)==0",
+      "hidden": "assert set_left_most_unset_bit(12)==14\nassert set_left_most_unset_bit(31)==31\nassert set_left_most_unset_bit(32)==48"
+    },
+    {
+      "id": "ludic",
+      "contract": "Implement get_ludic(n) for nonnegative integers. Return ludic numbers <=n: start with list 1..n. Keep 1. Starting at index 1, let k be that element; delete every kth subsequent element, first at index index+k, counting in the list BEFORE this deletion pass. Advance index by one and repeat until past the remaining list. For n=0 return [].",
+      "reference": "def get_ludic(n):\n a=list(range(1,n+1));i=1\n while i<len(a):\n  k=a[i];a=[v for j,v in enumerate(a) if j<=i or (j-i)%k];i+=1\n return a",
+      "application": "assert get_ludic(0)==[]\nassert get_ludic(1)==[1]\nassert get_ludic(10)==[1,2,3,5,7]",
+      "hidden": "assert get_ludic(25)==[1,2,3,5,7,11,13,17,23,25]\nassert get_ludic(45)==[1,2,3,5,7,11,13,17,23,25,29,37,41,43]"
+    }
+  ],
+  "policies": [
+    [
+      "inception/mercury-2.5",
+      8192
+    ],
+    [
+      "qwen/qwen3.8-flash",
+      16384
+    ]
+  ],
+  "repeats": 2,
+  "repair": "one same-model repair after application failure only",
+  "publicResponseRetention": true,
+  "scriptSha256": "d58420b47bf690d0efea44761d029620939dab7789467662bca8ec6e690db591"
+}
