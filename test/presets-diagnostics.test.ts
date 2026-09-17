@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import {evaluate} from '../src/evaluation-runner.js';
+test('opt-in presets do not authorize fallbacks or classification',()=>{for(const name of ['qwen-low-cost','mercury-low-latency']){const p=JSON.parse(readFileSync(`presets/${name}.json`,'utf8'));assert.equal(p.enabledExternalModels.length,1);assert.equal(p.maxAttempts,1);assert.equal(p.fallbackExplicitModels,false);assert.deepEqual(p.paidOpenRouterFallbackOrder,[]);assert(!JSON.stringify(p).includes('jev-auto'));}});
+test('private response retention rejected before inference',async()=>{await assert.rejects(evaluate({retainPublicResponses:true}),/public_benchmark/);});

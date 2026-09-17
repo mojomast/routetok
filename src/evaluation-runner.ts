@@ -1,5 +1,6 @@
 import {createHash} from 'node:crypto';import {readFileSync,writeFileSync,appendFileSync,existsSync,mkdirSync} from 'node:fs';import {dirname} from 'node:path';
 export async function evaluate(config:any){
+ if(config.retainPublicResponses===true&&config.publicBenchmark!==true)throw Error('response_retention_requires_public_benchmark');
  const {endpoint,models,cases,output,budgetUsd,reservePerRequestUsd}=config;
  if(!Array.isArray(models)||!models.length||!Array.isArray(cases)||!cases.length||!Number.isFinite(budgetUsd)||!Number.isFinite(reservePerRequestUsd)||reservePerRequestUsd<=0||budgetUsd<0)throw Error('invalid_configuration');
  const identity=createHash('sha256').update(JSON.stringify({endpoint,models,cases,serverConfigFingerprint:config.serverConfigFingerprint,timeoutMs:config.timeoutMs,reservePerRequestUsd,maxTokens:config.maxTokens??2048,jevInputUsdPerMillion:config.jevInputUsdPerMillion,jevOutputUsdPerMillion:config.jevOutputUsdPerMillion})).digest('hex');mkdirSync(dirname(output),{recursive:true});
@@ -13,6 +14,8 @@ export async function evaluate(config:any){
  const started={key:job.key,model:job.model,id:job.c.id,state:'started',pass:false,costUsd:null};appendFileSync(output,JSON.stringify(started)+'\n');const start=Date.now();let row:any;
  try{const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json',...(config.key?{Authorization:`Bearer ${config.key}`}:{})},signal:AbortSignal.timeout(config.timeoutMs??90000),body:JSON.stringify({model:job.model,messages:[{role:'user',content:job.c.prompt}],max_tokens:config.maxTokens??2048,stream:false})}); const data:any=await response.json();const content=data.choices?.[0]?.message?.content??'';let value:any=content.trim();let format=true;if(typeof job.c.expected!=='string'){try{value=JSON.parse(content);}catch{format=false;}}
  row={...started,state:'completed',status:response.status,pass:response.ok&&JSON.stringify(value)===JSON.stringify(job.c.expected),failure:!response.ok?'http':data.choices?.[0]?.finish_reason==='length'?'truncation':!format?'format':'answer',costUsd:typeof data.usage?.cost==='number'&&Number.isFinite(data.usage.cost)&&data.usage.cost>=0?data.usage.cost:null};
+  row.finish=data.choices?.[0]?.finish_reason??null;row.usage=data.usage??null;
+  if(config.retainPublicResponses===true){if(config.publicBenchmark!==true)throw Error('response_retention_requires_public_benchmark');row.response=content;}
   if(row.pass)row.failure=null;
   row.requestId=response.headers.get('x-request-id');row.selected=response.headers.get('x-router-model');
  const input=response.headers.get('x-routetok-jev-input-tokens'),outputTokens=response.headers.get('x-routetok-jev-output-tokens');
