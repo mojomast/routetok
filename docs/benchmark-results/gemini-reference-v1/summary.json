@@ -1,0 +1,7 @@
+{
+  "model": "google/gemini-3.8-flash",
+  "passes": 6,
+  "attempts": 6,
+  "costUsd": 0.022107,
+  "medianMs": 9849.5
+}
