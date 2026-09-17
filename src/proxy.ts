@@ -1390,20 +1390,25 @@ export class ProxyHandler {
       .filter((model) => !model.endpoints || model.endpoints.includes(endpointKind));
     if (jevRequest) {
       const abort = new AbortController();
+      const startedJev = Date.now();
+      const event: import('./jev-metrics.js').JevEvent = {id:requestId,ms:0,status:'failed_or_abstained'};
       const onClose = () => abort.abort();
       response.once("close", onClose);
       try {
         if (path !== "/v1/chat/completions" || request.headers["x-routetok-local-only"] === "true") throw new Error("jev_protocol_or_privacy_unsupported");
         const eligible = endpointModels.filter(m => this.options.router.candidates(protocol, m.id, endpointModels, config, routingRequirements(parsed.raw), 0).includes(m.id)).map(m => m.id);
         const { jevSelect } = await import("./jev.js");
-        parsed.model = await jevSelect(parsed.raw, eligible, abort.signal);
+        parsed.model = await jevSelect(parsed.raw, eligible, abort.signal, fetch, usage => {Object.assign(event,usage);response.setHeader('x-routetok-jev-input-tokens',String(usage.input));response.setHeader('x-routetok-jev-output-tokens',String(usage.output));});
+        event.status='selected';event.selected=parsed.model;
         parsed.raw.model = parsed.model;
         response.setHeader("x-routetok-decision", "jev-family-experimental");
-      } catch {
+      } catch (error) {
+        const reason = error instanceof Error && /^jev_[a-z_0-9]+$/.test(error.message) ? error.message : 'jev_unavailable';
+        event.status=reason;
         this.options.metrics.endInFlight(requestId);
-        sendJson(response, 503, protocolError(protocol, requestId, "Jev disabled, unavailable, unsupported or abstained; no generation dispatched", "jev_abstain"));
+        sendJson(response, reason==='jev_clarification_required'?422:503, protocolError(protocol, requestId, reason==='jev_clarification_required'?'Essential information may be missing. Please clarify the request.':'Jev routing did not dispatch generation', reason));
         return;
-      } finally { response.off("close", onClose); }
+      } finally { response.off("close", onClose); event.ms=Date.now()-startedJev; (await import('./jev-metrics.js')).recordJev(event); }
     }
     const requestedCatalogModel = endpointModels.find((model) => model.id === parsed.model);
     const paidOpenRouterFallbackActive = requestedCatalogModel?.providerId === "openrouter" &&

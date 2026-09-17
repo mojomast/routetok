@@ -1,0 +1,66 @@
+{
+  "models": [
+    {
+      "model": "deepseek/deepseek-v4.1-flash",
+      "attempts": 8,
+      "passed": 5,
+      "http200": 6,
+      "knownCostUsd": 0.0024546000000000004,
+      "missingBills": 2,
+      "medianMs": 3289.0,
+      "observedWinsAgainstCompletedFailures": [
+        599,
+        262,
+        255,
+        252,
+        770
+      ]
+    },
+    {
+      "model": "inception/mercury-2.5",
+      "attempts": 8,
+      "passed": 7,
+      "http200": 8,
+      "knownCostUsd": 0.0014173199999999997,
+      "missingBills": 0,
+      "medianMs": 1886.5,
+      "observedWinsAgainstCompletedFailures": [
+        599,
+        262,
+        255,
+        311,
+        252,
+        770,
+        79
+      ]
+    },
+    {
+      "model": "qwen/qwen3-coder-30b-a3b-instruct",
+      "attempts": 8,
+      "passed": 0,
+      "http200": 8,
+      "knownCostUsd": 0.00026467999999999994,
+      "missingBills": 0,
+      "medianMs": 3126.5,
+      "observedWinsAgainstCompletedFailures": []
+    },
+    {
+      "model": "qwen/qwen3.8-flash",
+      "attempts": 8,
+      "passed": 6,
+      "http200": 8,
+      "knownCostUsd": 0.011719430000000001,
+      "missingBills": 0,
+      "medianMs": 41671.0,
+      "observedWinsAgainstCompletedFailures": [
+        770,
+        599,
+        79,
+        255,
+        252,
+        262
+      ]
+    }
+  ],
+  "routingPromotion": "blocked: single-draw small sample; no reproducible specialist evidence. Availability failures excluded from specialist-win labels."
+}

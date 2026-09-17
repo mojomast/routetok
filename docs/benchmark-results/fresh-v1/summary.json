@@ -1,0 +1,57 @@
+[
+  {
+    "model": "inception/mercury-2.5",
+    "attempts": 12,
+    "strictPasses": 11,
+    "caseInsensitiveTranslationPasses": 11,
+    "http200": 12,
+    "rateLimited": 0,
+    "knownReportedUsd": 0.00206854,
+    "missingUsage": 0,
+    "medianHttp200Ms": 1527.5
+  },
+  {
+    "model": "qwen/qwen3.8-flash",
+    "attempts": 12,
+    "strictPasses": 11,
+    "caseInsensitiveTranslationPasses": 11,
+    "http200": 12,
+    "rateLimited": 0,
+    "knownReportedUsd": 0.0033399999999999997,
+    "missingUsage": 0,
+    "medianHttp200Ms": 4486.5
+  },
+  {
+    "model": "deepseek/deepseek-v4.1-flash",
+    "attempts": 12,
+    "strictPasses": 10,
+    "caseInsensitiveTranslationPasses": 10,
+    "http200": 10,
+    "rateLimited": 2,
+    "knownReportedUsd": 0.0024558,
+    "missingUsage": 2,
+    "medianHttp200Ms": 1982.5
+  },
+  {
+    "model": "inclusionai/ling-3.0-flash",
+    "attempts": 12,
+    "strictPasses": 10,
+    "caseInsensitiveTranslationPasses": 10,
+    "http200": 12,
+    "rateLimited": 0,
+    "knownReportedUsd": 0.000583065,
+    "missingUsage": 0,
+    "medianHttp200Ms": 1361.0
+  },
+  {
+    "model": "openai/gpt-oss-20b",
+    "attempts": 12,
+    "strictPasses": 9,
+    "caseInsensitiveTranslationPasses": 9,
+    "http200": 9,
+    "rateLimited": 3,
+    "knownReportedUsd": 0.0005518200000000001,
+    "missingUsage": 3,
+    "medianHttp200Ms": 13688
+  }
+]

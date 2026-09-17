@@ -1,0 +1,1 @@
+{"authorizeExternal":true,"acceptedModels":["jev-1.13.0"],"timeoutMs":10000,"minConfidence":0.8,"routes":{},"binary":{"routineModel":"openrouter:qwen/qwen3.8-flash","demandingModel":"openrouter:deepseek/deepseek-v4.1-flash","minConfidence":0.8}}

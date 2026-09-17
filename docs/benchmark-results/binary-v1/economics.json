@@ -1,0 +1,13 @@
+{
+  "source": "https://typesafe.ai/blog/introducing-system-one-models-and-jev",
+  "inputUsdPerMillion": 0.042,
+  "outputUsdPerMillion": 0,
+  "tasks": 8,
+  "basis": "configured_list_price_estimate_not_invoice",
+  "classifierEstimateUsd": 0.00014742000000000002,
+  "totalEstimateUsd": 0.00115155,
+  "grossDifferenceUsd": 0.00011096000000000001,
+  "netDifferenceEstimateUsd": -0.000036460000000000013,
+  "netSavingsPercent": -3.269691235685013,
+  "breakEvenInputTokens": 2641.904761904762
+}

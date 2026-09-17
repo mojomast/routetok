@@ -1,0 +1,57 @@
+{
+  "comparisons": [
+    {
+      "model": "jev-auto",
+      "tasks": 16,
+      "qualityDifference": -0.0625,
+      "lossesVsReference": 1,
+      "gainsVsReference": 0,
+      "costDifferenceUsd": -0.0007385660000000001,
+      "pairedBootstrap95CostDifferenceUsd": [
+        -0.0010739080000000002,
+        -0.00036372000000000005
+      ],
+      "zeroLossUpper95": null
+    },
+    {
+      "model": "openrouter:deepseek/deepseek-v4.1-flash",
+      "tasks": 16,
+      "qualityDifference": 0,
+      "lossesVsReference": 0,
+      "gainsVsReference": 0,
+      "costDifferenceUsd": 0.0,
+      "pairedBootstrap95CostDifferenceUsd": [
+        0.0,
+        0.0
+      ],
+      "zeroLossUpper95": 0.17074972298248092
+    },
+    {
+      "model": "openrouter:inception/mercury-2.5",
+      "tasks": 16,
+      "qualityDifference": 0,
+      "lossesVsReference": 0,
+      "gainsVsReference": 0,
+      "costDifferenceUsd": 9.638000000000002e-05,
+      "pairedBootstrap95CostDifferenceUsd": [
+        -0.00016781999999999995,
+        0.00040733
+      ],
+      "zeroLossUpper95": 0.17074972298248092
+    },
+    {
+      "model": "openrouter:qwen/qwen3.8-flash",
+      "tasks": 16,
+      "qualityDifference": 0,
+      "lossesVsReference": 0,
+      "gainsVsReference": 0,
+      "costDifferenceUsd": 0.00017815000000000002,
+      "pairedBootstrap95CostDifferenceUsd": [
+        -0.00017828,
+        0.0005487499999999999
+      ],
+      "zeroLossUpper95": 0.17074972298248092
+    }
+  ],
+  "limitations": "Paired task bootstrap exploratory small sample; no multiple-comparison correction; public arithmetic only. Zero-loss bound assumes independent representative pairs, not general workload proof."
+}

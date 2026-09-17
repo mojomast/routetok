@@ -3213,6 +3213,18 @@ async function load(silent = false) {
   state.statusLoadBusy = true;
   try {
     const payload = await api("/admin/api/status");
+    try {
+      const j=await api('/admin/api/jev');
+      let panel=document.getElementById('jev-routing-metrics');
+      if(!panel){panel=document.createElement('section');panel.id='jev-routing-metrics';panel.className='card';document.querySelector('main')?.prepend(panel);}
+      panel.textContent=`Jev routing · ${j.attempts} attempts · ${j.selected} selected · ${j.failedOrAbstained} failed/abstained · mean ${j.meanClassifierMs ?? '—'} ms · tokens ${j.inputTokens} in / ${j.outputTokens} out. DeepSeek same-token gross difference: ${j.comparison.grossDifferenceUsd===null?'configure baseline prices':'$'+j.comparison.grossDifferenceUsd.toFixed(6)} (${j.comparison.compared} matched requests). Estimate only, not measured savings. Net savings unknown: excludes Jev cost and actual DeepSeek output differences. Since restart, last 500 attempts.`;
+    } catch { /* Optional metrics unavailable; do not break the dashboard. */ }
+    try {
+      const report=await api('/admin/api/evaluation');
+      let panel=document.getElementById('evaluation-metrics');
+      if(!panel){panel=document.createElement('section');panel.id='evaluation-metrics';panel.className='card';document.querySelector('main')?.prepend(panel);}
+      panel.textContent=report.available?'Measured HTTP evaluation (not a quality guarantee; generation charges plus configured Jev list-price estimates when available; missing billing stays unknown): '+report.models.map(m=>`${m.model}: ${m.passes}/${m.attempts} passed; cost/success ${m.costPerSuccessUsd===null?'unknown':'$'+m.costPerSuccessUsd}; missing bills ${m.missingBills}; p50/p95 ${m.p50Ms}/${m.p95Ms} ms`).join(' | '):'No evaluation report configured';
+    } catch { /* Do not interrupt normal status rendering. */ }
     await syncCatalog(payload).catch(() => {});
     render(payload);
     state.lastSuccessfulLoad = Date.now();

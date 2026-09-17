@@ -1,0 +1,86 @@
+[
+  {
+    "id": "0",
+    "split": "development",
+    "family": "extract",
+    "prompt": "Extract the email only: Contact Mira via mira@example.org.",
+    "expected": "mira@example.org"
+  },
+  {
+    "id": "1",
+    "split": "heldout",
+    "family": "extract",
+    "prompt": "Return only the order ID from: Order ZX-481 ships tomorrow.",
+    "expected": "ZX-481"
+  },
+  {
+    "id": "2",
+    "split": "development",
+    "family": "arithmetic",
+    "prompt": "Compute 19 times 7. Reply only with the integer.",
+    "expected": "133"
+  },
+  {
+    "id": "3",
+    "split": "heldout",
+    "family": "arithmetic",
+    "prompt": "What is 144 divided by 12? Reply only with the integer.",
+    "expected": "12"
+  },
+  {
+    "id": "4",
+    "split": "development",
+    "family": "logic",
+    "prompt": "All mips are green. No green things are square. Can a mip be square? Answer only no or yes.",
+    "expected": "no"
+  },
+  {
+    "id": "5",
+    "split": "heldout",
+    "family": "logic",
+    "prompt": "Some cats are black. Does that imply all cats are black? Answer only no or yes.",
+    "expected": "no"
+  },
+  {
+    "id": "6",
+    "split": "development",
+    "family": "code-reading",
+    "prompt": "Python: what is len([False, 0, None, \"\"])? Reply only with the integer.",
+    "expected": "4"
+  },
+  {
+    "id": "7",
+    "split": "heldout",
+    "family": "code-reading",
+    "prompt": "Python: what is list(range(2, 8, 2))? Reply only with the list.",
+    "expected": "[2, 4, 6]"
+  },
+  {
+    "id": "8",
+    "split": "development",
+    "family": "translation",
+    "prompt": "Translate Buenos días into English. Return only the translation.",
+    "expected": "good morning"
+  },
+  {
+    "id": "9",
+    "split": "heldout",
+    "family": "translation",
+    "prompt": "Translate Merci into English. Return only the translation.",
+    "expected": "thank you"
+  },
+  {
+    "id": "10",
+    "split": "development",
+    "family": "format",
+    "prompt": "Return exactly this JSON, without Markdown: {\"ok\":true}",
+    "expected": "{\"ok\":true}"
+  },
+  {
+    "id": "11",
+    "split": "heldout",
+    "family": "format",
+    "prompt": "Return exactly the word READY without any other text.",
+    "expected": "READY"
+  }
+]

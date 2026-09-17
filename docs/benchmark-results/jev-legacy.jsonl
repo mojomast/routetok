@@ -1,0 +1,12 @@
+{"id":"0","error":"jev_routing_uncertain","ms":424,"input":440,"output":73,"family":"writing"}
+{"id":"1","selected":"openrouter:google/gemini-2.5-flash-lite","ms":317,"input":444,"output":73,"family":"writing"}
+{"id":"2","selected":"openrouter:deepseek/deepseek-v4.1-flash","ms":197,"input":442,"output":75,"family":"reasoning"}
+{"id":"3","selected":"openrouter:deepseek/deepseek-v4.1-flash","ms":143,"input":446,"output":75,"family":"reasoning"}
+{"id":"4","selected":"openrouter:deepseek/deepseek-v4.1-flash","ms":154,"input":452,"output":75,"family":"reasoning"}
+{"id":"5","selected":"openrouter:deepseek/deepseek-v4.1-flash","ms":152,"input":447,"output":75,"family":"reasoning"}
+{"id":"6","selected":"openrouter:openai/gpt-4.1-nano","ms":154,"input":450,"output":73,"family":"coding"}
+{"id":"7","selected":"openrouter:openai/gpt-4.1-nano","ms":142,"input":450,"output":73,"family":"coding"}
+{"id":"8","selected":"openrouter:google/gemini-2.5-flash-lite","ms":156,"input":439,"output":73,"family":"writing"}
+{"id":"9","selected":"openrouter:google/gemini-2.5-flash-lite","ms":162,"input":438,"output":73,"family":"writing"}
+{"id":"10","error":"jev_routing_uncertain","ms":164,"input":441,"output":73,"family":"coding"}
+{"id":"11","error":"jev_routing_uncertain","ms":155,"input":438,"output":73,"family":"writing"}

@@ -1,0 +1,52 @@
+{
+  "kind": "measured_http_task_evaluation",
+  "identity": "d06664b09b7c4bb8368036285c9f443fa6b7e1fd8ee53e9c2b298476c21f9af2",
+  "planned": 64,
+  "attempted": 64,
+  "models": [
+    {
+      "model": "openrouter:inception/mercury-2.5",
+      "attempts": 16,
+      "passes": 16,
+      "missingBills": 0,
+      "knownCostUsd": 0.00133704,
+      "totalCostUsd": 0.00133704,
+      "costPerSuccessUsd": 0.000083565,
+      "p50Ms": 829,
+      "p95Ms": 1773
+    },
+    {
+      "model": "openrouter:qwen/qwen3.8-flash",
+      "attempts": 16,
+      "passes": 16,
+      "missingBills": 0,
+      "knownCostUsd": 0.00125527,
+      "totalCostUsd": 0.00125527,
+      "costPerSuccessUsd": 0.000078454375,
+      "p50Ms": 2141,
+      "p95Ms": 6135
+    },
+    {
+      "model": "openrouter:deepseek/deepseek-v4.1-flash",
+      "attempts": 16,
+      "passes": 16,
+      "missingBills": 0,
+      "knownCostUsd": 0.00143342,
+      "totalCostUsd": 0.00143342,
+      "costPerSuccessUsd": 0.00008958875,
+      "p50Ms": 1794,
+      "p95Ms": 9626
+    },
+    {
+      "model": "jev-auto",
+      "attempts": 16,
+      "passes": 15,
+      "missingBills": 0,
+      "knownCostUsd": 0.0021719860000000003,
+      "totalCostUsd": 0.0021719860000000003,
+      "costPerSuccessUsd": 0.0001447990666666667,
+      "p50Ms": 2504,
+      "p95Ms": 10126
+    }
+  ]
+}

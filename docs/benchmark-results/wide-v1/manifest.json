@@ -1,0 +1,1131 @@
+{
+  "models": [
+    "deepseek/deepseek-v4.1-flash",
+    "qwen/qwen3.8-flash",
+    "qwen/qwen3.7-flash",
+    "inclusionai/ling-3.0-flash",
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "inception/mercury-2.5",
+    "amazon/nova-micro-v1",
+    "cohere/command-r7b-12-2024",
+    "microsoft/phi-4",
+    "mistralai/mistral-nemo",
+    "google/gemma-4-26b-a4b-it:free",
+    "nvidia/nemotron-3.5-lightning:free",
+    "poolside/laguna-xs-2.1:free"
+  ],
+  "cases": [
+    {
+      "id": "parse",
+      "family": "writing",
+      "prompt": "Extract the final approved code only. Draft code: AX7. Revision: draft AX8. Approval: use BX9; AX8 is canceled. Return code only.",
+      "expected": "BX9"
+    },
+    {
+      "id": "unicode",
+      "family": "writing",
+      "prompt": "Translate to English, exactly two words without punctuation: buenas noches",
+      "expected": "good night"
+    },
+    {
+      "id": "alias",
+      "family": "coding",
+      "prompt": "Python: x=[[0],[1]]; y=x[:]; y[0].append(2); y[1]=[9]. Return only JSON for x.",
+      "expected": [
+        [
+          0,
+          2
+        ],
+        [
+          1
+        ]
+      ]
+    },
+    {
+      "id": "scope",
+      "family": "coding",
+      "prompt": "Python: nums=[1,2,3]; result=[i*i for i in nums if i%2]; nums[0]=9. Return only JSON for result.",
+      "expected": [
+        1,
+        9
+      ]
+    },
+    {
+      "id": "probability",
+      "family": "reasoning",
+      "prompt": "A bag has 3 red and 2 blue balls. Two draws without replacement. Probability both red? Return only the reduced fraction a/b.",
+      "expected": "3/10"
+    },
+    {
+      "id": "schedule",
+      "family": "reasoning",
+      "prompt": "Tasks A=3h, B=5h start together with separate workers. C=2h starts after both A and B. D=4h starts after A and has another worker. Earliest time all tasks finish? Return only integer hours.",
+      "expected": "7"
+    },
+    {
+      "id": "dedupe",
+      "family": "writing",
+      "prompt": "Rows: id=p,v=1,active=true; id=q,v=3,active=true; id=p,v=2,active=false; id=q,v=2,active=false. Choose highest v per id and retain active only. Return only JSON array of sorted IDs.",
+      "expected": [
+        "q"
+      ]
+    },
+    {
+      "id": "boolean",
+      "family": "coding",
+      "prompt": "Python: bool(\"0\"), bool([]), (0 == False), (0 is False). Return only JSON array of these four booleans.",
+      "expected": [
+        true,
+        false,
+        true,
+        false
+      ]
+    }
+  ],
+  "max_tokens": 2048,
+  "timeout": 90000,
+  "concurrency": 4,
+  "noRetries": true,
+  "priceCap": {
+    "prompt": 0.15,
+    "completion": 0.6
+  },
+  "catalog": [
+    {
+      "id": "deepseek/deepseek-v4.1-flash",
+      "canonical_slug": "deepseek/deepseek-v4.1-flash-20260910",
+      "hugging_face_id": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "name": "DeepSeek: DeepSeek V4.1 Flash",
+      "created": 1789021285,
+      "description": "DeepSeek V4.1 Flash is a sparse mixture-of-experts model from DeepSeek, and the first built on the company's Causal Encoder-Decoder (CED) architecture. It activates 8B parameters on input and 16B on...",
+      "context_length": 1048576,
+      "architecture": {
+        "modality": "text+image->text",
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "tokenizer": "DeepSeek",
+        "instruct_type": null
+      },
+      "pricing": {
+        "prompt": "0.00000015",
+        "completion": "0.0000006",
+        "input_cache_read": "0.000000003",
+        "overrides": [
+          {
+            "utc_days": [
+              "saturday",
+              "sunday"
+            ],
+            "prompt": "0.00000015",
+            "completion": "0.0000006",
+            "input_cache_read": "0.000000003"
+          },
+          {
+            "utc_days": [
+              "monday",
+              "tuesday",
+              "wednesday",
+              "thursday",
+              "friday"
+            ],
+            "utc_start": 0,
+            "utc_end": 100,
+            "prompt": "0.00000015",
+            "completion": "0.0000006",
+            "input_cache_read": "0.000000003"
+          },
+          {
+            "utc_days": [
+              "monday",
+              "tuesday",
+              "wednesday",
+              "thursday",
+              "friday"
+            ],
+            "utc_start": 100,
+            "utc_end": 400,
+            "prompt": "0.0000003",
+            "completion": "0.0000012",
+            "input_cache_read": "0.000000006"
+          },
+          {
+            "utc_days": [
+              "monday",
+              "tuesday",
+              "wednesday",
+              "thursday",
+              "friday"
+            ],
+            "utc_start": 400,
+            "utc_end": 600,
+            "prompt": "0.00000015",
+            "completion": "0.0000006",
+            "input_cache_read": "0.000000003"
+          },
+          {
+            "utc_days": [
+              "monday",
+              "tuesday",
+              "wednesday",
+              "thursday",
+              "friday"
+            ],
+            "utc_start": 600,
+            "utc_end": 1000,
+            "prompt": "0.0000003",
+            "completion": "0.0000012",
+            "input_cache_read": "0.000000006"
+          },
+          {
+            "utc_days": [
+              "monday",
+              "tuesday",
+              "wednesday",
+              "thursday",
+              "friday"
+            ],
+            "utc_start": 1000,
+            "utc_end": 0,
+            "prompt": "0.00000015",
+            "completion": "0.0000006",
+            "input_cache_read": "0.000000003"
+          }
+        ]
+      },
+      "top_provider": {
+        "context_length": 1048576,
+        "max_completion_tokens": 384000,
+        "is_moderated": false
+      },
+      "per_request_limits": null,
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "logit_bias",
+        "logprobs",
+        "max_tokens",
+        "min_p",
+        "presence_penalty",
+        "reasoning",
+        "reasoning_effort",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_logprobs",
+        "top_p"
+      ],
+      "default_parameters": {},
+      "supported_voices": null,
+      "knowledge_cutoff": null,
+      "expiration_date": null,
+      "links": {
+        "details": "/api/v1/models/deepseek/deepseek-v4.1-flash-20260910/endpoints"
+      },
+      "benchmarks": {
+        "design_arena": [],
+        "artificial_analysis": {
+          "intelligence_index": 39.5,
+          "coding_index": null,
+          "agentic_index": null
+        }
+      },
+      "reasoning": {
+        "mandatory": false,
+        "default_enabled": true,
+        "supported_efforts": [
+          "max",
+          "high",
+          "low"
+        ],
+        "default_effort": "high"
+      }
+    },
+    {
+      "id": "inception/mercury-2.5",
+      "canonical_slug": "inception/mercury-2.5-20260908",
+      "hugging_face_id": null,
+      "name": "Inception: Mercury 2.5",
+      "created": 1788892137,
+      "description": "Mercury 2.5 is the fastest reasoning LLM, and the latest diffusion LLM (dLLM) from Inception. Instead of generating tokens sequentially, Mercury 2.5 produces and refines multiple tokens in parallel, achieving...",
+      "context_length": 260000,
+      "architecture": {
+        "modality": "text->text",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "tokenizer": "Other",
+        "instruct_type": null
+      },
+      "pricing": {
+        "prompt": "0.00000004",
+        "completion": "0.00000015",
+        "input_cache_read": "0.000000004"
+      },
+      "top_provider": {
+        "context_length": 260000,
+        "max_completion_tokens": 65536,
+        "is_moderated": false
+      },
+      "per_request_limits": null,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "reasoning_effort",
+        "response_format",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools"
+      ],
+      "default_parameters": {},
+      "supported_voices": null,
+      "knowledge_cutoff": null,
+      "expiration_date": null,
+      "links": {
+        "details": "/api/v1/models/inception/mercury-2.5-20260908/endpoints"
+      },
+      "reasoning": {
+        "mandatory": false,
+        "default_enabled": true,
+        "supported_efforts": [
+          "high",
+          "medium",
+          "low",
+          "none"
+        ],
+        "default_effort": "medium"
+      }
+    },
+    {
+      "id": "qwen/qwen3.8-flash",
+      "canonical_slug": "qwen/qwen3.8-flash-20260826",
+      "hugging_face_id": "Qwen/Qwen3.8-Flash-Next",
+      "name": "Qwen: Qwen3.8 Flash",
+      "created": 1787773060,
+      "description": "Qwen3.8 Flash is a multimodal reasoning model from Alibaba. It is suited for coding assistance, agentic workflows, visual understanding, document and codebase analysis, desktop interaction, chart analysis, and long-video analysis.",
+      "context_length": 1000000,
+      "architecture": {
+        "modality": "text+image+video->text",
+        "input_modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "tokenizer": "Qwen",
+        "instruct_type": null
+      },
+      "pricing": {
+        "prompt": "0.00000015",
+        "completion": "0.00000047",
+        "input_cache_read": "0.000000016",
+        "input_cache_write": "0.0000002"
+      },
+      "top_provider": {
+        "context_length": 1000000,
+        "max_completion_tokens": 131072,
+        "is_moderated": false
+      },
+      "per_request_limits": null,
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "logprobs",
+        "max_tokens",
+        "presence_penalty",
+        "reasoning",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_logprobs",
+        "top_p"
+      ],
+      "default_parameters": {},
+      "supported_voices": null,
+      "knowledge_cutoff": null,
+      "expiration_date": null,
+      "links": {
+        "details": "/api/v1/models/qwen/qwen3.8-flash-20260826/endpoints"
+      },
+      "reasoning": {
+        "mandatory": false,
+        "default_enabled": true,
+        "supports_max_tokens": true
+      }
+    },
+    {
+      "id": "nvidia/nemotron-3.5-lightning:free",
+      "canonical_slug": "nvidia/nemotron-3.5-lightning-20260807",
+      "hugging_face_id": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16",
+      "name": "NVIDIA: Nemotron 3.5 Lightning (free)",
+      "created": 1786452751,
+      "description": "NVIDIA Nemotron 3.5 Lightning is an open mixture-of-experts model from NVIDIA, with 3B active parameters out of 30B total. It is suited for high-throughput agentic workloads and specialized tasks that...",
+      "context_length": 1000000,
+      "architecture": {
+        "modality": "text->text",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "tokenizer": "Other",
+        "instruct_type": null
+      },
+      "pricing": {
+        "prompt": "0",
+        "completion": "0"
+      },
+      "top_provider": {
+        "context_length": 1000000,
+        "max_completion_tokens": 65536,
+        "is_moderated": false
+      },
+      "per_request_limits": null,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "seed",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p"
+      ],
+      "default_parameters": {},
+      "supported_voices": null,
+      "knowledge_cutoff": null,
+      "expiration_date": null,
+      "links": {
+        "details": "/api/v1/models/nvidia/nemotron-3.5-lightning-20260807/endpoints"
+      },
+      "benchmarks": {
+        "design_arena": [],
+        "artificial_analysis": {
+          "intelligence_index": 13.6,
+          "coding_index": 26.8,
+          "agentic_index": 6.1
+        }
+      },
+      "reasoning": {
+        "mandatory": false
+      }
+    },
+    {
+      "id": "qwen/qwen3.7-flash",
+      "canonical_slug": "qwen/qwen3.7-flash-20260727",
+      "hugging_face_id": null,
+      "name": "Qwen: Qwen3.7 Flash",
+      "created": 1785190561,
+      "description": "Qwen3.7 Flash is a vision-language reasoning model from Alibaba. It is suited for multimodal agents, visual coding, search, and computer interaction, with strengths in object recognition, spatial understanding, and real-world...",
+      "context_length": 1000000,
+      "architecture": {
+        "modality": "text+image+video->text",
+        "input_modalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "tokenizer": "Qwen",
+        "instruct_type": null
+      },
+      "pricing": {
+        "prompt": "0.00000003",
+        "completion": "0.00000013",
+        "input_cache_read": "0.000000006",
+        "input_cache_write": "0.000000038",
+        "overrides": [
+          {
+            "min_prompt_tokens": 32000,
+            "prompt": "0.0000001",
+            "completion": "0.0000004",
+            "input_cache_read": "0.00000002",
+            "input_cache_write": "0.000000125"
+          },
+          {
+            "min_prompt_tokens": 256000,
+            "prompt": "0.0000002",
+            "completion": "0.0000008",
+            "input_cache_read": "0.00000004",
+            "input_cache_write": "0.00000025"
+          }
+        ]
+      },
+      "top_provider": {
+        "context_length": 1000000,
+        "max_completion_tokens": 65536,
+        "is_moderated": false
+      },
+      "per_request_limits": null,
+      "supported_parameters": [
+        "include_reasoning",
+        "logprobs",
+        "max_tokens",
+        "presence_penalty",
+        "reasoning",
+        "response_format",
+        "seed",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_logprobs",
+        "top_p"
+      ],
+      "default_parameters": {
+        "temperature": null,
+        "top_p": null,
+        "top_k": null,
+        "frequency_penalty": null,
+        "presence_penalty": null,
+        "repetition_penalty": null
+      },
+      "supported_voices": null,
+      "knowledge_cutoff": null,
+      "expiration_date": null,
+      "links": {
+        "details": "/api/v1/models/qwen/qwen3.7-flash-20260727/endpoints"
+      },
+      "reasoning": {
+        "mandatory": false,
+        "default_enabled": true,
+        "supports_max_tokens": true
+      }
+    },
+    {
+      "id": "inclusionai/ling-3.0-flash",
+      "canonical_slug": "inclusionai/ling-3.0-flash-20260723",
+      "hugging_face_id": "inclusionAI/Ling-3.0-flash",
+      "name": "inclusionAI: Ling 3.0 Flash",
+      "created": 1784818580,
+      "description": "*Ling-3.0-flash* is a *124B-parameter Mixture-of-Experts (MoE) model*, with approximately *5.1B parameters activated per token*. The model is designed with *token efficiency and production-scale agentic inference* as key priorities, enabling developers...",
+      "context_length": 262144,
+      "architecture": {
+        "modality": "text->text",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "tokenizer": "Other",
+        "instruct_type": null
+      },
+      "pricing": {
+        "prompt": "0.000000021",
+        "completion": "0.000000063",
+        "input_cache_read": "0.0000000042"
+      },
+      "top_provider": {
+        "context_length": 262144,
+        "max_completion_tokens": 32768,
+        "is_moderated": false
+      },
+      "per_request_limits": null,
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "logit_bias",
+        "logprobs",
+        "max_tokens",
+        "min_p",
+        "presence_penalty",
+        "reasoning",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_logprobs",
+        "top_p"
+      ],
+      "default_parameters": {},
+      "supported_voices": null,
+      "knowledge_cutoff": null,
+      "expiration_date": null,
+      "links": {
+        "details": "/api/v1/models/inclusionai/ling-3.0-flash-20260723/endpoints"
+      },
+      "benchmarks": {
+        "design_arena": [],
+        "artificial_analysis": {
+          "intelligence_index": 20.6,
+          "coding_index": 50.6,
+          "agentic_index": 21
+        }
+      },
+      "reasoning": {
+        "mandatory": false,
+        "default_enabled": true
+      }
+    },
+    {
+      "id": "poolside/laguna-xs-2.1:free",
+      "canonical_slug": "poolside/laguna-xs-2.1-20260625",
+      "hugging_face_id": "poolside/Laguna-XS-2.1",
+      "name": "Poolside: Laguna XS 2.1 (free)",
+      "created": 1783002429,
+      "description": "Laguna XS 2.1 is the latest coding agent model in the 33B-A3B category from [Poolside](https://poolside.ai/) and a step forward from their Laguna XS.2 model (released in April 2026). It combines...",
+      "context_length": 262144,
+      "architecture": {
+        "modality": "text->text",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "tokenizer": "Other",
+        "instruct_type": null
+      },
+      "pricing": {
+        "prompt": "0",
+        "completion": "0"
+      },
+      "top_provider": {
+        "context_length": 262144,
+        "max_completion_tokens": 32768,
+        "is_moderated": false
+      },
+      "per_request_limits": null,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "temperature",
+        "tool_choice",
+        "tools"
+      ],
+      "default_parameters": {},
+      "supported_voices": null,
+      "knowledge_cutoff": null,
+      "expiration_date": null,
+      "links": {
+        "details": "/api/v1/models/poolside/laguna-xs-2.1-20260625/endpoints"
+      },
+      "reasoning": {
+        "mandatory": false,
+        "default_enabled": true
+      }
+    },
+    {
+      "id": "google/gemma-4-26b-a4b-it:free",
+      "canonical_slug": "google/gemma-4-26b-a4b-it-20260403",
+      "hugging_face_id": "google/gemma-4-26B-A4B-it",
+      "name": "Google: Gemma 4 26B A4B  (free)",
+      "created": 1775227989,
+      "description": "Gemma 4 26B A4B IT is an instruction-tuned Mixture-of-Experts (MoE) model from Google DeepMind. Despite 25.2B total parameters, only 3.8B activate per token during inference — delivering near-31B quality at...",
+      "context_length": 262144,
+      "architecture": {
+        "modality": "text+image+video->text",
+        "input_modalities": [
+          "image",
+          "text",
+          "video"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "tokenizer": "Gemma",
+        "instruct_type": null
+      },
+      "pricing": {
+        "prompt": "0",
+        "completion": "0"
+      },
+      "top_provider": {
+        "context_length": 262144,
+        "max_completion_tokens": 32768,
+        "is_moderated": false
+      },
+      "per_request_limits": null,
+      "supported_parameters": [
+        "include_reasoning",
+        "max_tokens",
+        "reasoning",
+        "response_format",
+        "seed",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_p"
+      ],
+      "default_parameters": {
+        "temperature": 1,
+        "top_p": 0.95,
+        "top_k": 64
+      },
+      "supported_voices": null,
+      "knowledge_cutoff": null,
+      "expiration_date": null,
+      "links": {
+        "details": "/api/v1/models/google/gemma-4-26b-a4b-it-20260403/endpoints"
+      },
+      "benchmarks": {
+        "design_arena": [],
+        "artificial_analysis": {
+          "intelligence_index": null,
+          "coding_index": 39.3,
+          "agentic_index": null
+        }
+      },
+      "reasoning": {
+        "mandatory": false,
+        "default_enabled": false
+      }
+    },
+    {
+      "id": "openai/gpt-oss-120b",
+      "canonical_slug": "openai/gpt-oss-120b",
+      "hugging_face_id": "openai/gpt-oss-120b",
+      "name": "OpenAI: gpt-oss-120b",
+      "created": 1754414231,
+      "description": "gpt-oss-120b is an open-weight, 117B-parameter Mixture-of-Experts (MoE) language model from OpenAI designed for high-reasoning, agentic, and general-purpose production use cases. It activates 5.1B parameters per forward pass and is optimized...",
+      "context_length": 131072,
+      "architecture": {
+        "modality": "text->text",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "tokenizer": "GPT",
+        "instruct_type": null
+      },
+      "pricing": {
+        "prompt": "0.000000037",
+        "completion": "0.00000017"
+      },
+      "top_provider": {
+        "context_length": 131072,
+        "max_completion_tokens": 117964,
+        "is_moderated": false
+      },
+      "per_request_limits": null,
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "logit_bias",
+        "logprobs",
+        "max_tokens",
+        "min_p",
+        "presence_penalty",
+        "reasoning",
+        "reasoning_effort",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_a",
+        "top_k",
+        "top_logprobs",
+        "top_p"
+      ],
+      "default_parameters": {
+        "temperature": null,
+        "top_p": null,
+        "frequency_penalty": null
+      },
+      "supported_voices": null,
+      "knowledge_cutoff": "2024-06-30",
+      "expiration_date": null,
+      "links": {
+        "details": "/api/v1/models/openai/gpt-oss-120b/endpoints"
+      },
+      "benchmarks": {
+        "design_arena": [
+          {
+            "arena": "models",
+            "category": "3d",
+            "elo": 929,
+            "win_rate": 29.4,
+            "rank": 109
+          },
+          {
+            "arena": "models",
+            "category": "codecategories",
+            "elo": 978,
+            "win_rate": 33.4,
+            "rank": 117
+          },
+          {
+            "arena": "models",
+            "category": "dataviz",
+            "elo": 1002,
+            "win_rate": 43.6,
+            "rank": 107
+          },
+          {
+            "arena": "models",
+            "category": "gamedev",
+            "elo": 1015,
+            "win_rate": 40.5,
+            "rank": 106
+          },
+          {
+            "arena": "models",
+            "category": "uicomponent",
+            "elo": 942,
+            "win_rate": 35.7,
+            "rank": 112
+          },
+          {
+            "arena": "models",
+            "category": "website",
+            "elo": 980,
+            "win_rate": 32.5,
+            "rank": 118
+          }
+        ],
+        "artificial_analysis": {
+          "intelligence_index": 12.3,
+          "coding_index": 30.4,
+          "agentic_index": 6.2
+        }
+      },
+      "reasoning": {
+        "mandatory": true,
+        "supported_efforts": [
+          "high",
+          "medium",
+          "low"
+        ],
+        "default_effort": "medium"
+      }
+    },
+    {
+      "id": "openai/gpt-oss-20b",
+      "canonical_slug": "openai/gpt-oss-20b",
+      "hugging_face_id": "openai/gpt-oss-20b",
+      "name": "OpenAI: gpt-oss-20b",
+      "created": 1754414229,
+      "description": "gpt-oss-20b is an open-weight 21B parameter model released by OpenAI under the Apache 2.0 license. It uses a Mixture-of-Experts (MoE) architecture with 3.6B active parameters per forward pass, optimized for...",
+      "context_length": 131072,
+      "architecture": {
+        "modality": "text->text",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "tokenizer": "GPT",
+        "instruct_type": null
+      },
+      "pricing": {
+        "prompt": "0.00000003",
+        "completion": "0.00000013",
+        "input_cache_read": "0.00000003"
+      },
+      "top_provider": {
+        "context_length": 131072,
+        "max_completion_tokens": 117964,
+        "is_moderated": false
+      },
+      "per_request_limits": null,
+      "supported_parameters": [
+        "frequency_penalty",
+        "include_reasoning",
+        "logit_bias",
+        "logprobs",
+        "max_tokens",
+        "min_p",
+        "presence_penalty",
+        "reasoning",
+        "reasoning_effort",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_logprobs",
+        "top_p"
+      ],
+      "default_parameters": {
+        "temperature": null,
+        "top_p": null,
+        "frequency_penalty": null
+      },
+      "supported_voices": null,
+      "knowledge_cutoff": "2024-06-30",
+      "expiration_date": null,
+      "links": {
+        "details": "/api/v1/models/openai/gpt-oss-20b/endpoints"
+      },
+      "benchmarks": {
+        "design_arena": [
+          {
+            "arena": "models",
+            "category": "dataviz",
+            "elo": 947,
+            "win_rate": 39.7,
+            "rank": 112
+          },
+          {
+            "arena": "models",
+            "category": "website",
+            "elo": 865,
+            "win_rate": 27.9,
+            "rank": 126
+          }
+        ],
+        "artificial_analysis": {
+          "intelligence_index": 9,
+          "coding_index": 20.7,
+          "agentic_index": 1.4
+        }
+      },
+      "reasoning": {
+        "mandatory": true,
+        "supported_efforts": [
+          "high",
+          "medium",
+          "low"
+        ],
+        "default_effort": "medium"
+      }
+    },
+    {
+      "id": "microsoft/phi-4",
+      "canonical_slug": "microsoft/phi-4",
+      "hugging_face_id": "microsoft/phi-4",
+      "name": "Microsoft: Phi 4",
+      "created": 1736489872,
+      "description": "[Microsoft Research](/microsoft) Phi-4 is designed to perform well in complex reasoning tasks and can operate efficiently in situations with limited memory or where quick responses are needed. At 14 billion...",
+      "context_length": 16384,
+      "architecture": {
+        "modality": "text->text",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "tokenizer": "Other",
+        "instruct_type": null
+      },
+      "pricing": {
+        "prompt": "0.00000007",
+        "completion": "0.00000014"
+      },
+      "top_provider": {
+        "context_length": 16384,
+        "max_completion_tokens": 14745,
+        "is_moderated": false
+      },
+      "per_request_limits": null,
+      "supported_parameters": [
+        "frequency_penalty",
+        "logit_bias",
+        "max_tokens",
+        "min_p",
+        "presence_penalty",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "top_k",
+        "top_p"
+      ],
+      "default_parameters": {},
+      "supported_voices": null,
+      "knowledge_cutoff": "2024-06-30",
+      "expiration_date": null,
+      "links": {
+        "details": "/api/v1/models/microsoft/phi-4/endpoints"
+      }
+    },
+    {
+      "id": "cohere/command-r7b-12-2024",
+      "canonical_slug": "cohere/command-r7b-12-2024",
+      "hugging_face_id": "",
+      "name": "Cohere: Command R7B (12-2024)",
+      "created": 1734158152,
+      "description": "Command R7B (12-2024) is a small, fast update of the Command R+ model, delivered in December 2024. It excels at RAG, tool use, agents, and similar tasks requiring complex reasoning...",
+      "context_length": 128000,
+      "architecture": {
+        "modality": "text->text",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "tokenizer": "Cohere",
+        "instruct_type": null
+      },
+      "pricing": {
+        "prompt": "0.0000000375",
+        "completion": "0.00000015"
+      },
+      "top_provider": {
+        "context_length": 128000,
+        "max_completion_tokens": 4000,
+        "is_moderated": true
+      },
+      "per_request_limits": null,
+      "supported_parameters": [
+        "frequency_penalty",
+        "max_tokens",
+        "presence_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "top_k",
+        "top_p"
+      ],
+      "default_parameters": {},
+      "supported_voices": null,
+      "knowledge_cutoff": "2024-08-31",
+      "expiration_date": null,
+      "links": {
+        "details": "/api/v1/models/cohere/command-r7b-12-2024/endpoints"
+      }
+    },
+    {
+      "id": "amazon/nova-micro-v1",
+      "canonical_slug": "amazon/nova-micro-v1",
+      "hugging_face_id": "",
+      "name": "Amazon: Nova Micro 1.0",
+      "created": 1733437237,
+      "description": "Amazon Nova Micro 1.0 is a text-only model that delivers the lowest latency responses in the Amazon Nova family of models at a very low cost. With a context length...",
+      "context_length": 128000,
+      "architecture": {
+        "modality": "text->text",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "tokenizer": "Nova",
+        "instruct_type": null
+      },
+      "pricing": {
+        "prompt": "0.000000035",
+        "completion": "0.00000014"
+      },
+      "top_provider": {
+        "context_length": 128000,
+        "max_completion_tokens": 5120,
+        "is_moderated": true
+      },
+      "per_request_limits": null,
+      "supported_parameters": [
+        "max_tokens",
+        "stop",
+        "temperature",
+        "tools",
+        "top_k",
+        "top_p"
+      ],
+      "default_parameters": {},
+      "supported_voices": null,
+      "knowledge_cutoff": "2024-10-31",
+      "expiration_date": null,
+      "links": {
+        "details": "/api/v1/models/amazon/nova-micro-v1/endpoints"
+      }
+    },
+    {
+      "id": "mistralai/mistral-nemo",
+      "canonical_slug": "mistralai/mistral-nemo",
+      "hugging_face_id": "mistralai/Mistral-Nemo-Instruct-2407",
+      "name": "Mistral: Mistral Nemo",
+      "created": 1721347200,
+      "description": "A 12B parameter model with a 128k token context length built by Mistral in collaboration with NVIDIA. The model is multilingual, supporting English, French, German, Spanish, Italian, Portuguese, Chinese, Japanese,...",
+      "context_length": 131072,
+      "architecture": {
+        "modality": "text->text",
+        "input_modalities": [
+          "text"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "tokenizer": "Mistral",
+        "instruct_type": null
+      },
+      "pricing": {
+        "prompt": "0.000000019",
+        "completion": "0.00000003"
+      },
+      "top_provider": {
+        "context_length": 131072,
+        "max_completion_tokens": 16384,
+        "is_moderated": false
+      },
+      "per_request_limits": null,
+      "supported_parameters": [
+        "frequency_penalty",
+        "logit_bias",
+        "logprobs",
+        "max_tokens",
+        "min_p",
+        "presence_penalty",
+        "repetition_penalty",
+        "response_format",
+        "seed",
+        "stop",
+        "structured_outputs",
+        "temperature",
+        "tool_choice",
+        "tools",
+        "top_k",
+        "top_logprobs",
+        "top_p"
+      ],
+      "default_parameters": {
+        "temperature": 0.3
+      },
+      "supported_voices": null,
+      "knowledge_cutoff": "2024-04-30",
+      "expiration_date": null,
+      "links": {
+        "details": "/api/v1/models/mistralai/mistral-nemo/endpoints"
+      }
+    }
+  ]
+}

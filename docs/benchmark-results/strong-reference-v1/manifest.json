@@ -1,0 +1,87 @@
+{
+  "sourceSha256": "ca95deaa9a01ef0a6f439f88bcf0dd3db3563d22f22aad6cae04ebb9a8d8c8e9",
+  "cases": [
+    {
+      "source_file": "Ellen's Copy of Benchmark Questions Verification V2.ipynb",
+      "task_id": 306,
+      "prompt": "Write a function to find the maximum sum of increasing subsequence from prefix until ith index and also including a given kth element which is after i, i.e., k > i .",
+      "code": "def max_sum_increasing_subseq(a, n, index, k):\n\tdp = [[0 for i in range(n)] \n\t\t\tfor i in range(n)]\n\tfor i in range(n):\n\t\tif a[i] > a[0]:\n\t\t\tdp[0][i] = a[i] + a[0]\n\t\telse:\n\t\t\tdp[0][i] = a[i]\n\tfor i in range(1, n):\n\t\tfor j in range(n):\n\t\t\tif a[j] > a[i] and j > i:\n\t\t\t\tif dp[i - 1][i] + a[j] > dp[i - 1][j]:\n\t\t\t\t\tdp[i][j] = dp[i - 1][i] + a[j]\n\t\t\t\telse:\n\t\t\t\t\tdp[i][j] = dp[i - 1][j]\n\t\t\telse:\n\t\t\t\tdp[i][j] = dp[i - 1][j]\n\treturn dp[index][k]",
+      "test_imports": [],
+      "test_list": [
+        "assert max_sum_increasing_subseq([1, 101, 2, 3, 100, 4, 5 ], 7, 4, 6) == 11",
+        "assert max_sum_increasing_subseq([1, 101, 2, 3, 100, 4, 5 ], 7, 2, 5) == 7",
+        "assert max_sum_increasing_subseq([11, 15, 19, 21, 26, 28, 31], 7, 2, 4) == 71"
+      ]
+    },
+    {
+      "source_file": "Mike's Copy of Benchmark Questions Verification V2.ipynb",
+      "task_id": 129,
+      "prompt": "Write a function to calculate whether the matrix is a magic square.",
+      "code": "def magic_square_test(my_matrix):\n    iSize = len(my_matrix[0])\n    sum_list = []\n    sum_list.extend([sum (lines) for lines in my_matrix])   \n    for col in range(iSize):\n        sum_list.append(sum(row[col] for row in my_matrix))\n    result1 = 0\n    for i in range(0,iSize):\n        result1 +=my_matrix[i][i]\n    sum_list.append(result1)      \n    result2 = 0\n    for i in range(iSize-1,-1,-1):\n        result2 +=my_matrix[i][i]\n    sum_list.append(result2)\n    if len(set(sum_list))>1:\n        return False\n    return True",
+      "test_imports": [],
+      "test_list": [
+        "assert magic_square_test([[7, 12, 1, 14], [2, 13, 8, 11], [16, 3, 10, 5], [9, 6, 15, 4]])==True",
+        "assert magic_square_test([[2, 7, 6], [9, 5, 1], [4, 3, 8]])==True",
+        "assert magic_square_test([[2, 7, 6], [9, 5, 1], [4, 3, 7]])==False"
+      ]
+    },
+    {
+      "source_file": "Mike's Copy of Benchmark Questions Verification V2.ipynb",
+      "task_id": 103,
+      "prompt": "Write a function to find the Eulerian number a(n, m).",
+      "code": "def eulerian_num(n, m): \n\tif (m >= n or n == 0): \n\t\treturn 0 \n\tif (m == 0): \n\t\treturn 1 \n\treturn ((n - m) * eulerian_num(n - 1, m - 1) +(m + 1) * eulerian_num(n - 1, m))",
+      "test_imports": [],
+      "test_list": [
+        "assert eulerian_num(3, 1) == 4",
+        "assert eulerian_num(4, 1) == 11",
+        "assert eulerian_num(5, 3) == 26"
+      ]
+    },
+    {
+      "source_file": "Benchmark Questions Verification V2.ipynb",
+      "task_id": 233,
+      "prompt": "Write a function to find the lateral surface area of a cylinder.",
+      "code": "def lateralsuface_cylinder(r,h):\n  lateralsurface= 2*3.1415*r*h\n  return lateralsurface",
+      "test_imports": [
+        "import math"
+      ],
+      "test_list": [
+        "assert math.isclose(lateralsuface_cylinder(10,5), 314.15000000000003, rel_tol=0.001)",
+        "assert math.isclose(lateralsuface_cylinder(4,5), 125.66000000000001, rel_tol=0.001)",
+        "assert math.isclose(lateralsuface_cylinder(4,10), 251.32000000000002, rel_tol=0.001)"
+      ]
+    },
+    {
+      "source_file": "charlessutton@: Benchmark Questions Verification V2.ipynb",
+      "task_id": 477,
+      "prompt": "Write a python function to convert the given string to lower case.",
+      "code": "def is_lower(string):\n  return (string.lower())",
+      "test_imports": [],
+      "test_list": [
+        "assert is_lower(\"InValid\") == \"invalid\"",
+        "assert is_lower(\"TruE\") == \"true\"",
+        "assert is_lower(\"SenTenCE\") == \"sentence\""
+      ]
+    },
+    {
+      "source_file": "Benchmark Questions Verification V2.ipynb",
+      "task_id": 251,
+      "prompt": "Write a function that takes in a list and an element and inserts the element before each element in the list, and returns the resulting list.",
+      "code": "def insert_element(list,element):\n list = [v for elt in list for v in (element, elt)]\n return list",
+      "test_imports": [],
+      "test_list": [
+        "assert insert_element(['Red', 'Green', 'Black'] ,'c')==['c', 'Red', 'c', 'Green', 'c', 'Black']",
+        "assert insert_element(['python', 'java'] ,'program')==['program', 'python', 'program', 'java']",
+        "assert insert_element(['happy', 'sad'] ,'laugh')==['laugh', 'happy', 'laugh', 'sad']"
+      ]
+    }
+  ],
+  "models": [
+    "inception/mercury-2.5",
+    "openai/gpt-4.1"
+  ],
+  "budget": 8192,
+  "timeoutSeconds": 120,
+  "noRetries": true,
+  "publicResponses": true
+}

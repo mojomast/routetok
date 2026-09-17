@@ -1,0 +1,111 @@
+[
+  {
+    "id": "ledger-0",
+    "family": "state",
+    "prompt": "Account starts with 124 units. Events in order: id=a deposit 17; id=b withdraw 9; id=a deposit 17; id=c withdraw 6. Apply each distinct event ID only once. Return only the final integer balance.",
+    "expected": "126"
+  },
+  {
+    "id": "optimization-0",
+    "family": "optimization",
+    "prompt": "Projects (id,cost,value): [[\"P0\", 6, 5], [\"P1\", 2, 12], [\"P2\", 5, 6], [\"P3\", 8, 13], [\"P4\", 4, 7]]. Budget 11. Select each at most once to maximize total value, then minimize cost, then choose lexicographically smallest sorted ID list. Return only JSON array of selected IDs.",
+    "expected": [
+      "P1",
+      "P3"
+    ]
+  },
+  {
+    "id": "retrieval-0",
+    "family": "retrieval",
+    "prompt": "Records: [{\"id\": \"k0\", \"version\": 0, \"value\": 4}, {\"id\": \"k1\", \"version\": 0, \"value\": 17}, {\"id\": \"k2\", \"version\": 0, \"value\": 30}, {\"id\": \"k3\", \"version\": 0, \"value\": 43}, {\"id\": \"k4\", \"version\": 0, \"value\": 56}, {\"id\": \"k5\", \"version\": 0, \"value\": 69}, {\"id\": \"k6\", \"version\": 0, \"value\": 82}, {\"id\": \"k7\", \"version\": 0, \"value\": 95}, {\"id\": \"k8\", \"version\": 0, \"value\": 7}, {\"id\": \"k0\", \"version\": 1, \"value\": 20}, {\"id\": \"k1\", \"version\": 1, \"value\": 33}, {\"id\": \"k2\", \"version\": 1, \"value\": 46}, {\"id\": \"k3\", \"version\": 1, \"value\": 59}, {\"id\": \"k4\", \"version\": 1, \"value\": 72}, {\"id\": \"k5\", \"version\": 1, \"value\": 85}, {\"id\": \"k6\", \"version\": 1, \"value\": 98}, {\"id\": \"k7\", \"version\": 1, \"value\": 10}, {\"id\": \"k8\", \"version\": 1, \"value\": 23}, {\"id\": \"k0\", \"version\": 2, \"value\": 36}, {\"id\": \"k1\", \"version\": 2, \"value\": 49}, {\"id\": \"k2\", \"version\": 2, \"value\": 62}, {\"id\": \"k3\", \"version\": 2, \"value\": 75}, {\"id\": \"k4\", \"version\": 2, \"value\": 88}, {\"id\": \"k5\", \"version\": 2, \"value\": 0}, {\"id\": \"k6\", \"version\": 2, \"value\": 13}, {\"id\": \"k7\", \"version\": 2, \"value\": 26}, {\"id\": \"k8\", \"version\": 2, \"value\": 39}, {\"id\": \"k0\", \"version\": 3, \"value\": 52}, {\"id\": \"k1\", \"version\": 3, \"value\": 65}, {\"id\": \"k2\", \"version\": 3, \"value\": 78}, {\"id\": \"k3\", \"version\": 3, \"value\": 91}, {\"id\": \"k4\", \"version\": 3, \"value\": 3}, {\"id\": \"k5\", \"version\": 3, \"value\": 16}, {\"id\": \"k6\", \"version\": 3, \"value\": 29}, {\"id\": \"k7\", \"version\": 3, \"value\": 42}, {\"id\": \"k8\", \"version\": 3, \"value\": 55}, {\"id\": \"k0\", \"version\": 4, \"value\": 68}, {\"id\": \"k1\", \"version\": 4, \"value\": 81}, {\"id\": \"k2\", \"version\": 4, \"value\": 94}, {\"id\": \"k3\", \"version\": 4, \"value\": 6}, {\"id\": \"k4\", \"version\": 4, \"value\": 19}, {\"id\": \"k5\", \"version\": 4, \"value\": 32}, {\"id\": \"k6\", \"version\": 4, \"value\": 45}, {\"id\": \"k7\", \"version\": 4, \"value\": 58}, {\"id\": \"k8\", \"version\": 4, \"value\": 71}, {\"id\": \"k0\", \"version\": 5, \"value\": 84}, {\"id\": \"k1\", \"version\": 5, \"value\": 97}, {\"id\": \"k2\", \"version\": 5, \"value\": 9}, {\"id\": \"k3\", \"version\": 5, \"value\": 22}, {\"id\": \"k4\", \"version\": 5, \"value\": 35}, {\"id\": \"k5\", \"version\": 5, \"value\": 48}, {\"id\": \"k6\", \"version\": 5, \"value\": 61}, {\"id\": \"k7\", \"version\": 5, \"value\": 74}, {\"id\": \"k8\", \"version\": 5, \"value\": 87}, {\"id\": \"k0\", \"version\": 6, \"value\": 100}, {\"id\": \"k1\", \"version\": 6, \"value\": 12}, {\"id\": \"k2\", \"version\": 6, \"value\": 25}, {\"id\": \"k3\", \"version\": 6, \"value\": 38}, {\"id\": \"k4\", \"version\": 6, \"value\": 51}, {\"id\": \"k5\", \"version\": 6, \"value\": 64}, {\"id\": \"k6\", \"version\": 6, \"value\": 77}, {\"id\": \"k7\", \"version\": 6, \"value\": 90}, {\"id\": \"k8\", \"version\": 6, \"value\": 2}, {\"id\": \"k0\", \"version\": 7, \"value\": 15}, {\"id\": \"k1\", \"version\": 7, \"value\": 28}, {\"id\": \"k2\", \"version\": 7, \"value\": 41}, {\"id\": \"k3\", \"version\": 7, \"value\": 54}, {\"id\": \"k4\", \"version\": 7, \"value\": 67}, {\"id\": \"k5\", \"version\": 7, \"value\": 80}, {\"id\": \"k6\", \"version\": 7, \"value\": 93}, {\"id\": \"k7\", \"version\": 7, \"value\": 5}, {\"id\": \"k8\", \"version\": 7, \"value\": 18}, {\"id\": \"k0\", \"version\": 8, \"value\": 31}, {\"id\": \"k1\", \"version\": 8, \"value\": 44}, {\"id\": \"k2\", \"version\": 8, \"value\": 57}, {\"id\": \"k3\", \"version\": 8, \"value\": 70}, {\"id\": \"k4\", \"version\": 8, \"value\": 83}, {\"id\": \"k5\", \"version\": 8, \"value\": 96}, {\"id\": \"k6\", \"version\": 8, \"value\": 8}, {\"id\": \"k7\", \"version\": 8, \"value\": 21}, {\"id\": \"k8\", \"version\": 8, \"value\": 34}, {\"id\": \"k0\", \"version\": 9, \"value\": 47}, {\"id\": \"k1\", \"version\": 9, \"value\": 60}, {\"id\": \"k2\", \"version\": 9, \"value\": 73}, {\"id\": \"k3\", \"version\": 9, \"value\": 86}, {\"id\": \"k4\", \"version\": 9, \"value\": 99}, {\"id\": \"k5\", \"version\": 9, \"value\": 11}, {\"id\": \"k6\", \"version\": 9, \"value\": 24}, {\"id\": \"k7\", \"version\": 9, \"value\": 37}, {\"id\": \"k8\", \"version\": 9, \"value\": 50}]. For k1, return the value at its highest version. Only output the integer.",
+    "expected": "60"
+  },
+  {
+    "id": "code-0",
+    "family": "coding",
+    "prompt": "Python: a=[4,2]; b=[a,a.copy()]; b[0].append(7); b[1][0]=9; a.pop(1). Return only JSON for b.",
+    "expected": [
+      [
+        4,
+        7
+      ],
+      [
+        9,
+        2
+      ]
+    ]
+  },
+  {
+    "id": "ledger-1",
+    "family": "state",
+    "prompt": "Account starts with 155 units. Events in order: id=a deposit 17; id=b withdraw 9; id=a deposit 17; id=c withdraw 6. Apply each distinct event ID only once. Return only the final integer balance.",
+    "expected": "157"
+  },
+  {
+    "id": "optimization-1",
+    "family": "optimization",
+    "prompt": "Projects (id,cost,value): [[\"P0\", 7, 6], [\"P1\", 3, 13], [\"P2\", 6, 7], [\"P3\", 2, 1], [\"P4\", 5, 8]]. Budget 11. Select each at most once to maximize total value, then minimize cost, then choose lexicographically smallest sorted ID list. Return only JSON array of selected IDs.",
+    "expected": [
+      "P1",
+      "P3",
+      "P4"
+    ]
+  },
+  {
+    "id": "retrieval-1",
+    "family": "retrieval",
+    "prompt": "Records: [{\"id\": \"k0\", \"version\": 0, \"value\": 5}, {\"id\": \"k1\", \"version\": 0, \"value\": 18}, {\"id\": \"k2\", \"version\": 0, \"value\": 31}, {\"id\": \"k3\", \"version\": 0, \"value\": 44}, {\"id\": \"k4\", \"version\": 0, \"value\": 57}, {\"id\": \"k5\", \"version\": 0, \"value\": 70}, {\"id\": \"k6\", \"version\": 0, \"value\": 83}, {\"id\": \"k7\", \"version\": 0, \"value\": 96}, {\"id\": \"k8\", \"version\": 0, \"value\": 8}, {\"id\": \"k0\", \"version\": 1, \"value\": 21}, {\"id\": \"k1\", \"version\": 1, \"value\": 34}, {\"id\": \"k2\", \"version\": 1, \"value\": 47}, {\"id\": \"k3\", \"version\": 1, \"value\": 60}, {\"id\": \"k4\", \"version\": 1, \"value\": 73}, {\"id\": \"k5\", \"version\": 1, \"value\": 86}, {\"id\": \"k6\", \"version\": 1, \"value\": 99}, {\"id\": \"k7\", \"version\": 1, \"value\": 11}, {\"id\": \"k8\", \"version\": 1, \"value\": 24}, {\"id\": \"k0\", \"version\": 2, \"value\": 37}, {\"id\": \"k1\", \"version\": 2, \"value\": 50}, {\"id\": \"k2\", \"version\": 2, \"value\": 63}, {\"id\": \"k3\", \"version\": 2, \"value\": 76}, {\"id\": \"k4\", \"version\": 2, \"value\": 89}, {\"id\": \"k5\", \"version\": 2, \"value\": 1}, {\"id\": \"k6\", \"version\": 2, \"value\": 14}, {\"id\": \"k7\", \"version\": 2, \"value\": 27}, {\"id\": \"k8\", \"version\": 2, \"value\": 40}, {\"id\": \"k0\", \"version\": 3, \"value\": 53}, {\"id\": \"k1\", \"version\": 3, \"value\": 66}, {\"id\": \"k2\", \"version\": 3, \"value\": 79}, {\"id\": \"k3\", \"version\": 3, \"value\": 92}, {\"id\": \"k4\", \"version\": 3, \"value\": 4}, {\"id\": \"k5\", \"version\": 3, \"value\": 17}, {\"id\": \"k6\", \"version\": 3, \"value\": 30}, {\"id\": \"k7\", \"version\": 3, \"value\": 43}, {\"id\": \"k8\", \"version\": 3, \"value\": 56}, {\"id\": \"k0\", \"version\": 4, \"value\": 69}, {\"id\": \"k1\", \"version\": 4, \"value\": 82}, {\"id\": \"k2\", \"version\": 4, \"value\": 95}, {\"id\": \"k3\", \"version\": 4, \"value\": 7}, {\"id\": \"k4\", \"version\": 4, \"value\": 20}, {\"id\": \"k5\", \"version\": 4, \"value\": 33}, {\"id\": \"k6\", \"version\": 4, \"value\": 46}, {\"id\": \"k7\", \"version\": 4, \"value\": 59}, {\"id\": \"k8\", \"version\": 4, \"value\": 72}, {\"id\": \"k0\", \"version\": 5, \"value\": 85}, {\"id\": \"k1\", \"version\": 5, \"value\": 98}, {\"id\": \"k2\", \"version\": 5, \"value\": 10}, {\"id\": \"k3\", \"version\": 5, \"value\": 23}, {\"id\": \"k4\", \"version\": 5, \"value\": 36}, {\"id\": \"k5\", \"version\": 5, \"value\": 49}, {\"id\": \"k6\", \"version\": 5, \"value\": 62}, {\"id\": \"k7\", \"version\": 5, \"value\": 75}, {\"id\": \"k8\", \"version\": 5, \"value\": 88}, {\"id\": \"k0\", \"version\": 6, \"value\": 0}, {\"id\": \"k1\", \"version\": 6, \"value\": 13}, {\"id\": \"k2\", \"version\": 6, \"value\": 26}, {\"id\": \"k3\", \"version\": 6, \"value\": 39}, {\"id\": \"k4\", \"version\": 6, \"value\": 52}, {\"id\": \"k5\", \"version\": 6, \"value\": 65}, {\"id\": \"k6\", \"version\": 6, \"value\": 78}, {\"id\": \"k7\", \"version\": 6, \"value\": 91}, {\"id\": \"k8\", \"version\": 6, \"value\": 3}, {\"id\": \"k0\", \"version\": 7, \"value\": 16}, {\"id\": \"k1\", \"version\": 7, \"value\": 29}, {\"id\": \"k2\", \"version\": 7, \"value\": 42}, {\"id\": \"k3\", \"version\": 7, \"value\": 55}, {\"id\": \"k4\", \"version\": 7, \"value\": 68}, {\"id\": \"k5\", \"version\": 7, \"value\": 81}, {\"id\": \"k6\", \"version\": 7, \"value\": 94}, {\"id\": \"k7\", \"version\": 7, \"value\": 6}, {\"id\": \"k8\", \"version\": 7, \"value\": 19}, {\"id\": \"k0\", \"version\": 8, \"value\": 32}, {\"id\": \"k1\", \"version\": 8, \"value\": 45}, {\"id\": \"k2\", \"version\": 8, \"value\": 58}, {\"id\": \"k3\", \"version\": 8, \"value\": 71}, {\"id\": \"k4\", \"version\": 8, \"value\": 84}, {\"id\": \"k5\", \"version\": 8, \"value\": 97}, {\"id\": \"k6\", \"version\": 8, \"value\": 9}, {\"id\": \"k7\", \"version\": 8, \"value\": 22}, {\"id\": \"k8\", \"version\": 8, \"value\": 35}, {\"id\": \"k0\", \"version\": 9, \"value\": 48}, {\"id\": \"k1\", \"version\": 9, \"value\": 61}, {\"id\": \"k2\", \"version\": 9, \"value\": 74}, {\"id\": \"k3\", \"version\": 9, \"value\": 87}, {\"id\": \"k4\", \"version\": 9, \"value\": 100}, {\"id\": \"k5\", \"version\": 9, \"value\": 12}, {\"id\": \"k6\", \"version\": 9, \"value\": 25}, {\"id\": \"k7\", \"version\": 9, \"value\": 38}, {\"id\": \"k8\", \"version\": 9, \"value\": 51}]. For k2, return the value at its highest version. Only output the integer.",
+    "expected": "74"
+  },
+  {
+    "id": "code-1",
+    "family": "coding",
+    "prompt": "Python: a=[5,2]; b=[a,a.copy()]; b[0].append(7); b[1][0]=9; a.pop(1). Return only JSON for b.",
+    "expected": [
+      [
+        5,
+        7
+      ],
+      [
+        9,
+        2
+      ]
+    ]
+  },
+  {
+    "id": "ledger-2",
+    "family": "state",
+    "prompt": "Account starts with 186 units. Events in order: id=a deposit 17; id=b withdraw 9; id=a deposit 17; id=c withdraw 6. Apply each distinct event ID only once. Return only the final integer balance.",
+    "expected": "188"
+  },
+  {
+    "id": "optimization-2",
+    "family": "optimization",
+    "prompt": "Projects (id,cost,value): [[\"P0\", 8, 7], [\"P1\", 4, 1], [\"P2\", 7, 8], [\"P3\", 3, 2], [\"P4\", 6, 9]]. Budget 11. Select each at most once to maximize total value, then minimize cost, then choose lexicographically smallest sorted ID list. Return only JSON array of selected IDs.",
+    "expected": [
+      "P3",
+      "P4"
+    ]
+  },
+  {
+    "id": "retrieval-2",
+    "family": "retrieval",
+    "prompt": "Records: [{\"id\": \"k0\", \"version\": 0, \"value\": 6}, {\"id\": \"k1\", \"version\": 0, \"value\": 19}, {\"id\": \"k2\", \"version\": 0, \"value\": 32}, {\"id\": \"k3\", \"version\": 0, \"value\": 45}, {\"id\": \"k4\", \"version\": 0, \"value\": 58}, {\"id\": \"k5\", \"version\": 0, \"value\": 71}, {\"id\": \"k6\", \"version\": 0, \"value\": 84}, {\"id\": \"k7\", \"version\": 0, \"value\": 97}, {\"id\": \"k8\", \"version\": 0, \"value\": 9}, {\"id\": \"k0\", \"version\": 1, \"value\": 22}, {\"id\": \"k1\", \"version\": 1, \"value\": 35}, {\"id\": \"k2\", \"version\": 1, \"value\": 48}, {\"id\": \"k3\", \"version\": 1, \"value\": 61}, {\"id\": \"k4\", \"version\": 1, \"value\": 74}, {\"id\": \"k5\", \"version\": 1, \"value\": 87}, {\"id\": \"k6\", \"version\": 1, \"value\": 100}, {\"id\": \"k7\", \"version\": 1, \"value\": 12}, {\"id\": \"k8\", \"version\": 1, \"value\": 25}, {\"id\": \"k0\", \"version\": 2, \"value\": 38}, {\"id\": \"k1\", \"version\": 2, \"value\": 51}, {\"id\": \"k2\", \"version\": 2, \"value\": 64}, {\"id\": \"k3\", \"version\": 2, \"value\": 77}, {\"id\": \"k4\", \"version\": 2, \"value\": 90}, {\"id\": \"k5\", \"version\": 2, \"value\": 2}, {\"id\": \"k6\", \"version\": 2, \"value\": 15}, {\"id\": \"k7\", \"version\": 2, \"value\": 28}, {\"id\": \"k8\", \"version\": 2, \"value\": 41}, {\"id\": \"k0\", \"version\": 3, \"value\": 54}, {\"id\": \"k1\", \"version\": 3, \"value\": 67}, {\"id\": \"k2\", \"version\": 3, \"value\": 80}, {\"id\": \"k3\", \"version\": 3, \"value\": 93}, {\"id\": \"k4\", \"version\": 3, \"value\": 5}, {\"id\": \"k5\", \"version\": 3, \"value\": 18}, {\"id\": \"k6\", \"version\": 3, \"value\": 31}, {\"id\": \"k7\", \"version\": 3, \"value\": 44}, {\"id\": \"k8\", \"version\": 3, \"value\": 57}, {\"id\": \"k0\", \"version\": 4, \"value\": 70}, {\"id\": \"k1\", \"version\": 4, \"value\": 83}, {\"id\": \"k2\", \"version\": 4, \"value\": 96}, {\"id\": \"k3\", \"version\": 4, \"value\": 8}, {\"id\": \"k4\", \"version\": 4, \"value\": 21}, {\"id\": \"k5\", \"version\": 4, \"value\": 34}, {\"id\": \"k6\", \"version\": 4, \"value\": 47}, {\"id\": \"k7\", \"version\": 4, \"value\": 60}, {\"id\": \"k8\", \"version\": 4, \"value\": 73}, {\"id\": \"k0\", \"version\": 5, \"value\": 86}, {\"id\": \"k1\", \"version\": 5, \"value\": 99}, {\"id\": \"k2\", \"version\": 5, \"value\": 11}, {\"id\": \"k3\", \"version\": 5, \"value\": 24}, {\"id\": \"k4\", \"version\": 5, \"value\": 37}, {\"id\": \"k5\", \"version\": 5, \"value\": 50}, {\"id\": \"k6\", \"version\": 5, \"value\": 63}, {\"id\": \"k7\", \"version\": 5, \"value\": 76}, {\"id\": \"k8\", \"version\": 5, \"value\": 89}, {\"id\": \"k0\", \"version\": 6, \"value\": 1}, {\"id\": \"k1\", \"version\": 6, \"value\": 14}, {\"id\": \"k2\", \"version\": 6, \"value\": 27}, {\"id\": \"k3\", \"version\": 6, \"value\": 40}, {\"id\": \"k4\", \"version\": 6, \"value\": 53}, {\"id\": \"k5\", \"version\": 6, \"value\": 66}, {\"id\": \"k6\", \"version\": 6, \"value\": 79}, {\"id\": \"k7\", \"version\": 6, \"value\": 92}, {\"id\": \"k8\", \"version\": 6, \"value\": 4}, {\"id\": \"k0\", \"version\": 7, \"value\": 17}, {\"id\": \"k1\", \"version\": 7, \"value\": 30}, {\"id\": \"k2\", \"version\": 7, \"value\": 43}, {\"id\": \"k3\", \"version\": 7, \"value\": 56}, {\"id\": \"k4\", \"version\": 7, \"value\": 69}, {\"id\": \"k5\", \"version\": 7, \"value\": 82}, {\"id\": \"k6\", \"version\": 7, \"value\": 95}, {\"id\": \"k7\", \"version\": 7, \"value\": 7}, {\"id\": \"k8\", \"version\": 7, \"value\": 20}, {\"id\": \"k0\", \"version\": 8, \"value\": 33}, {\"id\": \"k1\", \"version\": 8, \"value\": 46}, {\"id\": \"k2\", \"version\": 8, \"value\": 59}, {\"id\": \"k3\", \"version\": 8, \"value\": 72}, {\"id\": \"k4\", \"version\": 8, \"value\": 85}, {\"id\": \"k5\", \"version\": 8, \"value\": 98}, {\"id\": \"k6\", \"version\": 8, \"value\": 10}, {\"id\": \"k7\", \"version\": 8, \"value\": 23}, {\"id\": \"k8\", \"version\": 8, \"value\": 36}, {\"id\": \"k0\", \"version\": 9, \"value\": 49}, {\"id\": \"k1\", \"version\": 9, \"value\": 62}, {\"id\": \"k2\", \"version\": 9, \"value\": 75}, {\"id\": \"k3\", \"version\": 9, \"value\": 88}, {\"id\": \"k4\", \"version\": 9, \"value\": 0}, {\"id\": \"k5\", \"version\": 9, \"value\": 13}, {\"id\": \"k6\", \"version\": 9, \"value\": 26}, {\"id\": \"k7\", \"version\": 9, \"value\": 39}, {\"id\": \"k8\", \"version\": 9, \"value\": 52}]. For k3, return the value at its highest version. Only output the integer.",
+    "expected": "88"
+  },
+  {
+    "id": "code-2",
+    "family": "coding",
+    "prompt": "Python: a=[6,2]; b=[a,a.copy()]; b[0].append(7); b[1][0]=9; a.pop(1). Return only JSON for b.",
+    "expected": [
+      [
+        6,
+        7
+      ],
+      [
+        9,
+        2
+      ]
+    ]
+  }
+]

@@ -1,0 +1,3 @@
+import fs from 'node:fs';import {jevSelect} from '../src/jev.ts';
+const tasks=JSON.parse(fs.readFileSync(process.argv[2]!,'utf8'));
+for(const c of tasks){const t=Date.now();let observation={};try{const selected=await jevSelect({messages:[{role:'user',content:c.prompt}]},['openrouter:google/gemini-2.5-flash-lite','openrouter:openai/gpt-4.1-nano','openrouter:deepseek/deepseek-v4.1-flash'],undefined,fetch,u=>observation=u);console.log(JSON.stringify({id:c.id,selected,ms:Date.now()-t,...observation}));}catch(e){console.log(JSON.stringify({id:c.id,error:(e as Error).message,ms:Date.now()-t,...observation}));}}

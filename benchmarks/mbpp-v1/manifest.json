@@ -1,0 +1,22 @@
+{
+  "source": "https://github.com/google-research/google-research/tree/master/mbpp",
+  "sourceSha256": "ca95deaa9a01ef0a6f439f88bcf0dd3db3563d22f22aad6cae04ebb9a8d8c8e9",
+  "seed": 314159,
+  "limitations": "Public dataset; possible model contamination; source-overlapping but row-disjoint development and heldout.",
+  "development": [
+    394,
+    556,
+    74,
+    744
+  ],
+  "heldout": [
+    599,
+    262,
+    79,
+    255,
+    311,
+    252,
+    603,
+    770
+  ]
+}

@@ -1,0 +1,8 @@
+{"case": "unset-bit", "repeat": 0, "model": "inception/mercury-2.5", "attempts": 1, "applicationPass": false, "hiddenPass": false, "knownCostUsd": 0, "missingBills": 1}
+{"case": "unset-bit", "repeat": 0, "model": "qwen/qwen3.8-flash", "attempts": 1, "applicationPass": false, "hiddenPass": false, "knownCostUsd": 0, "missingBills": 1}
+{"case": "ludic", "repeat": 0, "model": "inception/mercury-2.5", "attempts": 1, "applicationPass": false, "hiddenPass": false, "knownCostUsd": 0, "missingBills": 1}
+{"case": "ludic", "repeat": 0, "model": "qwen/qwen3.8-flash", "attempts": 1, "applicationPass": false, "hiddenPass": false, "knownCostUsd": 0, "missingBills": 1}
+{"case": "unset-bit", "repeat": 1, "model": "inception/mercury-2.5", "attempts": 1, "applicationPass": false, "hiddenPass": false, "knownCostUsd": 0, "missingBills": 1}
+{"case": "unset-bit", "repeat": 1, "model": "qwen/qwen3.8-flash", "attempts": 1, "applicationPass": false, "hiddenPass": false, "knownCostUsd": 0, "missingBills": 1}
+{"case": "ludic", "repeat": 1, "model": "inception/mercury-2.5", "attempts": 1, "applicationPass": false, "hiddenPass": false, "knownCostUsd": 0, "missingBills": 1}
+{"case": "ludic", "repeat": 1, "model": "qwen/qwen3.8-flash", "attempts": 1, "applicationPass": false, "hiddenPass": false, "knownCostUsd": 0, "missingBills": 1}

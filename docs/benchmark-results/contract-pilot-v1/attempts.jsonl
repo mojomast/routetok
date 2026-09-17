@@ -1,0 +1,8 @@
+{"case": "unset-bit", "repeat": 0, "step": 0, "model": "inception/mercury-2.5", "budget": 8192, "costUsd": null, "httpStatus": 403, "ms": 244}
+{"case": "unset-bit", "repeat": 0, "step": 0, "model": "qwen/qwen3.8-flash", "budget": 16384, "costUsd": null, "httpStatus": 403, "ms": 159}
+{"case": "ludic", "repeat": 0, "step": 0, "model": "inception/mercury-2.5", "budget": 8192, "costUsd": null, "httpStatus": 403, "ms": 130}
+{"case": "ludic", "repeat": 0, "step": 0, "model": "qwen/qwen3.8-flash", "budget": 16384, "costUsd": null, "httpStatus": 403, "ms": 133}
+{"case": "unset-bit", "repeat": 1, "step": 0, "model": "inception/mercury-2.5", "budget": 8192, "costUsd": null, "httpStatus": 403, "ms": 129}
+{"case": "unset-bit", "repeat": 1, "step": 0, "model": "qwen/qwen3.8-flash", "budget": 16384, "costUsd": null, "httpStatus": 403, "ms": 129}
+{"case": "ludic", "repeat": 1, "step": 0, "model": "inception/mercury-2.5", "budget": 8192, "costUsd": null, "httpStatus": 403, "ms": 113}
+{"case": "ludic", "repeat": 1, "step": 0, "model": "qwen/qwen3.8-flash", "budget": 16384, "costUsd": null, "httpStatus": 403, "ms": 112}

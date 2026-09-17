@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {routingEconomics} from '../src/routing-economics.js';
+test('classifier overhead can reverse apparent savings',()=>{const r=routingEconomics(.0010738,.00098285925,4350,592,.042,0);assert(r.grossDifferenceUsd>0);assert(r.netDifferenceEstimateUsd<0);assert(Math.abs(r.netSavingsPercent!+8.5452831067)<1e-8);assert.equal(r.basis,'configured_list_price_estimate_not_invoice');});
+test('zero baseline is not an infinite savings percentage; invalid inputs rejected',()=>{assert.equal(routingEconomics(0,0,0,0,0,0).netSavingsPercent,null);assert.throws(()=>routingEconomics(1,0,-1,0,.042,0));assert.throws(()=>routingEconomics(1,0,1.5,0,.042,0));});

@@ -1,0 +1,156 @@
+[
+  {
+    "model": "deepseek/deepseek-v4.1-flash",
+    "attempts": 8,
+    "strictPasses": 7,
+    "caseInsensitiveTranslationPasses": 7,
+    "http200": 8,
+    "rateLimited": 0,
+    "knownReportedUsd": 0.0018111,
+    "missingUsage": 0,
+    "medianHttp200Ms": 1734.0
+  },
+  {
+    "model": "qwen/qwen3.8-flash",
+    "attempts": 8,
+    "strictPasses": 8,
+    "caseInsensitiveTranslationPasses": 8,
+    "http200": 8,
+    "rateLimited": 0,
+    "knownReportedUsd": 0.00153195,
+    "missingUsage": 0,
+    "medianHttp200Ms": 2636.0
+  },
+  {
+    "model": "qwen/qwen3.7-flash",
+    "attempts": 8,
+    "strictPasses": 6,
+    "caseInsensitiveTranslationPasses": 6,
+    "http200": 8,
+    "rateLimited": 0,
+    "knownReportedUsd": 0.0010581499999999999,
+    "missingUsage": 0,
+    "medianHttp200Ms": 8645.5
+  },
+  {
+    "model": "inclusionai/ling-3.0-flash",
+    "attempts": 8,
+    "strictPasses": 6,
+    "caseInsensitiveTranslationPasses": 7,
+    "http200": 8,
+    "rateLimited": 0,
+    "knownReportedUsd": 0.000164829,
+    "missingUsage": 0,
+    "medianHttp200Ms": 1325.5
+  },
+  {
+    "model": "openai/gpt-oss-120b",
+    "attempts": 8,
+    "strictPasses": 3,
+    "caseInsensitiveTranslationPasses": 3,
+    "http200": 3,
+    "rateLimited": 5,
+    "knownReportedUsd": 8.357000000000001e-05,
+    "missingUsage": 5,
+    "medianHttp200Ms": 2342
+  },
+  {
+    "model": "openai/gpt-oss-20b",
+    "attempts": 8,
+    "strictPasses": 7,
+    "caseInsensitiveTranslationPasses": 7,
+    "http200": 8,
+    "rateLimited": 0,
+    "knownReportedUsd": 0.00020274000000000003,
+    "missingUsage": 0,
+    "medianHttp200Ms": 7374.0
+  },
+  {
+    "model": "inception/mercury-2.5",
+    "attempts": 8,
+    "strictPasses": 8,
+    "caseInsensitiveTranslationPasses": 8,
+    "http200": 8,
+    "rateLimited": 0,
+    "knownReportedUsd": 0.00069232,
+    "missingUsage": 0,
+    "medianHttp200Ms": 1066.0
+  },
+  {
+    "model": "amazon/nova-micro-v1",
+    "attempts": 8,
+    "strictPasses": 0,
+    "caseInsensitiveTranslationPasses": 1,
+    "http200": 8,
+    "rateLimited": 0,
+    "knownReportedUsd": 0.00015088500000000002,
+    "missingUsage": 0,
+    "medianHttp200Ms": 643.5
+  },
+  {
+    "model": "cohere/command-r7b-12-2024",
+    "attempts": 8,
+    "strictPasses": 2,
+    "caseInsensitiveTranslationPasses": 2,
+    "http200": 8,
+    "rateLimited": 0,
+    "knownReportedUsd": 0.00016871250000000001,
+    "missingUsage": 0,
+    "medianHttp200Ms": 987.5
+  },
+  {
+    "model": "microsoft/phi-4",
+    "attempts": 8,
+    "strictPasses": 1,
+    "caseInsensitiveTranslationPasses": 1,
+    "http200": 8,
+    "rateLimited": 0,
+    "knownReportedUsd": 0.00020776,
+    "missingUsage": 0,
+    "medianHttp200Ms": 1785.5
+  },
+  {
+    "model": "mistralai/mistral-nemo",
+    "attempts": 8,
+    "strictPasses": 2,
+    "caseInsensitiveTranslationPasses": 2,
+    "http200": 8,
+    "rateLimited": 0,
+    "knownReportedUsd": 3.5328e-05,
+    "missingUsage": 0,
+    "medianHttp200Ms": 3447.0
+  },
+  {
+    "model": "google/gemma-4-26b-a4b-it:free",
+    "attempts": 8,
+    "strictPasses": 0,
+    "caseInsensitiveTranslationPasses": 0,
+    "http200": 0,
+    "rateLimited": 8,
+    "knownReportedUsd": 0,
+    "missingUsage": 8,
+    "medianHttp200Ms": null
+  },
+  {
+    "model": "nvidia/nemotron-3.5-lightning:free",
+    "attempts": 8,
+    "strictPasses": 7,
+    "caseInsensitiveTranslationPasses": 7,
+    "http200": 8,
+    "rateLimited": 0,
+    "knownReportedUsd": 0,
+    "missingUsage": 0,
+    "medianHttp200Ms": 32254.5
+  },
+  {
+    "model": "poolside/laguna-xs-2.1:free",
+    "attempts": 8,
+    "strictPasses": 2,
+    "caseInsensitiveTranslationPasses": 2,
+    "http200": 4,
+    "rateLimited": 4,
+    "knownReportedUsd": 0,
+    "missingUsage": 4,
+    "medianHttp200Ms": 2188.5
+  }
+]
