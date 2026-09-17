@@ -2,7 +2,7 @@
 import json,os,sys,subprocess,time,hashlib
 from pathlib import Path
 from code_sandbox import execute
-OUT=Path('docs/benchmark-results/repair-v1')
+OUT=Path(os.environ.get('REPAIR_OUTPUT','docs/benchmark-results/repair-v1'))
 TASKS=[
  dict(id='ledger',split='development',spec='ledger.apply(events) returns balances. Events are (id, account, integer_delta). Apply only the first event for each id globally, including across accounts. Do not mutate input.',files={'state.py':'def fresh():\n return {}\n','ledger.py':'from state import fresh\ndef apply(events):\n b=fresh()\n for ident,acct,delta in events: b[acct]=b.get(acct,0)+delta\n return b\n'},visible="from ledger import apply\nassert apply([('a','x',3),('a','x',3)])=={'x':3}",hidden="from ledger import apply\nassert apply([('a','x',3),('a','y',9),('b','x',-1)])=={'x':2}\nassert apply([])=={}"),
  dict(id='query',split='development',spec='api.parse(q) parses URL query parameters using percent and plus decoding. Preserve blank values and repeated keys in order as lists. Empty input returns {}.',files={'codec.py':'from urllib.parse import parse_qsl\ndef pairs(s): return parse_qsl(s)\n','api.py':'from codec import pairs\ndef parse(q): return dict(pairs(q))\n'},visible="from api import parse\nassert parse('a=1&a=2')=={'a':['1','2']}",hidden="from api import parse\nassert parse('a=&x=hello+world&x=%2B')=={'a':[''],'x':['hello world','+']}\nassert parse('')=={}"),
