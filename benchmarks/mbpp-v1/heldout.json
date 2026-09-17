@@ -1,0 +1,98 @@
+[
+  {
+    "source_file": "Benchmark Questions Verification V2.ipynb",
+    "task_id": 599,
+    "prompt": "Write a function to find sum and average of first n natural numbers.",
+    "code": "def sum_average(number):\n total = 0\n for value in range(1, number + 1):\n    total = total + value\n average = total / number\n return (total,average)",
+    "test_imports": [],
+    "test_list": [
+      "assert sum_average(10)==(55, 5.5)",
+      "assert sum_average(15)==(120, 8.0)",
+      "assert sum_average(20)==(210, 10.5)"
+    ]
+  },
+  {
+    "source_file": "Benchmark Questions Verification V2.ipynb",
+    "task_id": 262,
+    "prompt": "Write a function that takes in a list and an integer L and splits the given list into two parts where the length of the first part of the list is L, and returns the resulting lists in a tuple.",
+    "code": "def split_two_parts(list1, L):\n    return list1[:L], list1[L:]",
+    "test_imports": [],
+    "test_list": [
+      "assert split_two_parts([1,1,2,3,4,4,5,1],3)==([1, 1, 2], [3, 4, 4, 5, 1])",
+      "assert split_two_parts(['a', 'b', 'c', 'd'],2)==(['a', 'b'], ['c', 'd'])",
+      "assert split_two_parts(['p', 'y', 't', 'h', 'o', 'n'],4)==(['p', 'y', 't', 'h'], ['o', 'n'])"
+    ]
+  },
+  {
+    "source_file": "Mike's Copy of Benchmark Questions Verification V2.ipynb",
+    "task_id": 79,
+    "prompt": "Write a python function to check whether the length of the word is odd or not.",
+    "code": "def word_len(s): \n    s = s.split(' ')   \n    for word in s:    \n        if len(word)%2!=0: \n            return True  \n        else:\n          return False",
+    "test_imports": [],
+    "test_list": [
+      "assert word_len(\"Hadoop\") == False",
+      "assert word_len(\"great\") == True",
+      "assert word_len(\"structure\") == True"
+    ]
+  },
+  {
+    "source_file": "Benchmark Questions Verification V2.ipynb",
+    "task_id": 255,
+    "prompt": "Write a function that takes in a list and length n, and generates all combinations (with repetition) of the elements of the list and returns a list with a tuple for each combination.",
+    "code": "from itertools import combinations_with_replacement \ndef combinations_colors(l, n):\n    return list(combinations_with_replacement(l,n))\n",
+    "test_imports": [],
+    "test_list": [
+      "assert combinations_colors( [\"Red\",\"Green\",\"Blue\"],1)==[('Red',), ('Green',), ('Blue',)]",
+      "assert combinations_colors( [\"Red\",\"Green\",\"Blue\"],2)==[('Red', 'Red'), ('Red', 'Green'), ('Red', 'Blue'), ('Green', 'Green'), ('Green', 'Blue'), ('Blue', 'Blue')]",
+      "assert combinations_colors( [\"Red\",\"Green\",\"Blue\"],3)==[('Red', 'Red', 'Red'), ('Red', 'Red', 'Green'), ('Red', 'Red', 'Blue'), ('Red', 'Green', 'Green'), ('Red', 'Green', 'Blue'), ('Red', 'Blue', 'Blue'), ('Green', 'Green', 'Green'), ('Green', 'Green', 'Blue'), ('Green', 'Blue', 'Blue'), ('Blue', 'Blue', 'Blue')]"
+    ]
+  },
+  {
+    "source_file": "Ellen's Copy of Benchmark Questions Verification V2.ipynb",
+    "task_id": 311,
+    "prompt": "Write a python function to set the left most unset bit.",
+    "code": "def set_left_most_unset_bit(n): \n    if not (n & (n + 1)): \n        return n \n    pos, temp, count = 0, n, 0 \n    while temp: \n        if not (temp & 1): \n            pos = count      \n        count += 1; temp>>=1\n    return (n | (1 << (pos))) ",
+    "test_imports": [],
+    "test_list": [
+      "assert set_left_most_unset_bit(10) == 14",
+      "assert set_left_most_unset_bit(12) == 14",
+      "assert set_left_most_unset_bit(15) == 15"
+    ]
+  },
+  {
+    "source_file": "Benchmark Questions Verification V2.ipynb",
+    "task_id": 252,
+    "prompt": "Write a python function to convert complex numbers to polar coordinates.",
+    "code": "import cmath  \ndef convert(numbers):    \n  num = cmath.polar(numbers)  \n  return (num) ",
+    "test_imports": [],
+    "test_list": [
+      "assert convert(1) == (1.0, 0.0)",
+      "assert convert(4) == (4.0,0.0)",
+      "assert convert(5) == (5.0,0.0)"
+    ]
+  },
+  {
+    "source_file": "Benchmark Questions Verification V2.ipynb",
+    "task_id": 603,
+    "prompt": "Write a function to get all lucid numbers smaller than or equal to a given integer.",
+    "code": "def get_ludic(n):\n\tludics = []\n\tfor i in range(1, n + 1):\n\t\tludics.append(i)\n\tindex = 1\n\twhile(index != len(ludics)):\n\t\tfirst_ludic = ludics[index]\n\t\tremove_index = index + first_ludic\n\t\twhile(remove_index < len(ludics)):\n\t\t\tludics.remove(ludics[remove_index])\n\t\t\tremove_index = remove_index + first_ludic - 1\n\t\tindex += 1\n\treturn ludics",
+    "test_imports": [],
+    "test_list": [
+      "assert get_ludic(10) == [1, 2, 3, 5, 7]",
+      "assert get_ludic(25) == [1, 2, 3, 5, 7, 11, 13, 17, 23, 25]",
+      "assert get_ludic(45) == [1, 2, 3, 5, 7, 11, 13, 17, 23, 25, 29, 37, 41, 43]"
+    ]
+  },
+  {
+    "source_file": "Benchmark Questions Verification V2.ipynb",
+    "task_id": 770,
+    "prompt": "Write a python function to find the sum of fourth power of first n odd natural numbers.",
+    "code": "def odd_num_sum(n) : \n    j = 0\n    sm = 0\n    for i in range(1,n + 1) : \n        j = (2*i-1) \n        sm = sm + (j*j*j*j)   \n    return sm ",
+    "test_imports": [],
+    "test_list": [
+      "assert odd_num_sum(2) == 82",
+      "assert odd_num_sum(3) == 707",
+      "assert odd_num_sum(4) == 3108"
+    ]
+  }
+]
