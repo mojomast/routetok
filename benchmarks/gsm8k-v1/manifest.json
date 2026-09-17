@@ -1,0 +1,41 @@
+{
+  "source": "https://github.com/openai/grade-school-math",
+  "sourceSha256": "3730d312f6e3440559ace48831e51066acaca737f6eabec99bccb9e4b3c39d14",
+  "seed": 726193,
+  "sampling": "24 unique test-set rows, first 8 development and next 16 heldout; frozen before inference",
+  "limitations": "Public benchmark contamination possible; arithmetic domain only. No claims of source-disjointness within GSM8K. Separate rows, not paraphrase variants.",
+  "development": {
+    "ids": [
+      1114,
+      189,
+      994,
+      1095,
+      780,
+      1195,
+      960,
+      834
+    ],
+    "sha256": "c26387bd0bf7654605f2bead77e558e7172dcf5609addf1d8ac6de931bc2d3af"
+  },
+  "heldout": {
+    "ids": [
+      14,
+      526,
+      1198,
+      811,
+      966,
+      1223,
+      1134,
+      257,
+      57,
+      401,
+      208,
+      457,
+      348,
+      1015,
+      1,
+      597
+    ],
+    "sha256": "b660aa8ff033d0d29650c28b4d36c2cf5c0fc6d0642c403a19e6b7b8f0c7d6f7"
+  }
+}
